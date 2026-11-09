@@ -26,7 +26,39 @@ PID_FILE="$LOCAL_DIR/astrbot.pid"
 PLUGIN_SRC="$REPO_ROOT/plugins/astrbot_plugin_kouhu_oj"
 PLUGIN_DST="$ASTRBOT_DIR/data/plugins/astrbot_plugin_kouhu_oj"
 ASTRBOT_REPO="https://github.com/AstrBotDevs/AstrBot"
-PORT="${KOUHU_PORT:-6185}"
+# 端口由 AstrBot 的 dashboard.port 决定，不是环境变量。
+# 所以 KOUHU_PORT 要真正生效，必须写回配置文件。
+PORT=""
+sync_port() {
+  local cfg="$ASTRBOT_DIR/data/cmd_config.json"
+  local desired="${KOUHU_PORT:-}"
+  local current=""
+  if [[ -f "$cfg" ]]; then
+    current="$(python3 - "$cfg" <<'PYEOF' 2>/dev/null || true
+import json, sys
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8-sig"))["dashboard"]["port"])
+except Exception:
+    print(6185)
+PYEOF
+)"
+  fi
+  if [[ -n "$desired" && -n "$current" && "$desired" != "$current" ]]; then
+    python3 - "$cfg" "$desired" <<'PYEOF' 2>/dev/null || true
+import json, sys
+path, port = sys.argv[1], int(sys.argv[2])
+with open(path, encoding="utf-8-sig") as f:
+    cfg = json.load(f)
+cfg.setdefault("dashboard", {})["port"] = port
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, ensure_ascii=False, indent=2)
+PYEOF
+    info "已把 WebUI 端口写回配置：$current → $desired（重启后生效）"
+    PORT="$desired"
+  else
+    PORT="${current:-${desired:-6185}}"
+  fi
+}
 
 C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_ERR=$'\033[31m'; C_DIM=$'\033[2m'; C_END=$'\033[0m'
 info()  { printf '%s[·]%s %s\n' "$C_DIM" "$C_END" "$*"; }
@@ -96,6 +128,7 @@ running_pid() {
 port_open() { timeout 1 bash -c "exec 3<>/dev/tcp/127.0.0.1/$PORT" 2>/dev/null; }
 
 do_status() {
+  sync_port
   local pid
   if pid="$(running_pid)"; then
     ok "AstrBot 运行中（PID $pid）"
@@ -122,6 +155,7 @@ do_start() {
     return
   fi
 
+  sync_port
   info "启动 AstrBot ..."
   mkdir -p "$LOCAL_DIR"
   # setsid -f：fork 到独立会话后立即返回，父进程退出不影响 AstrBot
@@ -142,8 +176,8 @@ do_start() {
       echo "    日志  : $LOG_FILE"
       echo "    停止  : ./run.sh stop"
       echo
-      if grep -q "KouHuOJ" "$LOG_FILE" 2>/dev/null; then
-        ok "插件已加载：$(grep -o '题库 [0-9]* 条' "$LOG_FILE" | tail -1)"
+      if grep -q "KouHuOJ.*就绪" "$LOG_FILE" 2>/dev/null; then
+        ok "插件已加载：$(grep -o '题目源 LeetCode 中文站' "$LOG_FILE" | tail -1)"
       else
         warn "暂未看到插件加载日志，稍等几秒或看 ./run.sh logs"
       fi
@@ -158,6 +192,7 @@ do_start() {
 }
 
 do_stop() {
+  sync_port
   local pid
   if ! pid="$(running_pid)"; then
     warn "AstrBot 未运行"
@@ -219,7 +254,7 @@ KouHuBot 本地启动入口
   ./run.sh logs       跟踪日志
   ./run.sh setup      只准备环境
 
-环境变量：KOUHU_PORT=6185  可改端口
+环境变量：KOUHU_PORT=6185  改 WebUI 端口（会写回 AstrBot 配置）
 EOF
     ;;
 esac

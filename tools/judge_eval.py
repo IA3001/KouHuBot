@@ -2,17 +2,20 @@
 """
 判题质量评估工具
 
-用真实大模型跑一组预置作答，检查模型返回的 verdict 是否与预期一致，
+用真实大模型跑一组预置作答，检查返回的 verdict 是否符合预期，
 同时统计「JSON 解析成功率」——这是判题可靠性的两个关键指标。
 
+题目现在从 LeetCode 实时拉取，所以这里把题面和标题写死在用例里，
+不依赖网络，换模型时可以直接横向对比。
+
 用法一（从 AstrBot 配置自动读取模型）：
-    python3 tools/judge_eval.py --config .local/astrbot/data/cmd_config.json
+    .local/venv/bin/python tools/judge_eval.py --config .local/astrbot/data/cmd_config.json
 
 用法二（手动指定，OpenAI 兼容接口）：
     KOUHU_LLM_BASE_URL=https://api.example.com/v1 \
     KOUHU_LLM_API_KEY=sk-xxx \
     KOUHU_LLM_MODEL=some-model \
-    python3 tools/judge_eval.py
+    .local/venv/bin/python tools/judge_eval.py
 
 退出码：0 表示全部符合预期，1 表示存在偏差。
 """
@@ -36,75 +39,96 @@ UA = (
     "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 )
 
-# ---------------------------------------------------------------------------
-# 预置测试用例：期望值与题目 rubric 对齐
-# ---------------------------------------------------------------------------
-CASES: list[dict[str, str]] = [
+TWO_SUM = (
+    "给定一个整数数组 nums 和一个整数目标值 target，请你在该数组中找出和为目标值 target 的"
+    "那两个整数，并返回它们的数组下标。你可以假设每种输入只会对应一个答案，"
+    "并且你不能使用两次相同的元素。你可以按任意顺序返回答案。"
+    "示例：nums = [2,7,11,15], target = 9，返回 [0,1]。"
+)
+
+REVERSE_LIST = (
+    "给你单链表的头节点 head，请你反转链表，并返回反转后的链表。"
+    "示例：输入 1->2->3->4->5，输出 5->4->3->2->1。"
+)
+
+LRU = (
+    "请你设计并实现一个满足 LRU（最近最少使用）缓存约束的数据结构。"
+    "实现 LRUCache 类：LRUCache(int capacity) 以正整数作为容量初始化；"
+    "int get(int key) 如果关键字存在则返回其值，否则返回 -1；"
+    "void put(int key, int value) 如果关键字已存在则变更其值，否则插入。"
+    "如果插入导致数量超过 capacity，则逐出最久未使用的关键字。"
+    "函数 get 和 put 必须以 O(1) 的平均时间复杂度运行。"
+)
+
+CASES: list[dict] = [
     {
-        "pid": "KH-005",
-        "label": "充分正确的作答",
+        "title": "两数之和",
+        "statement": TWO_SUM,
+        "label": "哈希表一次遍历（最优解）",
         "expect": "AC",
         "submission": (
-            "换门中奖概率是 2/3。因为最初选中的概率只有 1/3，也就是说选错的概率是 2/3。"
-            "主持人打开一扇没有奖品的门，并不会改变「你最初选错」这个事实，"
-            "而换门等价于押「最初选错」，所以换门中奖概率是 2/3，不换只有 1/3。"
+            "建一个哈希表存 值->下标，遍历数组，对每个 nums[i] 先查 target-nums[i] "
+            "是否在表里，在就返回两个下标，不在就把 nums[i] 存进去。"
+            "时间复杂度 O(n)，空间 O(n)。注意要先查再存，避免同一个元素用两次。"
         ),
     },
     {
-        "pid": "KH-005",
-        "label": "经典错误答案 1/2",
-        "expect": "WA",
-        "submission": "换不换都一样，都是 1/2。因为主持人排除一个错误选项后，剩下两扇门必有一扇有奖，所以是二分之一。",
+        "title": "两数之和",
+        "statement": TWO_SUM,
+        "label": "暴力双重循环（正确解，题目不要求最优）",
+        "expect": "AC",
+        "submission": "两层 for 循环枚举所有 i<j，判断 nums[i]+nums[j] 是否等于 target，等于就返回 [i,j]。时间复杂度 O(n^2)。",
     },
     {
-        "pid": "KH-005",
-        "label": "只给结论无推导",
+        "title": "两数之和",
+        "statement": TWO_SUM,
+        "label": "排序双指针却返回了值而非下标",
         "expect": "PARTIAL",
-        "submission": "应该是 2/3 吧。",
+        "submission": "先排序，然后用双指针从两端往中间夹，和大了右指针左移，和小了左指针右移，找到就返回这两个数。复杂度 O(n log n)。",
     },
     {
-        "pid": "KH-003",
-        "label": "正确答案 25 人 + 理由",
+        "title": "两数之和",
+        "statement": TWO_SUM,
+        "label": "纯敷衍",
+        "expect": "WA",
+        "submission": "不会，随便蒙一个吧，反正答案就两个数。",
+    },
+    {
+        "title": "反转链表",
+        "statement": REVERSE_LIST,
+        "label": "三指针迭代（标准解）",
         "expect": "AC",
         "submission": (
-            "至少 25 个人。考虑最坏情况：每个月恰好各有 2 个人过生日，"
-            "12 个月总共可以容纳 12×2=24 个人，此时仍然没有三人同月。"
-            "因此第 25 个人一出现，必然使某个月的人数达到 3 人。"
+            "用 prev=null、cur=head 两个指针，循环里先存 nxt=cur.next，"
+            "再让 cur.next=prev，然后 prev=cur、cur=nxt，直到 cur 为空，返回 prev。"
+            "只用了常数个指针，时间 O(n)，空间 O(1)。"
         ),
     },
     {
-        "pid": "KH-003",
-        "label": "错误答案 13 人",
-        "expect": "WA",
-        "submission": "13 个人就够了，抽屉原理嘛，13 个人放 12 个月肯定有重复。",
+        "title": "反转链表",
+        "statement": REVERSE_LIST,
+        "label": "递归解法却声称空间 O(1)",
+        "expect": "PARTIAL",
+        "submission": "递归做：先 reverse(head.next)，再让 head.next.next = head，head.next = null，返回新的头。空间复杂度 O(1)。",
     },
     {
-        "pid": "KH-004",
-        "label": "正确三指针迭代",
+        "title": "LRU 缓存",
+        "statement": LRU,
+        "label": "哈希表 + 双向链表（标准解）",
         "expect": "AC",
         "submission": (
-            "用三个指针 prev=null、cur=head。循环中先 nxt=cur.next 暂存后继，"
-            "再 cur.next=prev，然后 prev=cur、cur=nxt，直到 cur 为空，返回 prev。"
-            "只用了常数个指针，空间复杂度 O(1)。"
+            "用哈希表存 key 到链表节点的映射，再维护一个双向链表按访问顺序排列："
+            "最近访问的放头部，最久未使用的在尾部。get 命中时把节点移到头部并返回值；"
+            "put 时若 key 存在则更新值并移到头部，若不存在则新建节点插到头部，"
+            "容量超了就删掉尾部节点并同步删除哈希表项。两个操作都是 O(1)。"
         ),
     },
     {
-        "pid": "KH-004",
-        "label": "递归解法却声称 O(1)",
-        "expect": "PARTIAL",
-        "submission": "用递归反转：先 reverse(head.next)，再让 head.next.next = head，head.next = null。空间复杂度 O(1)。",
-    },
-    {
-        "pid": "KH-001",
-        "label": "纯敷衍（应判 WA）",
+        "title": "LRU 缓存",
+        "statement": LRU,
+        "label": "数组 + 时间戳（违反 O(1) 要求）",
         "expect": "WA",
-        "submission": "不知道，给点面子吧，这题我不会。",
-    },
-    {
-        "pid": "KH-001",
-        "label": "只报定理名无推导",
-        "expect": "PARTIAL",
-        "submission": "因为抽屉原理，所以一定有两个人生日在同一个月。",
+        "submission": "用一个数组存 key 和 value，每个元素再记一个最后访问时间戳，每次淘汰就遍历数组找时间戳最小的删掉。",
     },
 ]
 
@@ -172,37 +196,31 @@ def main() -> int:
         model = args.model
 
     mod = stub.load_plugin(data_root=REPO_ROOT / ".local" / "judge_eval_data")
-    problems = {p["pid"]: p for p in json.loads(
-        (REPO_ROOT / "plugins" / "astrbot_plugin_kouhu_oj" / "problems.json").read_text(encoding="utf-8")
-    )}
 
     print(f"模型     : {model}")
     print(f"端点     : {base_url}")
     print(f"用例数   : {len(CASES)}\n")
-    print(f"{'题目':8} {'用例':22} {'期望':9} {'实际':9} {'得分':5} 解析 判定")
-    print("─" * 88)
+    print(f"{'用例':30} {'期望':9} {'实际':9} {'得分':5} 解析 判定")
+    print("─" * 80)
 
     hit = parsed_ok = 0
     for case in CASES:
-        problem = problems[case["pid"]]
         prompt = mod.build_judge_prompt(
-            title=problem["title"],
-            statement=problem["statement"],
-            answer=problem["answer"],
-            rubric=problem["rubric"],
+            title=case["title"],
+            statement=case["statement"],
             submission=case["submission"],
         )
         raw = call_llm(base_url, key, model, prompt)
 
         if raw.startswith("__"):
-            print(f"{case['pid']:8} {case['label']:22} {case['expect']:9} {'调用失败':9}")
-            print(f"         └─ {raw[:150]}")
+            print(f"{case['label']:30} {case['expect']:9} {'调用失败':9}")
+            print(f"      └─ {raw[:150]}")
             continue
 
         result = mod.parse_verdict(raw)
         if result is None:
-            print(f"{case['pid']:8} {case['label']:22} {case['expect']:9} {'解析失败':9} -     ❌   ❌")
-            print(f"         └─ 原始输出: {raw[:150]!r}")
+            print(f"{case['label']:30} {case['expect']:9} {'解析失败':9} -     ❌   ❌")
+            print(f"      └─ 原始输出: {raw[:150]!r}")
             continue
 
         parsed_ok += 1
@@ -210,13 +228,13 @@ def main() -> int:
         if match:
             hit += 1
         print(
-            f"{case['pid']:8} {case['label']:22} {case['expect']:9} "
+            f"{case['label']:30} {case['expect']:9} "
             f"{result['verdict']:9} {result['score']:<5} ✅   {'✅' if match else '❌'}"
         )
-        print(f"         └─ {result['comment'][:80]}")
+        print(f"      └─ {result['comment'][:80]}")
 
     total = len(CASES)
-    print("─" * 88)
+    print("─" * 80)
     print(f"JSON 解析成功率 : {parsed_ok}/{total}  ({parsed_ok / total * 100:.0f}%)")
     print(f"判定符合预期    : {hit}/{total}  ({hit / total * 100:.0f}%)")
     return 0 if hit == total else 1

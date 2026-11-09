@@ -1,10 +1,10 @@
 name: astrbot_plugin_kouhu_oj
-desc: 群内 OJ —— 口胡抽题、群友提交解答后由大模型判题并锐评、放弃可看标准答案、按 AC 数排行计分。
-version: v0.1.0
+desc: 群内 OJ —— q 抽题（题目实时从 LeetCode 拉取并渲染成图片）、s 提交后由大模型判题锐评、g 给原题链接、按得分排行。
+version: v0.2.0
 author: KouHuBot
 repo: https://github.com/IA3001/KouHuBot
 display_name: 口胡 OJ
-short_desc: 一个会锐评的群内口胡小 OJ
+short_desc: 群内即兴做题，模型负责判题和锐评
 support_platforms:
   - qq_official
   - qq_official_webhook

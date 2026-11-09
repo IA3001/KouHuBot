@@ -1,32 +1,44 @@
 {
   "judge_provider_id": {
+    "description": "判题用的模型",
     "type": "string",
-    "description": "判题使用的模型提供商 ID（在 WebUI「模型提供商」里可以查到）。留空则使用当前会话的默认模型。",
+    "hint": "留空则用当前会话的默认模型。判题调用比较频繁，建议单独指定一个便宜且稳定的模型。",
     "default": ""
   },
-  "judge_timeout_seconds": {
-    "type": "int",
-    "description": "单次判题的模型调用超时时间（秒）。太长会占住会话，太短容易误报失败。",
-    "default": 60
-  },
   "max_submission_chars": {
+    "description": "单次提交的字数上限",
     "type": "int",
-    "description": "单次提交的最大字符数，超出直接拒收，避免超长文本撑爆上下文",
+    "hint": "超过这个长度直接拒绝，防止有人粘贴超长内容烧 token。",
     "default": 2000
   },
   "issue_cooldown_seconds": {
+    "description": "抽题冷却（秒）",
     "type": "int",
-    "description": "同一个人连续换题的冷却秒数，防止刷屏；其他人不受限制",
+    "hint": "同一个群两次抽题之间的最小间隔，防止刷屏。",
     "default": 15
   },
   "leaderboard_size": {
+    "description": "排行榜显示人数",
     "type": "int",
-    "description": "排行榜最多显示多少名",
     "default": 10
   },
-  "reveal_answer_on_giveup": {
-    "type": "bool",
-    "description": "群友发「放弃」时是否公布标准答案。关闭后只记录放弃状态。",
-    "default": true
+  "difficulty_filter": {
+    "description": "默认难度",
+    "type": "string",
+    "hint": "不带参数抽题时用这个难度。留空表示不限。群友也可以用 q e / q m / q h 临时指定。",
+    "options": ["", "easy", "medium", "hard"],
+    "default": ""
+  },
+  "image_width": {
+    "description": "题目图片宽度（像素）",
+    "type": "int",
+    "hint": "默认 900。手机上 900 左右清晰度刚好，调太大会让图片体积暴涨。",
+    "default": 900
+  },
+  "source_timeout_seconds": {
+    "description": "拉题超时（秒）",
+    "type": "int",
+    "hint": "访问 LeetCode 的最长等待时间，网络差可以调大。",
+    "default": 20
   }
 }

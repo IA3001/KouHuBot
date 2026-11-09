@@ -1,69 +1,72 @@
 # 口胡 OJ（astrbot_plugin_kouhu_oj）
 
-KouHuBot 的 AstrBot 插件：群内抽题 → 交卷 → AI 判题锐评 → 计分。
-
-## 安装
-
-把本目录整体复制到 AstrBot 的 `data/plugins/` 下，然后重载插件：
-
-```bash
-cp -r astrbot_plugin_kouhu_oj /path/to/AstrBot/data/plugins/
-```
-
-依赖：无第三方包，只用 Python 标准库。要求 AstrBot ≥ 4.9.2。
+群内即兴做题：`q` 抽题（题目实时从 LeetCode 拉取并渲染成图片）、`s` 提交后由大模型判题锐评、`g` 给原题链接、`r` 看排行榜。
 
 ## 指令
 
-加不加 `/` 都可以。
+加不加 `/` 都可以，大小写不敏感。
 
 | 指令 | 作用 |
 |---|---|
-| `口胡` | 随机抽题 |
-| `提交 <解答>` | 交卷判题 |
-| `当前题` | 重看题目 |
-| `放弃` / `giveup` | 公布答案 |
-| `排行榜` / `rank` | 计分榜 |
-| `oj帮助` | 指令说明 |
+| `q` | 抽一道题，直接发图片 |
+| `q e` / `q m` / `q h` | 指定难度（也可写 `简单` / `中等` / `困难`） |
+| `s <解答>` | 提交，模型判分并锐评 |
+| `p` | 重看当前题 |
+| `g` | 放弃，给原题链接 |
+| `r` | 本群排行榜 |
+| `h` | 帮助 |
+
+单字母指令用 `^...$` 全串锚定，`quit`、`qq`、`go` 这类普通聊天不会误触；`s` 必须带解答内容才算提交。
+
+## 题目从哪来
+
+**没有预置题库。** 每次 `q` 才去 LeetCode 中文站拉，拉完渲染成图片。
+
+为什么走 LeetCode 的 GraphQL 而不是爬 HTML：Codeforces 的题面页会被 Cloudflare 拦（403），
+洛谷有反爬会 302 死循环，LeetCode 的 GraphQL 是前端自己在用的接口，字段稳定。
+
+抽题只发 2 个请求：先拿总数 → 随机偏移拉一页 50 条 → 页内随机挑一道非会员题。
+
+## 图片是怎么画的
+
+纯 Pillow 绘制，**不用无头浏览器**（那玩意儿要 300MB+ 内存，2C2G 扛不住）。
+
+- 中文字体自动探测（Noto Sans CJK / 文泉驿 / 微软雅黑 / 苹方）
+- 代码块里含中文的行会自动切回中文字体，避免豆腐块
+- 中文排版做了基础禁则：标点不出现在行首
+- 题面超过 3200px 自动截断，并提示去看原题链接
+
+服务器没装中文字体时不会崩，会退化成纯文本消息。
+
+## 判题
+
+没有标准答案可对照，所以让模型按题面判断思路是否正确。三道防线：
+
+1. **结构化输出**：强制返回 `{"verdict","score","comment"}` JSON
+2. **解析容错**：剥代码围栏、正则抓 JSON、关键字兜底，彻底失败就明确告知而不是瞎判
+3. **注入防护**：提交内容包在 `<student_answer>` 里，提示词声明该区域是不可信数据
+
+提示词里还有一条硬规则：题面明确要求复杂度的（如「必须 O(1)」），达不到直接判 WA，不给 PARTIAL。
 
 ## 配置项
 
-在 AstrBot WebUI 的插件配置页可视化修改（对应 `_conf_schema.json`）：
-
-| 键 | 默认 | 说明 |
+| 配置 | 默认 | 说明 |
 |---|---|---|
-| `judge_provider_id` | 空 | 判题专用模型 ID；留空用当前会话模型 |
-| `judge_timeout_seconds` | 60 | 判题超时 |
-| `max_submission_chars` | 2000 | 提交长度上限 |
-| `issue_cooldown_seconds` | 15 | 同人换题冷却 |
-| `leaderboard_size` | 10 | 榜单长度 |
-| `reveal_answer_on_giveup` | true | 放弃时是否公布答案 |
-
-## 题库
-
-默认读插件目录下的 `problems.json`（JSON 数组）。字段：
-
-```json
-{
-  "pid": "唯一ID",
-  "title": "标题",
-  "statement": "题面（发群里）",
-  "answer": "标准答案（判题用，放弃时展示）",
-  "rubric": "判题要点（决定判题质量）",
-  "tags": "标签,逗号分隔",
-  "difficulty": 1
-}
-```
-
-`pid` 是主键：更新题库时同 `pid` 会覆盖题面，**不会丢失群友进度**。
-
-`rubric` 建议写细，尤其对「常见错误答案」直接写明判 WA，比让模型自由发挥稳得多。
+| `judge_provider_id` | 空 | 判题模型，留空用当前会话默认模型 |
+| `max_submission_chars` | 2000 | 提交字数上限 |
+| `issue_cooldown_seconds` | 15 | 同群抽题冷却 |
+| `leaderboard_size` | 10 | 排行榜显示人数 |
+| `difficulty_filter` | 空 | 不带参数抽题时的默认难度 |
+| `image_width` | 900 | 题目图片宽度 |
+| `source_timeout_seconds` | 20 | 拉题超时 |
 
 ## 数据
 
-状态存在 `data/plugin_data/astrbot_plugin_kouhu_oj/kouhu_oj.db`（SQLite）。删掉即重置所有进度和计分。
+`data/plugin_data/astrbot_plugin_kouhu_oj/`
 
-## 测试
+- `kouhu_oj.db`：当前题、进度、计分（SQLite）
+- `images/`：渲染出来的题目图片，超过一天的会自动清理
 
-```bash
-python3 tests/smoke_test.py    # 在仓库根目录执行
-```
+## 依赖
+
+无额外依赖。`aiohttp` 和 `Pillow` 由 AstrBot 自带。

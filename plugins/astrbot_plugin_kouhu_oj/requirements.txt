@@ -1,2 +1,7 @@
-# 本插件只依赖 Python 标准库（sqlite3 / json / asyncio），无需第三方包。
+# 本插件不引入额外的第三方依赖。
+#
+# 用到的两个外部库都由 AstrBot 自带，不需要在这里重复声明：
+#   - aiohttp  ：请求 LeetCode GraphQL 接口
+#   - Pillow   ：把题面渲染成图片
+#
 # 保留此文件是为了让 AstrBot 的依赖安装流程有明确入口。

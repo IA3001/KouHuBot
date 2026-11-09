@@ -146,7 +146,7 @@ ssh -L 6185:127.0.0.1:6185 user@your-server
 进入群聊设置 → 机器人设置，打开：
 
 - ✅ **机器人可获取的群聊消息范围 → 获取群内全部消息**
-  不开的话，只有 @ 机器人时才收得到，`口胡` 这类裸指令会失效。
+  不开的话，只有 @ 机器人时才收得到，`q` 这类裸指令会失效。
 - ✅ **允许机器人主动在群聊内发言**
   不开的话只能被动回复，做不了主动推送。
 
@@ -185,7 +185,7 @@ docker compose logs -f astrbot | grep KouHuOJ
 看到类似日志即成功：
 
 ```
-[KouHuOJ] 就绪：题库 8 条（本次载入 8 条），数据目录 /AstrBot/data/plugin_data/astrbot_plugin_kouhu_oj
+[KouHuOJ] 就绪：题目源 LeetCode 中文站，数据目录 /AstrBot/data/plugin_data/astrbot_plugin_kouhu_oj
 ```
 
 然后在 WebUI 插件页确认「口胡 OJ」已启用。
@@ -198,14 +198,17 @@ docker compose logs -f astrbot | grep KouHuOJ
 
 | 步骤 | 发送 | 预期 |
 |---|---|---|
-| 1 | `oj帮助` | 返回指令列表 |
-| 2 | `口胡` | 收到一道题（含题号、难度、标签） |
-| 3 | `提交 随便写点什么` | 收到判题结果（大概率 WA，带锐评） |
-| 4 | `提交 <认真作答>` | 可能 AC，得分 85+ |
-| 5 | `排行榜` | 看到自己的 AC 数 |
-| 6 | `放弃` | 看到标准答案 |
+| 1 | `h` | 返回指令列表 |
+| 2 | `q` | **收到一张题目图片**（标题 + 难度 + 标签 + 题面 + 原题链接） |
+| 3 | `s 随便写点什么` | 收到判题结果（大概率 WA，带锐评） |
+| 4 | `s <认真作答>` | 可能 AC，得分 85+ |
+| 5 | `r` | 看到自己的得分和 AC 题数 |
+| 6 | `g` | 收到原题链接 |
 
 全过即部署完成。
+
+> 第 2 步是最容易出问题的一步：如果收到的不是图片而是报错，说明服务器**没装中文字体**。
+> Debian/Ubuntu 装一下即可：`apt install -y fonts-noto-cjk`
 
 ---
 
@@ -236,9 +239,14 @@ tar czf kouhobot-$(date +%F).tar.gz data/
 docker compose start astrbot
 ```
 
-### 更新题库
+### 换题目源
 
-直接改宿主机上的 `data/plugin_data/astrbot_plugin_kouhu_oj/problems.json`，然后重启容器（插件启动时重新载入并 upsert，`pid` 相同的会覆盖，不会丢进度）。
+题目不落盘、不预置，插件每次抽题都实时请求 LeetCode。
+想换别的站点，在 `plugins/astrbot_plugin_kouhu_oj/sources/` 下新增一个实现类，
+然后改 `main.py` 里 `initialize()` 中实例化题目源的那一行。
+
+注意很多 OJ 站点有反爬（Codeforces 的题面页返回 403、洛谷会 302 死循环），
+优先找官方 API 而不是爬 HTML。
 
 ---
 
