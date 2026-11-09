@@ -1,6 +1,6 @@
 name: astrbot_plugin_kouhu_oj
 desc: 群内 OJ —— q 抽算法题（实时抓取并渲染成图片）、grm 抽 C++ 算竞坑点题、s 提交后由大模型判题锐评、r 排行榜、ask 自由问答。
-version: v0.4.0
+version: v0.4.1
 author: KouHuBot
 repo: https://github.com/IA3001/KouHuBot
 display_name: 口胡 OJ

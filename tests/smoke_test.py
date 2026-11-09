@@ -344,14 +344,28 @@ def test_leaderboard_render(mod) -> None:
             {"user_name": "🔥小明🔥", "total": 300, "solved": 3, "tried": 5},
             {"user_name": "🎉🎉🎉", "total": 10, "solved": 0, "tried": 1},
         ]
+        sections = [
+            {"title": "算法题榜", "rows": rows},
+            {"title": "坑点榜（grm）", "rows": rows[:1]},
+        ]
         path = render.render_leaderboard(
-            rows, out_dir=tmp, title="本群算法题榜", footer="坑点题榜：发 grm r"
+            sections, out_dir=tmp, title="本群排行榜", footer="个人记录：发 me"
         )
         assert Path(path).is_file()
         assert Path(path).stat().st_size > 1000, "图片太小，可能没画出内容"
 
-        # 空榜也要能出图，不能抛异常
-        empty = render.render_leaderboard([], out_dir=tmp)
+        # 一段有数据、一段空，也要能出图
+        mixed = render.render_leaderboard(
+            [{"title": "算法题榜", "rows": rows}, {"title": "坑点榜（grm）", "rows": []}],
+            out_dir=tmp,
+        )
+        assert Path(mixed).is_file()
+
+        # 两段都空的极端情况同样不能崩
+        empty = render.render_leaderboard(
+            [{"title": "算法题榜", "rows": []}, {"title": "坑点榜（grm）", "rows": []}],
+            out_dir=tmp,
+        )
         assert Path(empty).is_file()
 
         # 字体画不出的 emoji 要去掉，全被去掉时退回「匿名」

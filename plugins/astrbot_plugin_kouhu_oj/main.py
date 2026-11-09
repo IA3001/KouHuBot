@@ -85,7 +85,7 @@ PITFALL_PREFIX = "grm:"
 KIND_EXPR = "(CASE WHEN slug LIKE 'grm:%' THEN 'pitfall' ELSE 'algo' END)"
 
 # 指令正则：允许带 / 前缀，大小写不敏感
-PLUGIN_VERSION = "0.4.0"
+PLUGIN_VERSION = "0.4.1"
 
 # 状态快照里允许出现的配置项白名单。
 # 注意：只从插件自己的 config 取，绝不读 AstrBot 的 cmd_config.json——
@@ -132,8 +132,7 @@ grm      抽一道 C++ 坑点题（看代码找 bug）
 s 你的解答   提交，模型判分
 g        放弃（算法题给链接，坑点题给答案）
 p / cur  重看当前题
-r        算法题排行榜
-grm r    坑点题排行榜（两类分开计分）
+r        排行榜（算法题 + 坑点题，一张图）
 me       自己的过题记录（两类分开统计）
 h        帮助
 ask 问题  自由问答：题库什么样、运行环境如何，随便问
@@ -877,17 +876,11 @@ class KouHuOJ(Star):
         match = RE_GRM.match(event.message_str or "")
         arg = (match.group(1) if match else None) or None
 
-        # grm r / grm rank —— 看坑点题榜，不是抽题，所以不走冷却
+        # grm r 曾经是看坑点榜的写法。两个榜现在合并进 r 了，
+        # 这里保留成别名——群友已经打习惯了，突然报「没有这个分类」很怪。
         if arg and arg.lower() in ("r", "rank"):
-            rows = self._rank_rows(scope, KIND_PITFALL)
-            if not rows:
-                yield event.plain_result("还没有人做过坑点题，发 grm 抽一道开始吧")
-                return
-            path = self._rank_image(rows, KIND_PITFALL)
-            if path:
-                yield event.image_result(path)
-            else:
-                yield event.plain_result(self._rank_text(rows, KIND_PITFALL))
+            async for result in self._emit_rank(event, scope):
+                yield result
             return
 
         cooldown = float(self.config.get("issue_cooldown_seconds", 15))
@@ -1075,45 +1068,66 @@ class KouHuOJ(Star):
         else:
             yield event.plain_result(f"【{problem['title']}】\n{problem.get('link','')}")
 
-    def _rank_rows(self, scope: str, kind: str) -> list[dict]:
+    def _rank_sections(self, scope: str) -> list[dict]:
+        """两类榜合成一张图的两段。"""
         limit = int(self.config.get("leaderboard_size", 10))
-        return self._store.leaderboard(scope, limit, kind=kind)
+        return [
+            {
+                "title": "算法题榜",
+                "rows": self._store.leaderboard(scope, limit, kind=KIND_ALGO),
+            },
+            {
+                "title": "坑点榜（grm）",
+                "rows": self._store.leaderboard(scope, limit, kind=KIND_PITFALL),
+            },
+        ]
 
-    @staticmethod
-    def _rank_title(kind: str) -> str:
-        return "本群坑点榜（grm）" if kind == KIND_PITFALL else "本群算法题榜"
-
-    @staticmethod
-    def _rank_footer(kind: str) -> str:
-        return "算法题榜：发 r" if kind == KIND_PITFALL else "坑点题榜：发 grm r"
-
-    def _rank_image(self, rows: list[dict], kind: str) -> str | None:
+    def _rank_image(self, sections: list[dict]) -> str | None:
         """排行榜画成图片。条目再多也不会撞消息长度上限。"""
         if not self._image_dir:
             return None
         try:
             return render_leaderboard(
-                rows,
+                sections,
                 out_dir=str(self._image_dir),
-                title=self._rank_title(kind),
-                footer=self._rank_footer(kind),
+                title="本群排行榜",
+                footer="个人记录：发 me",
                 width=int(self.config.get("image_width", 900)),
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[KouHuOJ] 排行榜渲染失败，退回文本：{exc}")
             return None
 
-    def _rank_text(self, rows: list[dict], kind: str) -> str:
+    def _rank_text(self, sections: list[dict]) -> str:
         """图片渲染失败时的纯文本兜底。"""
-        lines = [f"🏆 {self._rank_title(kind)}"]
-        for index, row in enumerate(rows, start=1):
-            name = row["user_name"] or row["user_id"]
-            lines.append(
-                f"{index}. {name}  {row['total']} 分  AC {row['solved']}/{row['tried']} 题"
-            )
+        lines = ["🏆 本群排行榜"]
+        for section in sections:
+            lines.append("")
+            lines.append(f"【{section['title']}】")
+            rows = section["rows"]
+            if not rows:
+                lines.append("暂无记录")
+                continue
+            for index, row in enumerate(rows, start=1):
+                name = row["user_name"] or row["user_id"]
+                lines.append(
+                    f"{index}. {name}  {row['total']} 分  "
+                    f"AC {row['solved']}/{row['tried']} 题"
+                )
         lines.append("")
-        lines.append(self._rank_footer(kind))
+        lines.append("个人记录：发 me")
         return "\n".join(lines)
+
+    async def _emit_rank(self, event: AstrMessageEvent, scope: str):
+        sections = self._rank_sections(scope)
+        if not any(section["rows"] for section in sections):
+            yield event.plain_result("还没有人提交过，发 q 抽一道开始吧")
+            return
+        path = self._rank_image(sections)
+        if path:
+            yield event.image_result(path)
+        else:
+            yield event.plain_result(self._rank_text(sections))
 
     @filter.regex(RE_RANK)
     async def cmd_rank(self, event: AstrMessageEvent):
@@ -1123,15 +1137,8 @@ class KouHuOJ(Star):
             return
 
         scope = self._scope_of(event)
-        rows = self._rank_rows(scope, KIND_ALGO)
-        if not rows:
-            yield event.plain_result("还没有人提交过算法题，发 q 抽一道开始吧")
-            return
-        path = self._rank_image(rows, KIND_ALGO)
-        if path:
-            yield event.image_result(path)
-        else:
-            yield event.plain_result(self._rank_text(rows, KIND_ALGO))
+        async for result in self._emit_rank(event, scope):
+            yield result
 
     @filter.regex(RE_ME)
     async def cmd_me(self, event: AstrMessageEvent):
@@ -1245,8 +1252,7 @@ class KouHuOJ(Star):
             "s <解答>": "提交，模型判分",
             "g": "放弃",
             "p / cur": "重看当前题",
-            "r": "算法题排行榜",
-            "grm r": "坑点题排行榜",
+            "r": "排行榜，一张图含算法题榜和坑点榜两段",
             "me": "个人过题记录，两类分开统计",
             "h": "帮助",
             "ask <问题>": "就是现在这个自由问答",

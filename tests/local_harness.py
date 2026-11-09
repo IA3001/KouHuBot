@@ -557,6 +557,15 @@ async def main() -> int:
     out = await runner.user_says(e, "cmd_rank")
     img = image_path_of(out)
     runner.check("r 发的是图片", img is not None and Path(img).is_file(), out[:120])
+    sections = plugin._rank_sections(scope)
+    runner.check(
+        "r 一张图里含两段榜",
+        len(sections) == 2
+        and sections[0]["rows"]
+        and sections[1]["rows"]
+        and sections[0]["title"] != sections[1]["title"],
+        str([(s["title"], len(s["rows"])) for s in sections]),
+    )
     algo_board = plugin._store.leaderboard(scope, 10, kind=mod.KIND_ALGO)
     pit_board = plugin._store.leaderboard(scope, 10, kind=mod.KIND_PITFALL)
     runner.check(
@@ -568,7 +577,7 @@ async def main() -> int:
     e = E("grm r", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_pitfall")
     img = image_path_of(out)
-    runner.check("grm r 发的是图片", img is not None and Path(img).is_file(), out[:120])
+    runner.check("grm r 仍可用（别名）", img is not None and Path(img).is_file(), out[:120])
     runner.check("grm r 不会当成抽题", "正在抽题" not in out, out[:120])
 
     e = E("me", group_id=group, sender_id="1001", sender_name="小明")

@@ -512,7 +512,7 @@ def _display_name(name: str) -> str:
 
 
 def render_leaderboard(
-    rows: list[dict],
+    sections: list[dict],
     out_dir: str | None = None,
     *,
     title: str = "本群排行榜",
@@ -521,10 +521,14 @@ def render_leaderboard(
 ) -> str:
     """把排行榜画成 PNG。
 
-    群消息里贴长文本既容易撞长度上限，条目一多也没法看。
-    画成图片就没有这些限制，行数只影响图片高度。
+    sections 是若干段榜单：[{"title": "算法题榜", "rows": [...]}, ...]。
+    一张图里放两段，比发两条消息清爽，也不会刷屏。
+
+    用图片而不是文字，是因为群消息有长度上限，条目一多就被截断；
+    图片只影响高度，榜单开多长都行。
     """
     title_font = _font(_TITLE_SIZE, "bold")
+    section_font = _font(24, "bold")
     head_font = _font(_META_SIZE)
     row_font = _font(_BODY_SIZE)
     foot_font = _font(_FOOT_SIZE)
@@ -547,77 +551,122 @@ def render_leaderboard(
     ops.append(
         {"kind": "text", "text": title, "font": title_font, "x": _PADDING, "y": y, "fill": _TITLE_FG}
     )
-    y += int(_TITLE_SIZE * _LINE_RATIO) + 6
-
-    # 表头
-    head_y = y
-    for text, x, anchor in (
-        ("排名", _PADDING + 8, "la"),
-        ("昵称", name_x, "la"),
-        ("总分", score_right, "ra"),
-        ("AC", ac_right, "ra"),
-    ):
-        ops.append(
-            {"kind": "text", "text": text, "font": head_font, "x": x, "y": head_y,
-             "fill": _MUTED_FG, "anchor": anchor}
-        )
-    y += int(_META_SIZE * _LINE_RATIO) + 8
-
-    ops.append({"kind": "rule", "y": y, "x": _PADDING, "w": inner_width})
-    y += 10
+    y += int(_TITLE_SIZE * _LINE_RATIO) + 10
 
     rank_colors = {1: _RANK_GOLD, 2: _RANK_SILVER, 3: _RANK_BRONZE}
-    for index, row in enumerate(rows, start=1):
-        if index % 2 == 0:
-            ops.append(
-                {"kind": "stripe", "x": _PADDING, "y": y - 6, "w": inner_width, "h": _RANK_ROW_H - 4}
-            )
-        name = _display_name(row.get("user_name") or row.get("user_id") or "匿名")
-        ops.append(
-            {
-                "kind": "text",
-                "text": f"{index}",
-                "font": row_font,
-                "x": _PADDING + 8,
-                "y": y,
-                "fill": rank_colors.get(index, _BODY_FG),
-            }
-        )
-        ops.append(
-            {
-                "kind": "text",
-                "text": _truncate_to_width(probe, name, row_font, name_w - 12),
-                "font": row_font,
-                "x": name_x,
-                "y": y,
-                "fill": _BODY_FG,
-            }
-        )
-        ops.append(
-            {
-                "kind": "text",
-                "text": f"{int(row.get('total') or 0)}",
-                "font": row_font,
-                "x": score_right,
-                "y": y,
-                "fill": _BODY_FG,
-                "anchor": "ra",
-            }
-        )
-        ops.append(
-            {
-                "kind": "text",
-                "text": f"{int(row.get('solved') or 0)}/{int(row.get('tried') or 0)}",
-                "font": row_font,
-                "x": ac_right,
-                "y": y,
-                "fill": _MUTED_FG,
-                "anchor": "ra",
-            }
-        )
-        y += _RANK_ROW_H
 
-    y += 6
+    for section_index, section in enumerate(sections):
+        if section_index:
+            y += 18
+            ops.append({"kind": "rule", "y": y, "x": _PADDING, "w": inner_width})
+            y += 22
+
+        ops.append(
+            {
+                "kind": "text",
+                "text": section.get("title") or "排行榜",
+                "font": section_font,
+                "x": _PADDING,
+                "y": y,
+                "fill": _TITLE_FG,
+            }
+        )
+        y += int(24 * _LINE_RATIO) + 4
+
+        rows = section.get("rows") or []
+        if not rows:
+            ops.append(
+                {
+                    "kind": "text",
+                    "text": "暂无记录",
+                    "font": row_font,
+                    "x": _PADDING,
+                    "y": y,
+                    "fill": _MUTED_FG,
+                }
+            )
+            y += _RANK_ROW_H
+            continue
+
+        # 表头
+        for text, x, anchor in (
+            ("排名", _PADDING + 8, "la"),
+            ("昵称", name_x, "la"),
+            ("总分", score_right, "ra"),
+            ("AC", ac_right, "ra"),
+        ):
+            ops.append(
+                {
+                    "kind": "text",
+                    "text": text,
+                    "font": head_font,
+                    "x": x,
+                    "y": y,
+                    "fill": _MUTED_FG,
+                    "anchor": anchor,
+                }
+            )
+        y += int(_META_SIZE * _LINE_RATIO) + 8
+        ops.append({"kind": "rule", "y": y, "x": _PADDING, "w": inner_width})
+        y += 10
+
+        for index, row in enumerate(rows, start=1):
+            if index % 2 == 0:
+                ops.append(
+                    {
+                        "kind": "stripe",
+                        "x": _PADDING,
+                        "y": y - 6,
+                        "w": inner_width,
+                        "h": _RANK_ROW_H - 4,
+                    }
+                )
+            ops.append(
+                {
+                    "kind": "text",
+                    "text": f"{index}",
+                    "font": row_font,
+                    "x": _PADDING + 8,
+                    "y": y,
+                    "fill": rank_colors.get(index, _BODY_FG),
+                }
+            )
+            name = _display_name(row.get("user_name") or row.get("user_id") or "匿名")
+            ops.append(
+                {
+                    "kind": "text",
+                    "text": _truncate_to_width(probe, name, row_font, name_w - 12),
+                    "font": row_font,
+                    "x": name_x,
+                    "y": y,
+                    "fill": _BODY_FG,
+                }
+            )
+            ops.append(
+                {
+                    "kind": "text",
+                    "text": f"{int(row.get('total') or 0)}",
+                    "font": row_font,
+                    "x": score_right,
+                    "y": y,
+                    "fill": _BODY_FG,
+                    "anchor": "ra",
+                }
+            )
+            ops.append(
+                {
+                    "kind": "text",
+                    "text": f"{int(row.get('solved') or 0)}/{int(row.get('tried') or 0)}",
+                    "font": row_font,
+                    "x": ac_right,
+                    "y": y,
+                    "fill": _MUTED_FG,
+                    "anchor": "ra",
+                }
+            )
+            y += _RANK_ROW_H
+
+    y += 10
     ops.append({"kind": "rule", "y": y, "x": _PADDING, "w": inner_width})
     y += 16
 
