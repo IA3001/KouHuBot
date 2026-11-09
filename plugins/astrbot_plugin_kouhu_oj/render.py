@@ -275,7 +275,8 @@ def _apply_kinsoku(lines: list[str]) -> list[str]:
             if fixed and fixed[-1] != "":
                 fixed.append("")
             continue
-        while fixed and fixed[-1] != "" and line[0] in _NO_LINE_START:
+        # line 可能被剥空（整行都是禁则标点），必须先判空再取 line[0]
+        while line and fixed and fixed[-1] != "" and line[0] in _NO_LINE_START:
             fixed[-1] += line[0]
             line = line[1:]
         if line:

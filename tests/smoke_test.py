@@ -90,6 +90,7 @@ def test_command_regex(mod) -> None:
         "giveup": mod.RE_GIVEUP,
         "p": mod.RE_CURRENT,
         "r": mod.RE_RANK,
+        "me": mod.RE_ME,
         "h": mod.RE_HELP,
     }
     for text, pattern in should_match.items():
@@ -105,10 +106,11 @@ def test_command_regex(mod) -> None:
         "好的": mod.RE_Q,
         "go": mod.RE_GIVEUP,
         "p2": mod.RE_CURRENT,
+        "men": mod.RE_ME,
     }
     for text, pattern in should_not_match.items():
         assert not pattern.match(text), f"不应匹配却匹配了：{text!r}"
-    print("  ✅ 指令正则：q/n/new/s/g/p/r/h 命中正确，且不误伤普通聊天")
+    print("  ✅ 指令正则：q/n/new/s/g/p/r/me/h 命中正确，且不误伤普通聊天")
 
 
 def test_store(mod) -> None:
@@ -121,7 +123,8 @@ def test_store(mod) -> None:
         "link": "https://leetcode.cn/problems/two-sum/",
     }
     with tempfile.TemporaryDirectory() as tmp:
-        store = mod.OjStore(Path(tmp) / "test.db")
+        db_path = Path(tmp) / "test.db"
+        store = mod.OjStore(db_path)
         try:
             store.set_current("group:1", problem, "u1")
             current = store.get_current("group:1")
@@ -132,8 +135,8 @@ def test_store(mod) -> None:
             store.set_current("group:1", {**problem, "slug": "add-two-numbers"}, "u1")
             assert store.get_current("group:1")["slug"] == "add-two-numbers"
 
-            store.record_attempt("group:1", "u1", "小明", "two-sum", "WA", 20)
-            store.record_attempt("group:1", "u1", "小明", "two-sum", "AC", 95)
+            store.record_attempt("group:1", "u1", "小明", "two-sum", "两数之和", "WA", 20)
+            store.record_attempt("group:1", "u1", "小明", "two-sum", "两数之和", "AC", 95)
             leaderboard = store.leaderboard("group:1", 10)
             assert len(leaderboard) == 1, leaderboard
             assert leaderboard[0]["total"] == 95, leaderboard
@@ -141,24 +144,53 @@ def test_store(mod) -> None:
             assert leaderboard[0]["tried"] == 1, leaderboard
 
             # 同一题多次提交只按最高分计一次，不叠加
-            store.record_attempt("group:1", "u1", "小明", "two-sum", "AC", 100)
+            store.record_attempt("group:1", "u1", "小明", "two-sum", "两数之和", "AC", 100)
             assert store.leaderboard("group:1", 10)[0]["total"] == 100
 
             # PARTIAL 不计入 solved
-            store.record_attempt("group:1", "u2", "小红", "two-sum", "PARTIAL", 60)
+            store.record_attempt("group:1", "u2", "小红", "two-sum", "两数之和", "PARTIAL", 60)
             red = [row for row in store.leaderboard("group:1", 10) if row["user_id"] == "u2"][0]
             assert red["solved"] == 0 and red["total"] == 60
 
             # 放弃
-            store.mark_gave_up("group:1", "u3", "小刚", "two-sum")
+            store.mark_gave_up("group:1", "u3", "小刚", "two-sum", "两数之和")
             gang = [row for row in store.leaderboard("group:1", 10) if row["user_id"] == "u3"][0]
             assert gang["total"] == 0
 
+            # 改昵称后排行榜应显示最新名字，而不是字母序最大的名字
+            store.record_attempt("group:1", "u1", "张三", "reverse-linked-list", "反转链表", "AC", 80)
+            lb = store.leaderboard("group:1", 10)
+            ming = [row for row in lb if row["user_id"] == "u1"][0]
+            assert ming["user_name"] == "张三", ming
+            assert ming["total"] == 180, ming  # 100 + 80 跨题累加
+            assert ming["solved"] == 2, ming
+            assert ming["tried"] == 2, ming
+
+            # 个人过题记录：逐题明细 + 汇总
+            record = store.user_record("group:1", "u1")
+            assert record["tried"] == 2 and record["solved"] == 2 and record["total"] == 180, record
+            titles = {item["title"] for item in record["items"]}
+            assert titles == {"两数之和", "反转链表"}, titles
+            assert record["attempts"] == 4, record  # 两数之和交 3 次 + 反转链表 1 次
+
+            # 别人的记录互不干扰
+            other = store.user_record("group:1", "u2")
+            assert other["tried"] == 1 and other["solved"] == 0, other
+
             # 群之间互相隔离
             assert store.leaderboard("group:2", 10) == []
+            assert store.user_record("group:2", "u1")["items"] == []
+
+            # 持久化：进程重启（关闭再打开）后记录必须还在
+            store.close()
+            reopened = mod.OjStore(db_path)
+            again = reopened.user_record("group:1", "u1")
+            assert again["solved"] == 2 and again["total"] == 180, again
+            assert len(reopened.leaderboard("group:1", 10)) == 3
+            reopened.close()
         finally:
             store.close()
-    print("  ✅ OjStore：当前题/提交/最高分/放弃/排行榜/群隔离 全部正确")
+    print("  ✅ OjStore：当前题/最高分/跨题累加/昵称更新/个人记录/群隔离 全部正确")
 
 
 def test_render_parsing(mod) -> None:
@@ -185,7 +217,16 @@ def test_render_parsing(mod) -> None:
 
     # 列表项之间不应出现多余空行
     assert "\n\n\n" not in plain, "存在连续空行"
-    print("  ✅ html_to_blocks：正文/代码块切分、实体解码、列表紧凑 全部正确")
+
+    # 禁则函数在 render 模块里，main 只 re-export 了一部分
+    render = sys.modules["render"]
+    # 回归：整行都是行首禁则标点时，剥空后不能越界
+    assert render._apply_kinsoku(["A", "，，，"]) == ["A，，，"]
+    # 正常禁则：标点拉到上一行
+    assert render._apply_kinsoku(["你好", "，世界"]) == ["你好，", "世界"]
+    # 段落空行必须保留
+    assert render._apply_kinsoku(["第一段", "", "第二段"]) == ["第一段", "", "第二段"]
+    print("  ✅ html_to_blocks：正文/代码块切分、实体解码、列表紧凑、中文禁则 全部正确")
 
 
 def test_normalize_difficulty(mod) -> None:

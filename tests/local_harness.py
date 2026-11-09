@@ -257,6 +257,8 @@ async def main() -> int:
         ("giveup", mod.RE_GIVEUP, True),
         ("p", mod.RE_CURRENT, True),
         ("r", mod.RE_RANK, True),
+        ("me", mod.RE_ME, True),
+        ("men", mod.RE_ME, False),
         ("h", mod.RE_HELP, True),
         ("今天天气不错", mod.RE_Q, False),
     ]
@@ -281,6 +283,7 @@ async def main() -> int:
     if img and Path(img).is_file():
         runner.check("图片大小合理（>5KB）", Path(img).stat().st_size > 5000, f"{Path(img).stat().st_size} bytes")
     current = plugin._store.get_current(scope)
+    first_title = current["title"] if current else ""
     runner.check("当前题已落库", current is not None)
     runner.check("落库含题面 HTML", bool(current and current["content_html"]))
     if current:
@@ -324,7 +327,19 @@ async def main() -> int:
     e = E("r", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_rank")
     runner.check("榜单含小明", "小明" in out and "95 分" in out, out[:150])
-    runner.check("统计 AC 题数", "AC 1 题" in out, out[:150])
+    runner.check("统计 AC 题数", "AC 1/1 题" in out, out[:150])
+
+    # ---------- 6.5 个人过题记录 ----------
+    banner("6.5 me 查看自己的过题记录")
+    e = E("me", group_id=group, sender_id="1001", sender_name="小明")
+    out = await runner.user_says(e, "cmd_me")
+    runner.check("显示总分", "总分 95" in out, out[:150])
+    runner.check("显示 AC 题数", "AC 1 题" in out, out[:150])
+    runner.check("列出做过的题", first_title and first_title in out, out[:150])
+
+    e = E("me", group_id=group, sender_id="9999", sender_name="路人")
+    out = await runner.user_says(e, "cmd_me")
+    runner.check("没参与过时给引导", "还没参与过" in out, out[:120])
 
     # ---------- 7. 换题 + 放弃 ----------
     banner("7. 换人换题 → g 放弃给链接")

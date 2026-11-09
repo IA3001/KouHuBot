@@ -46,7 +46,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     )
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 VERDICT_AC = "AC"
 VERDICT_PARTIAL = "PARTIAL"
@@ -61,6 +61,7 @@ RE_SUBMIT = re.compile(r"^\s*/?\s*(?:s|submit)\s+([\s\S]+?)\s*$", re.I)
 RE_GIVEUP = re.compile(r"^\s*/?\s*(?:g|giveup)\s*$", re.I)
 RE_RANK = re.compile(r"^\s*/?\s*(?:r|rank)\s*$", re.I)
 RE_CURRENT = re.compile(r"^\s*/?\s*(?:p|problem)\s*$", re.I)
+RE_ME = re.compile(r"^\s*/?\s*(?:me|mine)\s*$", re.I)
 RE_HELP = re.compile(r"^\s*/?\s*(?:h|help)\s*$", re.I)
 
 HELP_TEXT = """口胡 OJ 指令（都很短，方便打字）
@@ -71,6 +72,7 @@ s 你的解答   提交，模型判分
 g        放弃，给原题链接
 p        重看当前题
 r        排行榜
+me       查看自己的过题记录
 h        帮助
 
 提交可以写思路、伪代码或代码，说清做法就行。"""
@@ -215,6 +217,7 @@ class OjStore:
                 user_id    TEXT NOT NULL,
                 user_name  TEXT,
                 slug       TEXT NOT NULL,
+                title      TEXT,
                 attempts   INTEGER DEFAULT 0,
                 best_score INTEGER DEFAULT 0,
                 solved     INTEGER DEFAULT 0,
@@ -265,37 +268,48 @@ class OjStore:
 
     # -- 进度 ----------------------------------------------------------
     def record_attempt(
-        self, scope_id: str, user_id: str, user_name: str, slug: str, verdict: str, score: int
+        self,
+        scope_id: str,
+        user_id: str,
+        user_name: str,
+        slug: str,
+        title: str,
+        verdict: str,
+        score: int,
     ) -> None:
         solved = 1 if verdict == VERDICT_AC else 0
         self._conn.execute(
             """
             INSERT INTO progress
-                (scope_id, user_id, user_name, slug, attempts, best_score, solved, gave_up, last_at)
-            VALUES (?, ?, ?, ?, 1, ?, ?, 0, ?)
+                (scope_id, user_id, user_name, slug, title, attempts, best_score, solved, gave_up, last_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?, 0, ?)
             ON CONFLICT(scope_id, user_id, slug) DO UPDATE SET
                 user_name=excluded.user_name,
+                title=COALESCE(excluded.title, progress.title),
                 attempts=progress.attempts + 1,
                 best_score=MAX(progress.best_score, excluded.best_score),
                 solved=MAX(progress.solved, excluded.solved),
                 last_at=excluded.last_at
             """,
-            (scope_id, user_id, user_name, slug, score, solved, time.time()),
+            (scope_id, user_id, user_name, slug, title, score, solved, time.time()),
         )
         self._conn.commit()
 
-    def mark_gave_up(self, scope_id: str, user_id: str, user_name: str, slug: str) -> None:
+    def mark_gave_up(
+        self, scope_id: str, user_id: str, user_name: str, slug: str, title: str
+    ) -> None:
         self._conn.execute(
             """
             INSERT INTO progress
-                (scope_id, user_id, user_name, slug, attempts, best_score, solved, gave_up, last_at)
-            VALUES (?, ?, ?, ?, 0, 0, 0, 1, ?)
+                (scope_id, user_id, user_name, slug, title, attempts, best_score, solved, gave_up, last_at)
+            VALUES (?, ?, ?, ?, ?, 0, 0, 0, 1, ?)
             ON CONFLICT(scope_id, user_id, slug) DO UPDATE SET
                 user_name=excluded.user_name,
+                title=COALESCE(excluded.title, progress.title),
                 gave_up=1,
                 last_at=excluded.last_at
             """,
-            (scope_id, user_id, user_name, slug, time.time()),
+            (scope_id, user_id, user_name, slug, title, time.time()),
         )
         self._conn.commit()
 
@@ -309,20 +323,47 @@ class OjStore:
     def leaderboard(self, scope_id: str, limit: int) -> list[dict]:
         rows = self._conn.execute(
             """
-            SELECT user_id,
-                   MAX(user_name) AS user_name,
-                   SUM(best_score) AS total,
-                   SUM(solved) AS solved,
+            SELECT p.user_id,
+                   (SELECT p2.user_name
+                      FROM progress p2
+                     WHERE p2.scope_id = p.scope_id
+                       AND p2.user_id = p.user_id
+                       AND p2.user_name IS NOT NULL
+                     ORDER BY p2.last_at DESC
+                     LIMIT 1) AS user_name,
+                   SUM(p.best_score) AS total,
+                   SUM(p.solved) AS solved,
                    COUNT(*) AS tried
-            FROM progress
-            WHERE scope_id = ?
-            GROUP BY user_id
+            FROM progress p
+            WHERE p.scope_id = ?
+            GROUP BY p.user_id
             ORDER BY total DESC, solved DESC
             LIMIT ?
             """,
             (scope_id, limit),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def user_record(self, scope_id: str, user_id: str) -> dict:
+        """某个人的过题记录：汇总 + 逐题明细。"""
+        rows = self._conn.execute(
+            """
+            SELECT slug, title, attempts, best_score, solved, gave_up, last_at
+            FROM progress
+            WHERE scope_id = ? AND user_id = ?
+            ORDER BY last_at DESC
+            """,
+            (scope_id, user_id),
+        ).fetchall()
+        items = [dict(row) for row in rows]
+        return {
+            "items": items,
+            "total": sum(item["best_score"] or 0 for item in items),
+            "solved": sum(item["solved"] or 0 for item in items),
+            "tried": len(items),
+            "gave_up": sum(item["gave_up"] or 0 for item in items),
+            "attempts": sum(item["attempts"] or 0 for item in items),
+        }
 
     def close(self) -> None:
         try:
@@ -528,7 +569,13 @@ class KouHuOJ(Star):
             return
 
         self._store.record_attempt(
-            scope, user_id, user_name, problem["slug"], result["verdict"], result["score"]
+            scope,
+            user_id,
+            user_name,
+            problem["slug"],
+            problem["title"],
+            result["verdict"],
+            result["score"],
         )
 
         emoji = VERDICT_EMOJI.get(result["verdict"], "")
@@ -555,7 +602,9 @@ class KouHuOJ(Star):
             return
 
         user_id, user_name = self._sender(event)
-        self._store.mark_gave_up(scope, user_id, user_name, problem["slug"])
+        self._store.mark_gave_up(
+            scope, user_id, user_name, problem["slug"], problem["title"]
+        )
         yield event.plain_result(
             f"放弃「{problem['title']}」，原题和题解在这里：\n{problem.get('link','')}"
         )
@@ -593,13 +642,49 @@ class KouHuOJ(Star):
             yield event.plain_result("还没有人提交过，发 q 抽一道开始吧")
             return
 
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
         lines = ["🏆 本群排行榜"]
         for index, row in enumerate(rows, start=1):
             name = row["user_name"] or row["user_id"]
+            badge = medals.get(index, f"{index}.")
             lines.append(
-                f"{index}. {name}  {row['total']} 分  "
-                f"AC {row['solved']} 题 / 共 {row['tried']} 题"
+                f"{badge} {name}  {row['total']} 分  "
+                f"AC {row['solved']}/{row['tried']} 题"
             )
+        yield event.plain_result("\n".join(lines))
+
+    @filter.regex(RE_ME)
+    async def cmd_me(self, event: AstrMessageEvent):
+        """me —— 查看自己的过题记录"""
+        if not self._store:
+            yield event.plain_result("插件还没初始化完，稍等几秒再试")
+            return
+
+        scope = self._scope_of(event)
+        user_id, user_name = self._sender(event)
+        record = self._store.user_record(scope, user_id)
+        if not record["items"]:
+            yield event.plain_result("你还没参与过，发 q 抽一道开始吧")
+            return
+
+        lines = [
+            f"📋 {user_name} 的过题记录",
+            f"总分 {record['total']}　AC {record['solved']} 题　"
+            f"参与 {record['tried']} 题　提交 {record['attempts']} 次",
+            "",
+        ]
+        for item in record["items"][:10]:
+            if item["solved"]:
+                mark = "✅"
+            elif item["gave_up"]:
+                mark = "🏳"
+            else:
+                mark = "🟡" if item["best_score"] else "❌"
+            title = item["title"] or item["slug"]
+            detail = f"{item['best_score']} 分" if item["attempts"] else "已放弃"
+            lines.append(f"{mark} {title}　{detail}")
+        if len(record["items"]) > 10:
+            lines.append(f"…… 还有 {len(record['items']) - 10} 题")
         yield event.plain_result("\n".join(lines))
 
     @filter.regex(RE_HELP)
