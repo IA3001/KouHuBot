@@ -175,8 +175,12 @@ AstrBot（Python，Docker）
 ```
 KouHuBot/
 ├── run.sh                     # 一键启动入口（本地调试，不用 Docker）
+├── Dockerfile                 # 发布镜像：官方 AstrBot + 本插件
+├── docker/entrypoint.sh       # 启动时把插件从 /opt/kouhu 铺进数据卷
+├── .dockerignore
 ├── deploy/
 │   ├── docker-compose.yml     # AstrBot 编排，带 2C2G 内存护栏与日志轮转
+│   ├── release-image.sh       # 多架构构建并推送镜像
 │   ├── .env.example           # 环境变量模板
 │   └── setup-swap.sh          # 创建 2G swap（2C2G 必做）
 ├── docs/
@@ -354,6 +358,55 @@ cd .local/astrbot && ../venv/bin/python main.py
 
 ---
 
+## Docker 镜像
+
+已发布到 Docker Hub：**[ia3000/kouhubot](https://hub.docker.com/r/ia3000/kouhubot)**
+
+```bash
+docker pull ia3000/kouhubot:latest
+```
+
+| | |
+|---|---|
+| 基底 | `soulter/astrbot:v4.29.4`（官方镜像） |
+| 架构 | `linux/amd64`、`linux/arm64` |
+| 压缩体积 | 约 670 MB |
+| 内容 | AstrBot + 本插件，**不含任何密钥** |
+
+一条命令跑起来：
+
+```bash
+docker run -d --name kouhubot \
+  -p 6185:6185 \
+  -v ./data:/AstrBot/data \
+  -e TZ=Asia/Shanghai \
+  --restart unless-stopped \
+  ia3000/kouhubot:latest
+```
+
+### 为什么要 entrypoint
+
+AstrBot 的插件目录是 `data/plugins/`，而 `data/` 通常挂成数据卷。
+如果插件直接打进镜像的 `data/`，一挂卷就被盖住了。
+
+所以镜像把插件放在 `/opt/kouhu/`，由 entrypoint 在启动时复制到数据卷：
+
+```
+[kouhu] 插件已安装到 /AstrBot/data/plugins/astrbot_plugin_kouhu_oj
+```
+
+数据卷里已经有插件时不会覆盖（保留你手动改过的版本）。
+升级镜像后想换成镜像自带的版本，加 `-e KOUHU_PLUGIN_SYNC=force`。
+
+### 自己构建发布
+
+```bash
+./deploy/release-image.sh              # 构建 amd64 + arm64 并推送
+./deploy/release-image.sh --no-push    # 只构建
+```
+
+版本号取自插件 `metadata.yaml`，会同时打 `<版本>` 和 `latest` 两个 tag。
+
 ## 快速开始
 
 ### 1. 服务器准备（2C2G）
@@ -362,7 +415,7 @@ cd .local/astrbot && ../venv/bin/python main.py
 sudo bash deploy/setup-swap.sh     # 建 2G swap，避免 OOM Kill
 ```
 
-### 2. 启动 AstrBot
+### 2. 启动
 
 ```bash
 cd deploy
@@ -370,6 +423,9 @@ cp .env.example .env
 docker compose up -d
 docker compose logs -f astrbot     # 首次启动会打印 WebUI 地址和随机初始密码
 ```
+
+镜像用的是打包版 `ia3000/kouhubot`（官方 AstrBot + 本插件），**插件已经装好**，
+不用再手动拷文件。
 
 WebUI 默认只监听 `127.0.0.1:6185`，本地通过 SSH 隧道访问：
 
@@ -393,13 +449,23 @@ ssh -L 6185:127.0.0.1:6185 user@your-server
 
 WebUI →「模型提供商」→ 添加一个（DeepSeek / 硅基流动 / 通义 等 OpenAI 兼容接口均可）。
 
-### 5. 装插件
+### 5. 插件
 
-把 `plugins/astrbot_plugin_kouhu_oj/` 整个目录复制到服务器的 `data/plugins/` 下，重载插件即可。
+用打包镜像的话，插件在首次启动时已自动装到 `data/plugins/`，无需操作。
+
+想用原版 `soulter/astrbot` 镜像自己装：
 
 ```bash
 cp -r plugins/astrbot_plugin_kouhu_oj ../data/plugins/
 docker compose restart astrbot
+```
+
+升级镜像后，数据卷里还是旧版插件。想换成镜像自带的版本：
+
+```bash
+# deploy/.env 里加一行
+KOUHU_PLUGIN_SYNC=force
+docker compose up -d
 ```
 
 ### 6. 验收

@@ -51,5 +51,23 @@
     "type": "int",
     "hint": "访问 LeetCode 的最长等待时间，网络差可以调大。",
     "default": 20
+  },
+  "ask_cooldown_seconds": {
+    "description": "自由问答冷却（秒）",
+    "type": "int",
+    "hint": "同一个群两次 ask 之间的最小间隔。问答比判题贵，别让人刷。",
+    "default": 8
+  },
+  "ask_max_chars": {
+    "description": "ask 问题字数上限",
+    "type": "int",
+    "hint": "超过直接拒绝，防止有人粘贴超长内容烧 token。",
+    "default": 500
+  },
+  "ask_ack_message": {
+    "description": "ask 的即时回复",
+    "type": "string",
+    "hint": "模型生成要几秒，先回一句避免像死机。留空则不回复。",
+    "default": "让我看看……"
   }
 }

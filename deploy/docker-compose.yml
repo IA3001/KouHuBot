@@ -15,7 +15,10 @@
 
 services:
   astrbot:
-    image: soulter/astrbot:latest
+    # 官方 AstrBot 镜像 + 本插件的打包版，插件已在镜像里，
+    # 首次启动自动铺到 data/plugins/。想用原版自己装插件的话，
+    # 把这里换回 soulter/astrbot:latest 即可。
+    image: ${KOUHUBOT_IMAGE:-ia3000/kouhubot}:${KOUHUBOT_TAG:-latest}
     container_name: astrbot
     restart: unless-stopped
 
@@ -32,6 +35,9 @@ services:
     volumes:
       # 数据持久化：配置、插件、数据库、日志都在这里
       - ${DATA_DIR:-../data}:/AstrBot/data
+
+    # 升级镜像后，数据卷里还是旧版插件。设成 force 重启即可换成镜像自带版本。
+    # KOUHU_PLUGIN_SYNC: force
 
     # ---- 2C2G 资源护栏：防止 AstrBot 吃满内存导致整机不可用 ----
     mem_limit: ${ASTRBOT_MEM_LIMIT:-900m}

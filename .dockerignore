@@ -1,0 +1,21 @@
+# 构建上下文只需要插件目录和 entrypoint
+.local/
+.github/
+.git/
+tests/
+data/
+logs/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+.env
+.venv/
+venv/
+.idea/
+.vscode/
+*.md
+!plugins/astrbot_plugin_kouhu_oj/README.md
