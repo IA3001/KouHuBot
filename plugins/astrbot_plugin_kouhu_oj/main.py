@@ -674,12 +674,16 @@ class KouHuOJ(Star):
             "",
         ]
         for item in record["items"][:10]:
+            # 标记按分数区间判断，和判题档位保持一致：
+            # AC 85-100 / PARTIAL 40-84 / WA 0-39
             if item["solved"]:
                 mark = "✅"
-            elif item["gave_up"]:
+            elif not item["attempts"] and item["gave_up"]:
                 mark = "🏳"
+            elif (item["best_score"] or 0) >= 40:
+                mark = "🟡"
             else:
-                mark = "🟡" if item["best_score"] else "❌"
+                mark = "❌"
             title = item["title"] or item["slug"]
             detail = f"{item['best_score']} 分" if item["attempts"] else "已放弃"
             lines.append(f"{mark} {title}　{detail}")
