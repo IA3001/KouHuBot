@@ -133,6 +133,16 @@ CASES: list[dict] = [
 ]
 
 
+PITFALL_CASES = [
+    ("sort-comparator", "应该用 < 而不是 <=。std::sort 要求比较器是严格弱序，cmp(a,a) 必须为 false，用 <= 会让相等元素互相小于。", "AC"),
+    ("sort-comparator", "比较器写错了，会让排序结果不对。", "PARTIAL"),
+    ("sort-comparator", "应该换成 stable_sort 就没事了。", "WA"),
+    ("scanf-no-amp", "scanf 的 %d 需要变量地址，应该写 &n，传 n 的值会被当成地址写入非法内存。", "AC"),
+    ("scanf-no-amp", "scanf 那行有问题，读进来的值不对。", "PARTIAL"),
+    ("scanf-no-amp", "printf 的格式符写错了，应该用 %ld。", "WA"),
+]
+
+
 def load_config(path: Path) -> tuple[str, str, str]:
     """从 AstrBot 的 cmd_config.json 读取 base_url / key / model。"""
     cfg = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -178,6 +188,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, help="AstrBot cmd_config.json 路径")
     parser.add_argument("--model", help="覆盖模型名")
+    parser.add_argument("--pitfalls", action="store_true", help="跑坑点题判题用例")
     args = parser.parse_args()
 
     if args.config:
@@ -196,6 +207,28 @@ def main() -> int:
         model = args.model
 
     mod = stub.load_plugin(data_root=REPO_ROOT / ".local" / "judge_eval_data")
+
+    if args.pitfalls:
+        from sources.pitfalls import PitfallSource
+
+        src = PitfallSource()
+        print(f"模型     : {model}\n坑点用例 : {len(PITFALL_CASES)}\n")
+        hit = parsed = 0
+        for pid, sub, expect in PITFALL_CASES:
+            prompt = mod.build_pitfall_prompt(src.get(pid), sub)
+            res = mod.parse_verdict(call_llm(base_url, key, model, prompt))
+            if not res:
+                print(f"{pid:22} {expect:9} 解析失败")
+                continue
+            parsed += 1
+            match = res["verdict"] == expect
+            hit += match
+            print(f"{pid:22} {expect:9} {res['verdict']:9} {res['score']:<4} {'✅' if match else '❌'}")
+            print(f"   └─ {res['comment'][:78]}")
+        total = len(PITFALL_CASES)
+        print("─" * 66)
+        print(f"JSON 解析成功率 : {parsed}/{total}　判定符合预期 : {hit}/{total}")
+        return 0 if hit == total else 1
 
     print(f"模型     : {model}")
     print(f"端点     : {base_url}")

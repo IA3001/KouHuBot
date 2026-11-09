@@ -113,6 +113,38 @@ def test_command_regex(mod) -> None:
     print("  ✅ 指令正则：q/n/new/s/g/p/r/me/h 命中正确，且不误伤普通聊天")
 
 
+def test_pitfalls(mod) -> None:
+    print("  ", end="")
+    src = mod.PitfallSource()
+    assert src.count() >= 30, f"坑点太少：{src.count()}"
+
+    for item in src._load():
+        for key in ("id", "category", "title", "question", "buggy_code", "answer", "fix"):
+            assert item.get(key), f"{item.get('id')} 缺字段 {key}"
+
+    ids = [item["id"] for item in src._load()]
+    assert len(ids) == len(set(ids)), "存在重复 id"
+
+    assert src.get("sort-comparator")["title"] == "比较器用了 <="
+    assert src.get("不存在的id") is None
+
+    for _ in range(20):
+        assert src.random_pitfall(exclude=("sort-comparator",))["id"] != "sort-comparator"
+
+    for _ in range(10):
+        assert "STL" in src.random_pitfall(category="STL")["category"]
+
+    assert src.random_pitfall(category="不存在的分类")["id"]
+
+    problem = mod.KouHuOJ._pitfall_to_problem(src.get("scanf-no-amp"))
+    for key in ("slug", "title", "content_html", "tags", "link", "kind", "answer"):
+        assert problem.get(key) is not None, key
+    assert problem["slug"].startswith("grm:")
+    assert problem["kind"] == "pitfall"
+
+    print("✅ 坑点库：字段完整 / id 唯一 / 排除与分类过滤 / 转题目结构 全部正确")
+
+
 def test_store(mod) -> None:
     problem = {
         "slug": "two-sum",
@@ -246,6 +278,7 @@ def main() -> int:
         test_parse_verdict(mod)
         test_prompt_guard(mod)
         test_command_regex(mod)
+        test_pitfalls(mod)
         test_store(mod)
         test_render_parsing(mod)
         test_normalize_difficulty(mod)

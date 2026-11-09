@@ -26,6 +26,7 @@
 event.message_str
       │
       ├─ 匹配 RE_Q       (^/?q(\s+\S+)?$) → cmd_question
+      ├─ 匹配 RE_GRM     (^/?grm(\s+\S+)?$) → cmd_pitfall
       ├─ 匹配 RE_SUBMIT  (^/?(s|submit)\s+(.+)$) → cmd_submit
       ├─ 匹配 RE_GIVEUP  (^/?(g|giveup)$)  → cmd_giveup
       ├─ 匹配 RE_RANK    (^/?(r|rank)$)    → cmd_rank
@@ -202,6 +203,7 @@ AstrBot 提供 `put_kv_data / get_kv_data`（插件维度 KV），很适合存�
 | 需求 | 改动位置 |
 |---|---|
 | 换题目源 | 在 `sources/` 下新增一个类，实现 `random_problem()` / `problem_detail()` |
+| 加坑点 | 往 `pitfalls.json` 追加一条，不用改代码 |
 | 改判题尺度 | `build_judge_prompt()` 里的评分标准与硬性要求段落 |
 | 改指令名 | 文件顶部的 `RE_*` 正则 |
 | 加新指令 | 新写一个 `@filter.regex(...)` 方法 |

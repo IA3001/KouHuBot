@@ -455,7 +455,9 @@ def render_problem(
 
     directory = out_dir or tempfile.gettempdir()
     os.makedirs(directory, exist_ok=True)
-    filename = f"kouhu_{problem.get('slug', 'problem')}_{int(time.time() * 1000)}.png"
+    # slug 里可能有冒号等字符（坑点题是 grm:<id>），统一清洗成安全文件名
+    safe_slug = re.sub(r"[^0-9A-Za-z_-]+", "-", str(problem.get("slug", "problem")))
+    filename = f"kouhu_{safe_slug}_{int(time.time() * 1000)}.png"
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", filename)
     output_path = os.path.join(directory, safe_name)
     image.save(output_path, "PNG", optimize=True)

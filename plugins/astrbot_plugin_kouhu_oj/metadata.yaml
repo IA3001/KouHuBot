@@ -1,5 +1,5 @@
 name: astrbot_plugin_kouhu_oj
-desc: 群内 OJ —— q 抽题（题目实时从 LeetCode 拉取并渲染成图片）、s 提交后由大模型判题锐评、g 给原题链接、按得分排行。
+desc: 群内 OJ —— q 抽算法题（实时抓取并渲染成图片）、grm 抽 C++ 算竞坑点题、s 提交后由大模型判题锐评、r 排行榜。
 version: v0.2.0
 author: KouHuBot
 repo: https://github.com/IA3001/KouHuBot

@@ -385,10 +385,34 @@ async def main() -> int:
     runner.check("解析失败时明确告知", "判题失败" in out, out[:120])
 
     # ---------- 11. 帮助 ----------
+    banner("10.5 grm 抽坑点题 → 找茬玩法")
+    e = E("grm", group_id=group, sender_id="1001", sender_name="小明")
+    out = await runner.user_says(e, "cmd_pitfall")
+    pit_img = image_path_of(out)
+    runner.check("坑点题也发图片", pit_img is not None, out[:120])
+    pit = plugin._store.get_current(scope)
+    runner.check("坑点题已落库", pit is not None and pit.get("kind") == "pitfall", str(pit)[:120])
+    runner.check("坑点 slug 带 grm 前缀", str(pit.get("slug", "")).startswith("grm:"), str(pit.get("slug")))
+    runner.check("坑点题存了标准答案", bool(pit.get("answer")), str(pit.get("answer"))[:80])
+
+    e = E("p", group_id=group, sender_id="1001", sender_name="小明")
+    out = await runner.user_says(e, "cmd_current")
+    runner.check("坑点题可以重看", image_path_of(out) is not None, out[:120])
+
+    e = E("s 比较器应该用小于而不是小于等于，否则不满足严格弱序",
+          group_id=group, sender_id="1001", sender_name="小明")
+    out = await runner.user_says(e, "cmd_submit")
+    runner.check("坑点题可以提交判分", "分" in out, out[:150])
+
+    e = E("g", group_id=group, sender_id="1002", sender_name="小红")
+    out = await runner.user_says(e, "cmd_giveup")
+    runner.check("坑点题放弃给标准答案", "坑在哪" in out, out[:200])
+    runner.check("放弃时给出正确写法", "正确写法" in out, out[:200])
+
     banner("11. h 帮助")
     e = E("h", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_help")
-    for token in ("q", "s", "g", "r"):
+    for token in ("q", "s", "g", "r", "grm"):
         runner.check(f"帮助里列出了 {token}", f"\n{token}" in out or f"{token} " in out)
 
     # ---------- 汇总 ----------

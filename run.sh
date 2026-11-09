@@ -177,7 +177,7 @@ do_start() {
       echo "    停止  : ./run.sh stop"
       echo
       if grep -q "KouHuOJ.*就绪" "$LOG_FILE" 2>/dev/null; then
-        ok "插件已加载：$(grep -o '题目源 LeetCode 中文站' "$LOG_FILE" | tail -1)"
+        ok "插件已加载：$(grep -o '题目源 LeetCode 中文站 + 内置坑点 [0-9]* 条' "$LOG_FILE" | tail -1)"
       else
         warn "暂未看到插件加载日志，稍等几秒或看 ./run.sh logs"
       fi
