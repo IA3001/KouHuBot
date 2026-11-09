@@ -66,6 +66,57 @@ ok()    { printf '%s[✓]%s %s\n' "$C_OK" "$C_END" "$*"; }
 warn()  { printf '%s[!]%s %s\n' "$C_WARN" "$C_END" "$*"; }
 die()   { printf '%s[✗]%s %s\n' "$C_ERR" "$C_END" "$*" >&2; exit 1; }
 
+# 找出占用端口的进程。running_pid 依赖 pgrep，跨 PID 命名空间或
+# 由别的会话启动的实例会漏掉，这时只能从端口反查。
+port_owner() {
+  local pid=""
+  if command -v lsof >/dev/null 2>&1; then
+    pid="$(lsof -ti "tcp:$PORT" -sTCP:LISTEN 2>/dev/null | head -1)"
+  fi
+  if [[ -z "$pid" ]] && command -v fuser >/dev/null 2>&1; then
+    pid="$(fuser "$PORT/tcp" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' | head -1)"
+  fi
+  if [[ -z "$pid" ]]; then
+    # 纯 /proc 兜底：/proc/net/tcp 里找监听端口对应的 inode，再扫 fd 反查 PID
+    pid="$(python3 - "$PORT" <<'PYEOF' 2>/dev/null || true
+import os, sys
+port = int(sys.argv[1])
+inode = None
+for path in ("/proc/net/tcp", "/proc/net/tcp6"):
+    try:
+        rows = open(path).read().splitlines()[1:]
+    except OSError:
+        continue
+    for row in rows:
+        parts = row.split()
+        if len(parts) > 9 and parts[1].endswith(":%04X" % port) and parts[3] == "0A":
+            inode = parts[9]
+            break
+    if inode:
+        break
+if inode:
+    target = "socket:[%s]" % inode
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        fd_dir = "/proc/%s/fd" % pid
+        try:
+            fds = os.listdir(fd_dir)
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                if os.readlink("%s/%s" % (fd_dir, fd)) == target:
+                    print(pid)
+                    sys.exit(0)
+            except OSError:
+                pass
+PYEOF
+)"
+  fi
+  [[ -n "$pid" ]] && echo "$pid"
+}
+
 # ---------------------------------------------------------------- 环境准备
 ensure_source() {
   if [[ -f "$ASTRBOT_DIR/main.py" ]]; then
@@ -156,6 +207,30 @@ do_start() {
   fi
 
   sync_port
+
+  # 端口被占但 running_pid 找不到，说明是残留实例（别的会话启动的、或换了 PID 命名空间）
+  if port_open; then
+    local owner
+    # port_owner 找不到进程时返回 1，set -e 下会直接退出，这里必须吞掉
+    owner="$(port_owner || true)"
+    if [[ -n "$owner" ]]; then
+      local cmdline
+      cmdline="$(tr '\0' ' ' <"/proc/$owner/cmdline" 2>/dev/null || true)"
+      if [[ "$cmdline" == *main.py* ]]; then
+        warn "端口 $PORT 被残留的 AstrBot 进程占用（PID $owner），先结束它"
+        kill "$owner" 2>/dev/null || true
+        sleep 1
+        kill -0 "$owner" 2>/dev/null && kill -9 "$owner" 2>/dev/null || true
+        sleep 1
+      else
+        die "端口 $PORT 被其他程序占用（PID $owner: ${cmdline:0:60}），换个端口：KOUHU_PORT=6200 ./run.sh start"
+      fi
+    fi
+    if port_open; then
+      die "端口 $PORT 仍被占用，手动结束后再试：ss -tlnp | grep $PORT"
+    fi
+  fi
+
   info "启动 AstrBot ..."
   mkdir -p "$LOCAL_DIR"
   # setsid -f：fork 到独立会话后立即返回，父进程退出不影响 AstrBot
@@ -176,6 +251,11 @@ do_start() {
       echo "    日志  : $LOG_FILE"
       echo "    停止  : ./run.sh stop"
       echo
+      if grep -q "Loading IM platform adapter qq_official" "$LOG_FILE" 2>/dev/null; then
+        ok "QQ 官方机器人平台已加载"
+      else
+        warn "日志里没看到 QQ 平台加载 —— 检查平台是否已启用、AppID/Secret 是否填了"
+      fi
       if grep -q "KouHuOJ.*就绪" "$LOG_FILE" 2>/dev/null; then
         ok "插件已加载：$(grep -o '题目源 LeetCode 中文站 + 内置坑点 [0-9]* 条' "$LOG_FILE" | tail -1)"
       else
@@ -195,9 +275,22 @@ do_stop() {
   sync_port
   local pid
   if ! pid="$(running_pid)"; then
-    warn "AstrBot 未运行"
-    rm -f "$PID_FILE"
-    return
+    # pgrep 找不到，但端口可能被残留实例占着
+    if pid="$(port_owner)" && [[ -n "$pid" ]]; then
+      local cmdline
+      cmdline="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
+      if [[ "$cmdline" == *main.py* ]]; then
+        warn "pgrep 没找到，但端口 $PORT 被残留实例占用（PID $pid），一并结束"
+      else
+        warn "端口 $PORT 被其他程序占用（PID $pid），不动它"
+        rm -f "$PID_FILE"
+        return
+      fi
+    else
+      warn "AstrBot 未运行"
+      rm -f "$PID_FILE"
+      return
+    fi
   fi
   info "停止 AstrBot（PID $pid）..."
   kill "$pid" 2>/dev/null || true
