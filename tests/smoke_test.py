@@ -15,6 +15,7 @@ KouHuBot 插件离线冒烟测试
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -154,6 +155,33 @@ def test_store(mod) -> None:
         "content_html": "<p>给定一个整数数组。</p>",
         "link": "https://leetcode.cn/problems/two-sum/",
     }
+    # 回归：老版本留下的库，版本号已是当前版本但表结构是旧的，
+    # 需靠 _ensure_columns 自动补列（曾经因为 DROP 列表漏了 current_problem
+    # 导致线上报 "table current_problem has no column named kind"）
+    with tempfile.TemporaryDirectory() as tmp:
+        legacy = Path(tmp) / "legacy.db"
+        conn = sqlite3.connect(str(legacy))
+        conn.execute(
+            """CREATE TABLE current_problem (
+                scope_id TEXT PRIMARY KEY, slug TEXT NOT NULL, frontend_id TEXT,
+                title TEXT NOT NULL, difficulty TEXT, content_html TEXT, link TEXT,
+                issued_at REAL NOT NULL, issued_by TEXT)"""
+        )
+        conn.execute(f"PRAGMA user_version = {mod.SCHEMA_VERSION}")
+        conn.commit()
+        conn.close()
+
+        healed = mod.OjStore(legacy)
+        healed.set_current(
+            "group:x",
+            {"slug": "s", "title": "t", "kind": "pitfall", "answer": "a"},
+            "u",
+        )
+        got = healed.get_current("group:x")
+        assert got["kind"] == "pitfall" and got["answer"] == "a", got
+        healed.close()
+    print("  ", end="")
+
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
         store = mod.OjStore(db_path)

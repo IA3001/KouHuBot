@@ -239,7 +239,14 @@ class OjStore:
         version = cur.execute("PRAGMA user_version").fetchone()[0]
         if version != SCHEMA_VERSION:
             # 旧版本存的是预置题库，结构完全不同，直接重建
-            for table in ("problems", "group_problem", "user_progress", "scores", "progress"):
+            for table in (
+                "problems",
+                "group_problem",
+                "user_progress",
+                "scores",
+                "current_problem",
+                "progress",
+            ):
                 cur.execute(f"DROP TABLE IF EXISTS {table}")
             cur.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             logger.info(f"[KouHuOJ] 数据库结构升级到 v{SCHEMA_VERSION}，旧数据已清理")
@@ -278,9 +285,35 @@ class OjStore:
             )
             """
         )
+        # 兜底：CREATE TABLE IF NOT EXISTS 对已存在的表是空操作，
+        # 所以老库升级上来时不会自动多出新列。这里按需 ALTER 补齐，
+        # 以后再加字段即使忘了改上面的 DROP 列表也不会炸。
+        self._ensure_columns(
+            "current_problem",
+            {
+                "kind": "TEXT DEFAULT 'algo'",
+                "answer": "TEXT",
+            },
+        )
+        self._ensure_columns(
+            "progress",
+            {
+                "title": "TEXT",
+            },
+        )
+
         self._conn.commit()
 
     # -- 当前题 --------------------------------------------------------
+    def _ensure_columns(self, table: str, columns: dict[str, str]) -> None:
+        """给已存在的表补上缺失的列。"""
+        existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns.items():
+            if name not in existing:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+                logger.info(f"[KouHuOJ] 数据库补列：{table}.{name}")
+        self._conn.commit()
+
     def set_current(self, scope_id: str, problem: dict, issued_by: str) -> None:
         self._conn.execute(
             """
@@ -610,7 +643,13 @@ class KouHuOJ(Star):
             return
 
         path = self._render(problem)
-        self._store.set_current(scope, problem, event.get_sender_id())
+        try:
+            self._store.set_current(scope, problem, event.get_sender_id())
+        except Exception as exc:  # noqa: BLE001
+            # 数据库出错时不能静默——用户已经收到「正在抽题」，不给回音很像卡死
+            logger.error(f"[KouHuOJ] 保存当前题失败：{exc}")
+            yield event.plain_result("题目存不进去了（数据库错误），看日志排查")
+            return
         self._last_issue[scope] = now
 
         if path:
@@ -657,7 +696,12 @@ class KouHuOJ(Star):
 
         problem = self._pitfall_to_problem(pitfall)
         path = self._render(problem)
-        self._store.set_current(scope, problem, event.get_sender_id())
+        try:
+            self._store.set_current(scope, problem, event.get_sender_id())
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"[KouHuOJ] 保存坑点题失败：{exc}")
+            yield event.plain_result("题目存不进去了（数据库错误），看日志排查")
+            return
         self._last_issue[scope] = now
 
         if path:
