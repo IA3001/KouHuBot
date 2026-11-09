@@ -1,0 +1,32 @@
+{
+  "judge_provider_id": {
+    "type": "string",
+    "description": "判题使用的模型提供商 ID（在 WebUI「模型提供商」里可以查到）。留空则使用当前会话的默认模型。",
+    "default": ""
+  },
+  "judge_timeout_seconds": {
+    "type": "int",
+    "description": "单次判题的模型调用超时时间（秒）。太长会占住会话，太短容易误报失败。",
+    "default": 60
+  },
+  "max_submission_chars": {
+    "type": "int",
+    "description": "单次提交的最大字符数，超出直接拒收，避免超长文本撑爆上下文",
+    "default": 2000
+  },
+  "issue_cooldown_seconds": {
+    "type": "int",
+    "description": "同一个人连续换题的冷却秒数，防止刷屏；其他人不受限制",
+    "default": 15
+  },
+  "leaderboard_size": {
+    "type": "int",
+    "description": "排行榜最多显示多少名",
+    "default": 10
+  },
+  "reveal_answer_on_giveup": {
+    "type": "bool",
+    "description": "群友发「放弃」时是否公布标准答案。关闭后只记录放弃状态。",
+    "default": true
+  }
+}

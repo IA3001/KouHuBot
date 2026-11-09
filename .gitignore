@@ -1,0 +1,28 @@
+# ---- 运行时数据（绝不入库） ----
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+logs/
+.env
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- 备份 ----
+*.bak
+*.swp

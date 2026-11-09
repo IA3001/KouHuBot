@@ -1,0 +1,12 @@
+name: astrbot_plugin_kouhu_oj
+desc: 群内 OJ —— 口胡抽题、群友提交解答后由大模型判题并锐评、放弃可看标准答案、按 AC 数排行计分。
+version: v0.1.0
+author: KouHuBot
+repo: https://github.com/IA3001/KouHuBot
+display_name: 口胡 OJ
+short_desc: 一个会锐评的群内口胡小 OJ
+support_platforms:
+  - qq_official
+  - qq_official_webhook
+  - aiocqhttp
+astrbot_version: ">=4.9.2"

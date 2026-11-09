@@ -1,0 +1,2 @@
+# 本插件只依赖 Python 标准库（sqlite3 / json / asyncio），无需第三方包。
+# 保留此文件是为了让 AstrBot 的依赖安装流程有明确入口。

@@ -1,0 +1,46 @@
+# ============================================================
+# KouHuBot 部署编排（QQ 官方机器人 + AstrBot）
+# 目标环境：2C2G 云服务器
+#
+# 用法：
+#   cd deploy
+#   cp .env.example .env
+#   docker compose up -d
+#
+# 说明：
+#   QQ 官方机器人走 WebSocket 主动出站连接，
+#   不需要公网回调地址 / HTTPS 证书 / 反向代理，
+#   所以除了 WebUI 之外不暴露任何入站端口。
+# ============================================================
+
+services:
+  astrbot:
+    image: soulter/astrbot:latest
+    container_name: astrbot
+    restart: unless-stopped
+
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      # 中国大陆网络环境如需加速依赖下载，可取消注释（换成你的代理）
+      # HTTP_PROXY: http://192.168.1.10:7890
+      # HTTPS_PROXY: http://192.168.1.10:7890
+
+    ports:
+      # 默认只绑定本机回环地址，通过 SSH 隧道访问，避免 WebUI 暴露公网被爆破
+      - "${WEBUI_BIND:-127.0.0.1}:6185:6185"
+
+    volumes:
+      # 数据持久化：配置、插件、数据库、日志都在这里
+      - ${DATA_DIR:-../data}:/AstrBot/data
+
+    # ---- 2C2G 资源护栏：防止 AstrBot 吃满内存导致整机不可用 ----
+    mem_limit: ${ASTRBOT_MEM_LIMIT:-900m}
+    memswap_limit: ${ASTRBOT_MEMSWAP_LIMIT:-1800m}
+    cpus: 2.0
+
+    # ---- 日志轮转：小硬盘服务器必须限制日志体积 ----
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
