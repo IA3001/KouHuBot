@@ -96,6 +96,9 @@ def test_command_regex(mod) -> None:
         "r": mod.RE_RANK,
         "me": mod.RE_ME,
         "h": mod.RE_HELP,
+        "ask 题库现在什么样": mod.RE_ASK,
+        "/ask 运行环境如何": mod.RE_ASK,
+        "ASK 有多少坑点题": mod.RE_ASK,
     }
     for text, pattern in should_match.items():
         assert pattern.match(text), f"应当匹配但没匹配：{text!r}"
@@ -113,6 +116,9 @@ def test_command_regex(mod) -> None:
         "curve": mod.RE_CURRENT,
         "pure": mod.RE_CURRENT,
         "men": mod.RE_ME,
+        "ask": mod.RE_ASK,
+        "askew": mod.RE_ASK,
+        "a 运行情况": mod.RE_ASK,
     }
     for text, pattern in should_not_match.items():
         assert not pattern.match(text), f"不应匹配却匹配了：{text!r}"

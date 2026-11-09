@@ -123,6 +123,14 @@ SCENARIO = [
     {"text": "grm", "user": "u2", "name": "小红", "timeout": 60, "settle": 2.5},
     {"text": "r", "user": "u1", "name": "小明", "settle": 1.5},
     {"text": "me", "user": "u1", "name": "小明", "settle": 1.5},
+    {
+        "text": "ask 题库现在是什么样的，运行环境如何",
+        "user": "u1",
+        "name": "小明",
+        "timeout": 120,
+        "settle": 3.0,
+        "expect_replies": 2,  # ack + 真正的回答，只收到 ack 不算过
+    },
 ]
 
 EXPECT = {
@@ -133,6 +141,13 @@ EXPECT = {
     4: {"name": "grm 坑点", "contains": [], "images": 1},
     5: {"name": "r 排行榜", "contains": [], "images": 0},
     6: {"name": "me 记录", "contains": [], "images": 0},
+    7: {
+        "name": "ask 自由问答",
+        "contains": [],
+        "images": 0,
+        "min_records": 2,
+        "min_len": 20,
+    },
 }
 
 
@@ -245,6 +260,12 @@ def main() -> int:
                 problems.append(f"缺少「{needle}」")
         if expect["images"] and images < expect["images"]:
             problems.append(f"期望 {expect['images']} 张图，实际 {images}")
+        if expect.get("min_records") and len(group) < expect["min_records"]:
+            problems.append(f"期望至少 {expect['min_records']} 条回复，实际 {len(group)}")
+        if expect.get("min_len") and not any(
+            len(r.get("text") or "") >= expect["min_len"] for r in group
+        ):
+            problems.append(f"回复都没有超过 {expect['min_len']} 字（可能只有 ack）")
         label = f"{index}. {expect['name']}"
         if problems:
             failures += 1
