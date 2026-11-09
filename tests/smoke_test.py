@@ -310,6 +310,30 @@ def test_normalize_difficulty(mod) -> None:
     print("  ✅ normalize_difficulty：中英文/大小写/无效输入 全部正确")
 
 
+def test_meta_hiding(mod) -> None:
+    """题面默认不能泄露难度和标签——「Array」等于直接告诉用什么做法。"""
+    problem = {
+        "frontend_id": "849",
+        "difficulty": "MEDIUM",
+        "tags": ["Array", "Two Pointers"],
+        "title": "到最近的人的最大距离",
+    }
+    hidden = mod.build_meta_text(problem)
+    assert hidden == "LeetCode 849", hidden
+    assert "中等" not in hidden and "Array" not in hidden and "Two Pointers" not in hidden
+
+    shown = mod.build_meta_text(problem, show_meta=True)
+    assert "中等" in shown, shown
+    assert "Array" in shown, shown
+
+    # 没有任何元信息时不能留个空的分隔符
+    assert mod.build_meta_text({"title": "x"}) == ""
+
+    # 题目做完后（AC / 放弃）才展示
+    assert mod.build_meta_text(problem, show_meta=False) != shown
+    print("  ✅ 题面默认隐藏难度和标签，答对/放弃后才显示")
+
+
 def main() -> int:
     print("KouHuBot 插件冒烟测试")
     with tempfile.TemporaryDirectory() as tmp:
@@ -321,6 +345,7 @@ def main() -> int:
         test_store(mod)
         test_render_parsing(mod)
         test_normalize_difficulty(mod)
+        test_meta_hiding(mod)
     print("\n🎉 全部通过")
     return 0
 

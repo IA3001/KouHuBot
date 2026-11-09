@@ -33,7 +33,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 
 try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
-    from .render import blocks_to_plain, html_to_blocks, render_problem
+    from .render import blocks_to_plain, build_meta_text, html_to_blocks, render_problem
     from .sources import (
         DIFFICULTY_LABEL,
         LeetCodeSource,
@@ -45,7 +45,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     import sys
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from render import blocks_to_plain, html_to_blocks, render_problem  # type: ignore
+    from render import blocks_to_plain, build_meta_text, html_to_blocks, render_problem  # type: ignore
     from sources import (  # type: ignore
         DIFFICULTY_LABEL,
         LeetCodeSource,
@@ -73,7 +73,7 @@ PITFALL_PREFIX = "grm:"
 KIND_EXPR = "(CASE WHEN slug LIKE 'grm:%' THEN 'pitfall' ELSE 'algo' END)"
 
 # 指令正则：允许带 / 前缀，大小写不敏感
-PLUGIN_VERSION = "0.3.0"
+PLUGIN_VERSION = "0.3.1"
 
 # 状态快照里允许出现的配置项白名单。
 # 注意：只从插件自己的 config 取，绝不读 AstrBot 的 cmd_config.json——
@@ -320,6 +320,7 @@ _DDL_CURRENT_PROBLEM = """
         link          TEXT,
         kind          TEXT DEFAULT 'algo',
         answer        TEXT,
+        tags          TEXT,
         issued_at     REAL NOT NULL,
         issued_by     TEXT
     )
@@ -392,6 +393,7 @@ class OjStore:
             {
                 "kind": "TEXT DEFAULT 'algo'",
                 "answer": "TEXT",
+                "tags": "TEXT",
             },
         )
         self._ensure_columns(
@@ -444,8 +446,8 @@ class OjStore:
             """
             INSERT INTO current_problem
                 (scope_id, slug, frontend_id, title, difficulty, content_html, link,
-                 kind, answer, issued_at, issued_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 kind, answer, issued_at, issued_by, tags)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(scope_id) DO UPDATE SET
                 slug=excluded.slug,
                 frontend_id=excluded.frontend_id,
@@ -456,7 +458,8 @@ class OjStore:
                 kind=excluded.kind,
                 answer=excluded.answer,
                 issued_at=excluded.issued_at,
-                issued_by=excluded.issued_by
+                issued_by=excluded.issued_by,
+                tags=excluded.tags
             """,
             (
                 scope_id,
@@ -470,6 +473,7 @@ class OjStore:
                 problem.get("answer"),
                 time.time(),
                 issued_by,
+                json.dumps(problem.get("tags") or [], ensure_ascii=False),
             ),
         )
         self._conn.commit()
@@ -478,7 +482,19 @@ class OjStore:
         row = self._conn.execute(
             "SELECT * FROM current_problem WHERE scope_id = ?", (scope_id,)
         ).fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        problem = dict(row)
+        # tags 以 JSON 存，读回来要还原成 list，否则渲染会把它当成字符串
+        raw_tags = problem.get("tags")
+        if raw_tags:
+            try:
+                problem["tags"] = json.loads(raw_tags)
+            except (TypeError, ValueError):
+                problem["tags"] = []
+        else:
+            problem["tags"] = []
+        return problem
 
     # -- 进度 ----------------------------------------------------------
     def record_attempt(
@@ -761,7 +777,7 @@ class KouHuOJ(Star):
             "answer": pitfall.get("answer", ""),
         }
 
-    def _render(self, problem: dict) -> str | None:
+    def _render(self, problem: dict, show_meta: bool = False) -> str | None:
         if not self._image_dir:
             return None
         try:
@@ -769,6 +785,7 @@ class KouHuOJ(Star):
                 problem,
                 out_dir=str(self._image_dir),
                 width=int(self.config.get("image_width", 900)),
+                show_meta=show_meta,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[KouHuOJ] 渲染图片失败：{exc}")
@@ -959,6 +976,10 @@ class KouHuOJ(Star):
         ]
         if progress and result["score"] > best_score:
             lines[-1] += f"（最好成绩 {best_score} → {result['score']}）"
+        if result["verdict"] == VERDICT_AC:
+            hint = build_meta_text(problem, show_meta=True)
+            if hint:
+                lines.append(f"这题考察：{hint}")
         if result["comment"]:
             lines.append("")
             lines.append(result["comment"])
@@ -1006,8 +1027,10 @@ class KouHuOJ(Star):
             yield event.plain_result("\n".join(lines))
             return
 
+        hint = build_meta_text(problem, show_meta=True)
+        tail = f"\n难度/考察点：{hint}" if hint else ""
         yield event.plain_result(
-            f"放弃「{problem['title']}」，原题和题解在这里：\n{problem.get('link','')}"
+            f"放弃「{problem['title']}」，原题和题解在这里：\n{problem.get('link','')}{tail}"
         )
 
     @filter.regex(RE_CURRENT)
@@ -1023,7 +1046,11 @@ class KouHuOJ(Star):
             yield event.plain_result("这个群还没有题目，发 q 抽一道")
             return
 
-        path = self._render(problem)
+        # 做出来之后再看题，才把难度和标签放出来
+        user_id, _ = self._sender(event)
+        progress = self._store.get_progress(scope, user_id, problem["slug"])
+        reveal = bool(progress and progress.get("solved"))
+        path = self._render(problem, show_meta=reveal)
         if path:
             yield event.image_result(path)
         else:
@@ -1143,8 +1170,8 @@ class KouHuOJ(Star):
             snapshot["本群当前题目"] = (
                 {
                     "标题": current.get("title"),
-                    "难度": current.get("difficulty") or "未知",
                     "类型": "坑点题" if current.get("kind") == "pitfall" else "算法题",
+                    # 难度和标签不放进快照：ask 是个容易被拿来套提示的通道
                 }
                 if current
                 else "这个群还没抽过题"

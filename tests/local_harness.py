@@ -251,6 +251,17 @@ async def main() -> int:
     scope = f"group:{group}"
     E = stub.AstrMessageEvent
 
+    # 探针：记录每次渲染时 show_meta 是开还是关。
+    # 题面默认必须藏着难度和标签，否则「Array」就是白送做法。
+    render_meta_flags: list[bool] = []
+    _orig_render = mod.render_problem
+
+    def _spy_render(problem, **kwargs):
+        render_meta_flags.append(bool(kwargs.get("show_meta")))
+        return _orig_render(problem, **kwargs)
+
+    mod.render_problem = _spy_render
+
     # ---------- 0. 指令正则 ----------
     banner("0. 指令正则（英文缩写）")
     cases = [
@@ -291,6 +302,11 @@ async def main() -> int:
     runner.check("提示在图片之前", out.find("正在抽题") < out.find("[image]"), out[:120])
     runner.check("返回了图片", img is not None, out[:120])
     runner.check("图片文件真实存在", bool(img) and Path(img).is_file(), img or "")
+    runner.check(
+        "抽题出图时隐藏难度和标签",
+        render_meta_flags and render_meta_flags[-1] is False,
+        str(render_meta_flags),
+    )
     if img and Path(img).is_file():
         runner.check("图片大小合理（>5KB）", Path(img).stat().st_size > 5000, f"{Path(img).stat().st_size} bytes")
     current = plugin._store.get_current(scope)
@@ -324,6 +340,8 @@ async def main() -> int:
     e = E("s 用哈希表一次遍历，查 target-x，O(n)", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_submit")
     runner.check("判定为 AC", "AC" in out and "95 分" in out, out[:100])
+    # 题面里藏起来的难度/标签，答对之后才公布
+    runner.check("AC 后才公布难度和标签", "这题考察" in out and "Array" in out, out[:200])
 
     # ---------- 5. 部分 AC 后继续交 ----------
     # 规则改过：原来只要 AC（哪怕 95 分）就锁题，群友想刷满分没路可走。
@@ -378,6 +396,11 @@ async def main() -> int:
     e = E("g", group_id=group, sender_id="1002", sender_name="小红")
     out = await runner.user_says(e, "cmd_giveup")
     runner.check("给出原题链接", "leetcode.cn/problems/" in out, out[:150])
+    runner.check(
+        "放弃后公布难度和标签",
+        "考察点" in out and "Linked List" in out,
+        out[:200],
+    )
     runner.check("不再声称给标准答案", "标准答案" not in out)
 
     # ---------- 8. 重看当前题 ----------
@@ -474,6 +497,11 @@ async def main() -> int:
     e = E("cur", group_id=retry_group, sender_id="2001", sender_name="刷分哥")
     out = await runner.user_says(e, "cmd_current")
     runner.check("cur 也能重看当前题", bool(out.strip()), out[:120])
+    runner.check(
+        "做出来之后重看，才放出难度和标签",
+        render_meta_flags[-1] is True,
+        str(render_meta_flags[-3:]),
+    )
 
     # ---------- 13. ask 自由问答 ----------
     banner("13. ask 自由问答（状态快照 + 防注入）")

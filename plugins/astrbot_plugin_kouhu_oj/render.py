@@ -311,10 +311,31 @@ def _truncate_to_width(draw: ImageDraw.ImageDraw, text: str, font, max_width: in
     return clipped + ellipsis
 
 
+def build_meta_text(problem: dict, show_meta: bool = False) -> str:
+    """题面顶部那行小字：LeetCode 编号 · 难度 · 标签。
+
+    难度和标签默认**不显示**——「Array」「双指针」这种标签等于直接告诉
+    做题的人该用什么做法，题还没做就先泄底了。只有答对（或放弃）之后
+    才通过 show_meta=True 展示。
+    """
+    parts = []
+    if problem.get("frontend_id"):
+        parts.append(f"LeetCode {problem['frontend_id']}")
+    if show_meta:
+        difficulty = (problem.get("difficulty") or "").upper()
+        if difficulty:
+            parts.append(_DIFF_LABEL.get(difficulty, difficulty))
+        tags = problem.get("tags") or []
+        if tags:
+            parts.append(" / ".join(tags[:4]))
+    return "·".join(parts)
+
+
 def render_problem(
     problem: dict,
     out_dir: str | None = None,
     width: int = 900,
+    show_meta: bool = False,
 ) -> str:
     """把一道题渲染成 PNG，返回文件路径。"""
     blocks = html_to_blocks(problem.get("content_html") or "")
@@ -343,14 +364,7 @@ def render_problem(
 
     difficulty = (problem.get("difficulty") or "").upper()
 
-    meta_parts = []
-    if problem.get("frontend_id"):
-        meta_parts.append(f"LeetCode {problem['frontend_id']}")
-    if difficulty:
-        meta_parts.append(_DIFF_LABEL.get(difficulty, difficulty))
-    if problem.get("tags"):
-        meta_parts.append(" / ".join(problem["tags"][:4]))
-    meta_text = "·".join(meta_parts) if meta_parts else ""
+    meta_text = build_meta_text(problem, show_meta=show_meta)
     if meta_text:
         ops.append(
             {
