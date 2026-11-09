@@ -121,8 +121,16 @@ SCENARIO = [
         "settle": 3.0,
     },
     {"text": "grm", "user": "u2", "name": "小红", "timeout": 60, "settle": 2.5},
+    {
+        "text": "s 这里少了标记已访问，会重复入队",
+        "user": "u2",
+        "name": "小红",
+        "timeout": 120,
+        "settle": 3.0,
+    },
     {"text": "r", "user": "u1", "name": "小明", "settle": 1.5},
-    {"text": "me", "user": "u1", "name": "小明", "settle": 1.5},
+    {"text": "grm r", "user": "u1", "name": "小明", "settle": 1.5},
+    {"text": "me", "user": "u2", "name": "小红", "settle": 1.5},
     {
         "text": "ask 题库现在是什么样的，运行环境如何",
         "user": "u1",
@@ -133,15 +141,18 @@ SCENARIO = [
     },
 ]
 
+# 每一步期望出现的内容
 EXPECT = {
     0: {"name": "h 帮助", "contains": ["q", "grm"], "images": 0},
     1: {"name": "q 抽题", "contains": ["正在抽题"], "images": 1},
     2: {"name": "p 重看", "contains": [], "images": 1},
-    3: {"name": "s 判题", "contains": ["分"], "images": 0},
-    4: {"name": "grm 坑点", "contains": [], "images": 1},
-    5: {"name": "r 排行榜", "contains": [], "images": 0},
-    6: {"name": "me 记录", "contains": [], "images": 0},
-    7: {
+    3: {"name": "s 算法题判题", "contains": ["分"], "images": 0},
+    4: {"name": "grm 坑点", "contains": ["正在抽题"], "images": 1},
+    5: {"name": "s 坑点题判题", "contains": ["分"], "images": 0},
+    6: {"name": "r 算法题榜", "contains": ["算法题榜"], "images": 0},
+    7: {"name": "grm r 坑点榜", "contains": ["坑点榜"], "images": 0},
+    8: {"name": "me 记录", "contains": ["【坑点题】"], "images": 0},
+    9: {
         "name": "ask 自由问答",
         "contains": [],
         "images": 0,

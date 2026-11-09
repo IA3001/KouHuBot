@@ -64,6 +64,14 @@ VERDICTS = (VERDICT_AC, VERDICT_PARTIAL, VERDICT_WA)
 
 VERDICT_EMOJI = {VERDICT_AC: "✅", VERDICT_PARTIAL: "🟡", VERDICT_WA: "❌"}
 
+# 算法题和坑点题分开计分、分开排行。
+# progress 表没有 kind 列，靠 slug 前缀区分：坑点题一律是 grm:<id>。
+# 用表达式而不是加列，是为了不再动一次 schema（迁移已经出过两次事）。
+KIND_ALGO = "algo"
+KIND_PITFALL = "pitfall"
+PITFALL_PREFIX = "grm:"
+KIND_EXPR = "(CASE WHEN slug LIKE 'grm:%' THEN 'pitfall' ELSE 'algo' END)"
+
 # 指令正则：允许带 / 前缀，大小写不敏感
 PLUGIN_VERSION = "0.3.0"
 
@@ -112,8 +120,9 @@ grm      抽一道 C++ 坑点题（看代码找 bug）
 s 你的解答   提交，模型判分
 g        放弃（算法题给链接，坑点题给答案）
 p / cur  重看当前题
-r        排行榜
-me       查看自己的过题记录
+r        算法题排行榜
+grm r    坑点题排行榜（两类分开计分）
+me       自己的过题记录（两类分开统计）
 h        帮助
 ask 问题  自由问答：题库什么样、运行环境如何，随便问
 
@@ -525,9 +534,15 @@ class OjStore:
         ).fetchone()
         return dict(row) if row else None
 
-    def leaderboard(self, scope_id: str, limit: int) -> list[dict]:
+    def leaderboard(self, scope_id: str, limit: int, kind: str | None = None) -> list[dict]:
+        where = "p.scope_id = ?"
+        params: list = [scope_id]
+        if kind:
+            where += f" AND {KIND_EXPR.replace('slug', 'p.slug')} = ?"
+            params.append(kind)
+        params.append(limit)
         rows = self._conn.execute(
-            """
+            f"""
             SELECT p.user_id,
                    (SELECT p2.user_name
                       FROM progress p2
@@ -540,25 +555,30 @@ class OjStore:
                    SUM(p.solved) AS solved,
                    COUNT(*) AS tried
             FROM progress p
-            WHERE p.scope_id = ?
+            WHERE {where}
             GROUP BY p.user_id
             ORDER BY total DESC, solved DESC
             LIMIT ?
             """,
-            (scope_id, limit),
+            tuple(params),
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def user_record(self, scope_id: str, user_id: str) -> dict:
+    def user_record(self, scope_id: str, user_id: str, kind: str | None = None) -> dict:
         """某个人的过题记录：汇总 + 逐题明细。"""
+        where = "scope_id = ? AND user_id = ?"
+        params: list = [scope_id, user_id]
+        if kind:
+            where += f" AND {KIND_EXPR} = ?"
+            params.append(kind)
         rows = self._conn.execute(
-            """
+            f"""
             SELECT slug, title, attempts, best_score, solved, gave_up, last_at
             FROM progress
-            WHERE scope_id = ? AND user_id = ?
+            WHERE {where}
             ORDER BY last_at DESC
             """,
-            (scope_id, user_id),
+            tuple(params),
         ).fetchall()
         items = [dict(row) for row in rows]
         return {
@@ -583,6 +603,10 @@ class OjStore:
             "用过的群": one("SELECT COUNT(DISTINCT scope_id) FROM progress"),
             "AC 记录": one("SELECT COUNT(*) FROM progress WHERE solved = 1"),
             "满分记录": one("SELECT COUNT(*) FROM progress WHERE best_score >= 100"),
+            "算法题记录": one(
+                "SELECT COUNT(*) FROM progress WHERE slug NOT LIKE 'grm:%'"
+            ),
+            "坑点题记录": one("SELECT COUNT(*) FROM progress WHERE slug LIKE 'grm:%'"),
             "发过题的群": one("SELECT COUNT(*) FROM current_problem"),
         }
 
@@ -821,6 +845,15 @@ class KouHuOJ(Star):
             return
 
         scope = self._scope_of(event)
+        match = RE_GRM.match(event.message_str or "")
+        arg = (match.group(1) if match else None) or None
+
+        # grm r / grm rank —— 看坑点题榜，不是抽题，所以不走冷却
+        if arg and arg.lower() in ("r", "rank"):
+            text = self._rank_text(scope, KIND_PITFALL)
+            yield event.plain_result(text or "还没有人做过坑点题，发 grm 抽一道开始吧")
+            return
+
         cooldown = float(self.config.get("issue_cooldown_seconds", 15))
         now = time.time()
         left = cooldown - (now - self._last_issue.get(scope, 0.0))
@@ -828,8 +861,7 @@ class KouHuOJ(Star):
             yield event.plain_result(f"抽题冷却中，{int(left) + 1} 秒后再来")
             return
 
-        match = RE_GRM.match(event.message_str or "")
-        category = (match.group(1) if match else None) or None
+        category = arg
 
         current = self._store.get_current(scope)
         exclude: tuple[str, ...] = ()
@@ -997,22 +1029,16 @@ class KouHuOJ(Star):
         else:
             yield event.plain_result(f"【{problem['title']}】\n{problem.get('link','')}")
 
-    @filter.regex(RE_RANK)
-    async def cmd_rank(self, event: AstrMessageEvent):
-        """r —— 排行榜"""
-        if not self._store:
-            yield event.plain_result("插件还没初始化完，稍等几秒再试")
-            return
-
-        scope = self._scope_of(event)
+    def _rank_text(self, scope: str, kind: str) -> str | None:
+        """渲染某一类题目的排行榜。没有记录时返回 None。"""
         limit = int(self.config.get("leaderboard_size", 10))
-        rows = self._store.leaderboard(scope, limit)
+        rows = self._store.leaderboard(scope, limit, kind=kind)
         if not rows:
-            yield event.plain_result("还没有人提交过，发 q 抽一道开始吧")
-            return
+            return None
 
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-        lines = ["🏆 本群排行榜"]
+        title = "🏆 本群坑点榜（grm）" if kind == KIND_PITFALL else "🏆 本群算法题榜"
+        lines = [title]
         for index, row in enumerate(rows, start=1):
             name = row["user_name"] or row["user_id"]
             badge = medals.get(index, f"{index}.")
@@ -1020,7 +1046,27 @@ class KouHuOJ(Star):
                 f"{badge} {name}  {row['total']} 分  "
                 f"AC {row['solved']}/{row['tried']} 题"
             )
-        yield event.plain_result("\n".join(lines))
+        if kind == KIND_ALGO:
+            lines.append("")
+            lines.append("坑点题榜：发 grm r")
+        else:
+            lines.append("")
+            lines.append("算法题榜：发 r")
+        return "\n".join(lines)
+
+    @filter.regex(RE_RANK)
+    async def cmd_rank(self, event: AstrMessageEvent):
+        """r —— 算法题排行榜"""
+        if not self._store:
+            yield event.plain_result("插件还没初始化完，稍等几秒再试")
+            return
+
+        scope = self._scope_of(event)
+        text = self._rank_text(scope, KIND_ALGO)
+        if not text:
+            yield event.plain_result("还没有人提交过算法题，发 q 抽一道开始吧")
+            return
+        yield event.plain_result(text)
 
     @filter.regex(RE_ME)
     async def cmd_me(self, event: AstrMessageEvent):
@@ -1031,33 +1077,38 @@ class KouHuOJ(Star):
 
         scope = self._scope_of(event)
         user_id, user_name = self._sender(event)
-        record = self._store.user_record(scope, user_id)
-        if not record["items"]:
+        algo = self._store.user_record(scope, user_id, kind=KIND_ALGO)
+        pitfall = self._store.user_record(scope, user_id, kind=KIND_PITFALL)
+        if not algo["items"] and not pitfall["items"]:
             yield event.plain_result("你还没参与过，发 q 抽一道开始吧")
             return
 
-        lines = [
-            f"📋 {user_name} 的过题记录",
-            f"总分 {record['total']}　AC {record['solved']} 题　"
-            f"参与 {record['tried']} 题　提交 {record['attempts']} 次",
-            "",
-        ]
-        for item in record["items"][:10]:
+        def marks(item: dict) -> str:
             # 标记按分数区间判断，和判题档位保持一致：
             # AC 85-100 / PARTIAL 40-84 / WA 0-39
             if item["solved"]:
-                mark = "✅"
-            elif not item["attempts"] and item["gave_up"]:
-                mark = "🏳"
-            elif (item["best_score"] or 0) >= 40:
-                mark = "🟡"
-            else:
-                mark = "❌"
-            title = item["title"] or item["slug"]
-            detail = f"{item['best_score']} 分" if item["attempts"] else "已放弃"
-            lines.append(f"{mark} {title}　{detail}")
-        if len(record["items"]) > 10:
-            lines.append(f"…… 还有 {len(record['items']) - 10} 题")
+                return "✅"
+            if not item["attempts"] and item["gave_up"]:
+                return "🏳"
+            if (item["best_score"] or 0) >= 40:
+                return "🟡"
+            return "❌"
+
+        lines = [f"📋 {user_name} 的过题记录"]
+        for label, record in (("算法题", algo), ("坑点题", pitfall)):
+            if not record["items"]:
+                continue
+            lines.append("")
+            lines.append(
+                f"【{label}】总分 {record['total']}　AC {record['solved']} 题　"
+                f"参与 {record['tried']} 题　提交 {record['attempts']} 次"
+            )
+            for item in record["items"][:8]:
+                title = item["title"] or item["slug"]
+                detail = f"{item['best_score']} 分" if item["attempts"] else "已放弃"
+                lines.append(f"{marks(item)} {title}　{detail}")
+            if len(record["items"]) > 8:
+                lines.append(f"…… 还有 {len(record['items']) - 8} 题")
         yield event.plain_result("\n".join(lines))
 
     # -- 自由问答 ------------------------------------------------------
@@ -1100,20 +1151,23 @@ class KouHuOJ(Star):
             )
 
             try:
-                rows = self._store.leaderboard(
-                    scope, int(self.config.get("leaderboard_size", 10))
-                )
-                snapshot["本群排行榜"] = [
-                    {
-                        "昵称": row["user_name"],
-                        "总分": row["total"],
-                        "AC": row["solved"],
-                        "参与题目": row["tried"],
-                    }
-                    for row in rows
-                ]
+                limit = int(self.config.get("leaderboard_size", 10))
+                for label, kind in (
+                    ("本群算法题榜", KIND_ALGO),
+                    ("本群坑点榜", KIND_PITFALL),
+                ):
+                    rows = self._store.leaderboard(scope, limit, kind=kind)
+                    snapshot[label] = [
+                        {
+                            "昵称": row["user_name"],
+                            "总分": row["total"],
+                            "AC": row["solved"],
+                            "参与题目": row["tried"],
+                        }
+                        for row in rows
+                    ] or "暂无记录"
             except Exception:  # noqa: BLE001
-                snapshot["本群排行榜"] = "读取失败"
+                snapshot["排行榜"] = "读取失败"
 
         snapshot["配置"] = {
             key: self.config.get(key) for key in SAFE_CONFIG_KEYS if key in self.config
@@ -1126,8 +1180,9 @@ class KouHuOJ(Star):
             "s <解答>": "提交，模型判分",
             "g": "放弃",
             "p / cur": "重看当前题",
-            "r": "排行榜",
-            "me": "个人过题记录",
+            "r": "算法题排行榜",
+            "grm r": "坑点题排行榜",
+            "me": "个人过题记录，两类分开统计",
             "h": "帮助",
             "ask <问题>": "就是现在这个自由问答",
         }
