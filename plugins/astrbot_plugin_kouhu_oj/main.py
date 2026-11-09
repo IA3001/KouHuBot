@@ -33,7 +33,13 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 
 try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
-    from .render import blocks_to_plain, build_meta_text, html_to_blocks, render_problem
+    from .render import (
+        blocks_to_plain,
+        build_meta_text,
+        html_to_blocks,
+        render_leaderboard,
+        render_problem,
+    )
     from .sources import (
         DIFFICULTY_LABEL,
         LeetCodeSource,
@@ -45,7 +51,13 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     import sys
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from render import blocks_to_plain, build_meta_text, html_to_blocks, render_problem  # type: ignore
+    from render import (  # type: ignore
+        blocks_to_plain,
+        build_meta_text,
+        html_to_blocks,
+        render_leaderboard,
+        render_problem,
+    )
     from sources import (  # type: ignore
         DIFFICULTY_LABEL,
         LeetCodeSource,
@@ -73,7 +85,7 @@ PITFALL_PREFIX = "grm:"
 KIND_EXPR = "(CASE WHEN slug LIKE 'grm:%' THEN 'pitfall' ELSE 'algo' END)"
 
 # 指令正则：允许带 / 前缀，大小写不敏感
-PLUGIN_VERSION = "0.3.1"
+PLUGIN_VERSION = "0.4.0"
 
 # 状态快照里允许出现的配置项白名单。
 # 注意：只从插件自己的 config 取，绝不读 AstrBot 的 cmd_config.json——
@@ -867,8 +879,15 @@ class KouHuOJ(Star):
 
         # grm r / grm rank —— 看坑点题榜，不是抽题，所以不走冷却
         if arg and arg.lower() in ("r", "rank"):
-            text = self._rank_text(scope, KIND_PITFALL)
-            yield event.plain_result(text or "还没有人做过坑点题，发 grm 抽一道开始吧")
+            rows = self._rank_rows(scope, KIND_PITFALL)
+            if not rows:
+                yield event.plain_result("还没有人做过坑点题，发 grm 抽一道开始吧")
+                return
+            path = self._rank_image(rows, KIND_PITFALL)
+            if path:
+                yield event.image_result(path)
+            else:
+                yield event.plain_result(self._rank_text(rows, KIND_PITFALL))
             return
 
         cooldown = float(self.config.get("issue_cooldown_seconds", 15))
@@ -1056,29 +1075,44 @@ class KouHuOJ(Star):
         else:
             yield event.plain_result(f"【{problem['title']}】\n{problem.get('link','')}")
 
-    def _rank_text(self, scope: str, kind: str) -> str | None:
-        """渲染某一类题目的排行榜。没有记录时返回 None。"""
+    def _rank_rows(self, scope: str, kind: str) -> list[dict]:
         limit = int(self.config.get("leaderboard_size", 10))
-        rows = self._store.leaderboard(scope, limit, kind=kind)
-        if not rows:
+        return self._store.leaderboard(scope, limit, kind=kind)
+
+    @staticmethod
+    def _rank_title(kind: str) -> str:
+        return "本群坑点榜（grm）" if kind == KIND_PITFALL else "本群算法题榜"
+
+    @staticmethod
+    def _rank_footer(kind: str) -> str:
+        return "算法题榜：发 r" if kind == KIND_PITFALL else "坑点题榜：发 grm r"
+
+    def _rank_image(self, rows: list[dict], kind: str) -> str | None:
+        """排行榜画成图片。条目再多也不会撞消息长度上限。"""
+        if not self._image_dir:
+            return None
+        try:
+            return render_leaderboard(
+                rows,
+                out_dir=str(self._image_dir),
+                title=self._rank_title(kind),
+                footer=self._rank_footer(kind),
+                width=int(self.config.get("image_width", 900)),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[KouHuOJ] 排行榜渲染失败，退回文本：{exc}")
             return None
 
-        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-        title = "🏆 本群坑点榜（grm）" if kind == KIND_PITFALL else "🏆 本群算法题榜"
-        lines = [title]
+    def _rank_text(self, rows: list[dict], kind: str) -> str:
+        """图片渲染失败时的纯文本兜底。"""
+        lines = [f"🏆 {self._rank_title(kind)}"]
         for index, row in enumerate(rows, start=1):
             name = row["user_name"] or row["user_id"]
-            badge = medals.get(index, f"{index}.")
             lines.append(
-                f"{badge} {name}  {row['total']} 分  "
-                f"AC {row['solved']}/{row['tried']} 题"
+                f"{index}. {name}  {row['total']} 分  AC {row['solved']}/{row['tried']} 题"
             )
-        if kind == KIND_ALGO:
-            lines.append("")
-            lines.append("坑点题榜：发 grm r")
-        else:
-            lines.append("")
-            lines.append("算法题榜：发 r")
+        lines.append("")
+        lines.append(self._rank_footer(kind))
         return "\n".join(lines)
 
     @filter.regex(RE_RANK)
@@ -1089,11 +1123,15 @@ class KouHuOJ(Star):
             return
 
         scope = self._scope_of(event)
-        text = self._rank_text(scope, KIND_ALGO)
-        if not text:
+        rows = self._rank_rows(scope, KIND_ALGO)
+        if not rows:
             yield event.plain_result("还没有人提交过算法题，发 q 抽一道开始吧")
             return
-        yield event.plain_result(text)
+        path = self._rank_image(rows, KIND_ALGO)
+        if path:
+            yield event.image_result(path)
+        else:
+            yield event.plain_result(self._rank_text(rows, KIND_ALGO))
 
     @filter.regex(RE_ME)
     async def cmd_me(self, event: AstrMessageEvent):

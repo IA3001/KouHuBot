@@ -149,8 +149,8 @@ EXPECT = {
     3: {"name": "s 算法题判题", "contains": ["分"], "images": 0},
     4: {"name": "grm 坑点", "contains": ["正在抽题"], "images": 1},
     5: {"name": "s 坑点题判题", "contains": ["分"], "images": 0},
-    6: {"name": "r 算法题榜", "contains": ["算法题榜"], "images": 0},
-    7: {"name": "grm r 坑点榜", "contains": ["坑点榜"], "images": 0},
+    6: {"name": "r 算法题榜", "contains": [], "images": 1},
+    7: {"name": "grm r 坑点榜", "contains": [], "images": 1},
     8: {"name": "me 记录", "contains": ["【坑点题】"], "images": 0},
     9: {
         "name": "ask 自由问答",

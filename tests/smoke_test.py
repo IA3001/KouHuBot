@@ -334,6 +334,34 @@ def test_meta_hiding(mod) -> None:
     print("  ✅ 题面默认隐藏难度和标签，答对/放弃后才显示")
 
 
+def test_leaderboard_render(mod) -> None:
+    """排行榜画图：emoji 不能变成豆腐块，空榜不能崩。"""
+    import render  # 插件目录已在 sys.path 里
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = [
+            {"user_name": "壹💭💭💭", "total": 485, "solved": 5, "tried": 7},
+            {"user_name": "🔥小明🔥", "total": 300, "solved": 3, "tried": 5},
+            {"user_name": "🎉🎉🎉", "total": 10, "solved": 0, "tried": 1},
+        ]
+        path = render.render_leaderboard(
+            rows, out_dir=tmp, title="本群算法题榜", footer="坑点题榜：发 grm r"
+        )
+        assert Path(path).is_file()
+        assert Path(path).stat().st_size > 1000, "图片太小，可能没画出内容"
+
+        # 空榜也要能出图，不能抛异常
+        empty = render.render_leaderboard([], out_dir=tmp)
+        assert Path(empty).is_file()
+
+        # 字体画不出的 emoji 要去掉，全被去掉时退回「匿名」
+        assert render._display_name("壹💭💭💭") == "壹"
+        assert render._display_name("🔥小明🔥") == "小明"
+        assert render._display_name("🎉🎉🎉") == "匿名"
+        assert render._display_name("") == "匿名"
+    print("  ✅ 排行榜图片：emoji 过滤、空榜不崩")
+
+
 def main() -> int:
     print("KouHuBot 插件冒烟测试")
     with tempfile.TemporaryDirectory() as tmp:
@@ -346,6 +374,7 @@ def main() -> int:
         test_render_parsing(mod)
         test_normalize_difficulty(mod)
         test_meta_hiding(mod)
+        test_leaderboard_render(mod)
     print("\n🎉 全部通过")
     return 0
 

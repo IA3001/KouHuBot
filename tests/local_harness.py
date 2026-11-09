@@ -372,8 +372,15 @@ async def main() -> int:
     banner("6. r 排行榜")
     e = E("r", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_rank")
-    runner.check("榜单含小明", "小明" in out and "100 分" in out, out[:150])
-    runner.check("统计 AC 题数", "AC 1/1 题" in out, out[:150])
+    img = image_path_of(out)
+    runner.check("排行榜发的是图片", img is not None and Path(img).is_file(), out[:150])
+    rank_rows = plugin._store.leaderboard(scope, 10, kind=mod.KIND_ALGO)
+    runner.check("榜单含小明", any(r["user_name"] == "小明" for r in rank_rows), str(rank_rows))
+    runner.check(
+        "榜单分数正确",
+        any(r["user_name"] == "小明" and r["total"] == 100 for r in rank_rows),
+        str(rank_rows),
+    )
 
     # ---------- 6.5 个人过题记录 ----------
     banner("6.5 me 查看自己的过题记录")
@@ -548,12 +555,20 @@ async def main() -> int:
 
     e = E("r", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_rank")
-    runner.check("r 是算法题榜", "算法题榜" in out, out[:120])
-    runner.check("r 里不含坑点榜数据", "坑点榜（grm）" not in out, out[:120])
+    img = image_path_of(out)
+    runner.check("r 发的是图片", img is not None and Path(img).is_file(), out[:120])
+    algo_board = plugin._store.leaderboard(scope, 10, kind=mod.KIND_ALGO)
+    pit_board = plugin._store.leaderboard(scope, 10, kind=mod.KIND_PITFALL)
+    runner.check(
+        "r 里不含只做过坑点题的人",
+        {r["user_id"] for r in algo_board} != {r["user_id"] for r in pit_board},
+        f"algo={algo_board} pit={pit_board}",
+    )
 
     e = E("grm r", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_pitfall")
-    runner.check("grm r 是坑点榜", "坑点榜" in out, out[:120])
+    img = image_path_of(out)
+    runner.check("grm r 发的是图片", img is not None and Path(img).is_file(), out[:120])
     runner.check("grm r 不会当成抽题", "正在抽题" not in out, out[:120])
 
     e = E("me", group_id=group, sender_id="1001", sender_name="小明")

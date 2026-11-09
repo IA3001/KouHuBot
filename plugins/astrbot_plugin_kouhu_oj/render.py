@@ -476,3 +476,188 @@ def render_problem(
     output_path = os.path.join(directory, safe_name)
     image.save(output_path, "PNG", optimize=True)
     return output_path
+
+
+# --------------------------------------------------------------------------
+# 排行榜
+# --------------------------------------------------------------------------
+
+_RANK_GOLD = "#B8860B"
+_RANK_SILVER = "#6B7280"
+_RANK_BRONZE = "#A0522D"
+_RANK_STRIPE = "#F9FAFB"
+_RANK_ROW_H = 54
+
+# 中文像素字体里没有 emoji 字形，直接画就是一串豆腐块（□）。
+# 排行榜是给人看的，宁可把 emoji 去掉也不要满屏方框。
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"  # 表情、符号、交通、旗帜等
+    "\U00002600-\U000027BF"  # 杂项符号 / 装饰符号
+    "\U00002190-\U000021FF"  # 箭头
+    "\U00002B00-\U00002BFF"  # 杂项符号和箭头
+    "\U0000FE00-\U0000FE0F"  # 变体选择符
+    "\U0000200D"             # 零宽连接符
+    "\U000020E3"             # 组合用包围键帽
+    "\U00003030\U0000303D\U00003297\U00003299"
+    "]+"
+)
+
+
+def _display_name(name: str) -> str:
+    """去掉字体画不出来的 emoji，避免整行变成豆腐块。"""
+    cleaned = _EMOJI_RE.sub("", str(name)).strip()
+    return cleaned or "匿名"
+
+
+
+def render_leaderboard(
+    rows: list[dict],
+    out_dir: str | None = None,
+    *,
+    title: str = "本群排行榜",
+    footer: str | None = None,
+    width: int = 900,
+) -> str:
+    """把排行榜画成 PNG。
+
+    群消息里贴长文本既容易撞长度上限，条目一多也没法看。
+    画成图片就没有这些限制，行数只影响图片高度。
+    """
+    title_font = _font(_TITLE_SIZE, "bold")
+    head_font = _font(_META_SIZE)
+    row_font = _font(_BODY_SIZE)
+    foot_font = _font(_FOOT_SIZE)
+
+    inner_width = width - _PADDING * 2
+    probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+
+    # 列宽：排名 / 昵称 / 总分 / AC
+    rank_w = 76
+    score_w = 150
+    ac_w = 150
+    name_w = inner_width - rank_w - score_w - ac_w
+    name_x = _PADDING + rank_w
+    score_right = _PADDING + inner_width - ac_w - 16
+    ac_right = _PADDING + inner_width
+
+    ops: list[dict] = []
+    y = _PADDING
+
+    ops.append(
+        {"kind": "text", "text": title, "font": title_font, "x": _PADDING, "y": y, "fill": _TITLE_FG}
+    )
+    y += int(_TITLE_SIZE * _LINE_RATIO) + 6
+
+    # 表头
+    head_y = y
+    for text, x, anchor in (
+        ("排名", _PADDING + 8, "la"),
+        ("昵称", name_x, "la"),
+        ("总分", score_right, "ra"),
+        ("AC", ac_right, "ra"),
+    ):
+        ops.append(
+            {"kind": "text", "text": text, "font": head_font, "x": x, "y": head_y,
+             "fill": _MUTED_FG, "anchor": anchor}
+        )
+    y += int(_META_SIZE * _LINE_RATIO) + 8
+
+    ops.append({"kind": "rule", "y": y, "x": _PADDING, "w": inner_width})
+    y += 10
+
+    rank_colors = {1: _RANK_GOLD, 2: _RANK_SILVER, 3: _RANK_BRONZE}
+    for index, row in enumerate(rows, start=1):
+        if index % 2 == 0:
+            ops.append(
+                {"kind": "stripe", "x": _PADDING, "y": y - 6, "w": inner_width, "h": _RANK_ROW_H - 4}
+            )
+        name = _display_name(row.get("user_name") or row.get("user_id") or "匿名")
+        ops.append(
+            {
+                "kind": "text",
+                "text": f"{index}",
+                "font": row_font,
+                "x": _PADDING + 8,
+                "y": y,
+                "fill": rank_colors.get(index, _BODY_FG),
+            }
+        )
+        ops.append(
+            {
+                "kind": "text",
+                "text": _truncate_to_width(probe, name, row_font, name_w - 12),
+                "font": row_font,
+                "x": name_x,
+                "y": y,
+                "fill": _BODY_FG,
+            }
+        )
+        ops.append(
+            {
+                "kind": "text",
+                "text": f"{int(row.get('total') or 0)}",
+                "font": row_font,
+                "x": score_right,
+                "y": y,
+                "fill": _BODY_FG,
+                "anchor": "ra",
+            }
+        )
+        ops.append(
+            {
+                "kind": "text",
+                "text": f"{int(row.get('solved') or 0)}/{int(row.get('tried') or 0)}",
+                "font": row_font,
+                "x": ac_right,
+                "y": y,
+                "fill": _MUTED_FG,
+                "anchor": "ra",
+            }
+        )
+        y += _RANK_ROW_H
+
+    y += 6
+    ops.append({"kind": "rule", "y": y, "x": _PADDING, "w": inner_width})
+    y += 16
+
+    if footer:
+        ops.append(
+            {
+                "kind": "text",
+                "text": _truncate_to_width(probe, footer, foot_font, inner_width),
+                "font": foot_font,
+                "x": _PADDING,
+                "y": y,
+                "fill": _MUTED_FG,
+            }
+        )
+        y += int(_FOOT_SIZE * _LINE_RATIO)
+
+    total_height = y + _PADDING
+
+    image = Image.new("RGB", (width, total_height), _BG)
+    draw = ImageDraw.Draw(image)
+    for op in ops:
+        if op["kind"] == "text":
+            draw.text(
+                (op["x"], op["y"]),
+                op["text"],
+                font=op["font"],
+                fill=op["fill"],
+                anchor=op.get("anchor", "la"),
+            )
+        elif op["kind"] == "rule":
+            draw.line([(op["x"], op["y"]), (op["x"] + op["w"], op["y"])], fill=_RULE, width=1)
+        elif op["kind"] == "stripe":
+            draw.rectangle(
+                [(op["x"], op["y"]), (op["x"] + op["w"], op["y"] + op["h"])],
+                fill=_RANK_STRIPE,
+            )
+
+    directory = out_dir or tempfile.gettempdir()
+    os.makedirs(directory, exist_ok=True)
+    filename = f"kouhu_rank_{int(time.time() * 1000)}.png"
+    output_path = os.path.join(directory, filename)
+    image.save(output_path, "PNG", optimize=True)
+    return output_path
