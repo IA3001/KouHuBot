@@ -80,6 +80,7 @@ AstrBot（Python，Docker）
 
 ```
 KouHuBot/
+├── run.sh                     # 一键启动入口（本地调试，不用 Docker）
 ├── deploy/
 │   ├── docker-compose.yml     # AstrBot 编排，带 2C2G 内存护栏与日志轮转
 │   ├── .env.example           # 环境变量模板
@@ -104,29 +105,53 @@ KouHuBot/
 
 ---
 
-## 本地运行（不用 Docker）
-
-想先验证能不能跑，直接对着 AstrBot 源码启动即可：
+## 一键启动（本地，不用 Docker）
 
 ```bash
-git clone --depth 1 https://github.com/AstrBotDevs/AstrBot
-cd AstrBot
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-
-mkdir -p data/plugins
-cp -r ../KouHuBot/plugins/astrbot_plugin_kouhu_oj data/plugins/
-
-python main.py
+./run.sh
 ```
 
-日志出现下面这行就说明插件跑通了：
+**就这一条命令。** 首次运行会自动完成：下载 AstrBot 源码 → 建虚拟环境 → 装依赖 → 同步插件 → 启动，然后打印 WebUI 地址。
 
 ```
-[KouHuOJ] 就绪：题库 8 条（本次载入 8 条），数据目录 .../data/plugin_data/astrbot_plugin_kouhu_oj
+[✓] 插件已同步到 data/plugins/
+[·] 启动 AstrBot ...
+[✓] 启动成功
+
+    WebUI : http://localhost:6185
+    用户名: astrbot
+    日志  : .local/astrbot.log
+    停止  : ./run.sh stop
+
+[✓] 插件已加载：题库 8 条
 ```
 
-然后浏览器打开 <http://localhost:6185>（用户名 `astrbot`）。
+打开 <http://localhost:6185> 即可。
+
+| 命令 | 作用 |
+|---|---|
+| `./run.sh` | 一键启动（首次自动准备环境） |
+| `./run.sh stop` | 停止 |
+| `./run.sh restart` | 重启 |
+| `./run.sh status` | 查看运行状态 |
+| `./run.sh password` | 重置并显示 WebUI 密码 |
+| `./run.sh logs` | 跟踪日志 |
+| `./run.sh setup` | 只准备环境，不启动 |
+
+前置要求：`python3`（含 venv）、`git`。端口冲突可用 `KOUHU_PORT=6200 ./run.sh`。
+
+> 环境都放在 `.local/`（已 gitignore），删掉这个目录就等于完全重置。
+
+### 手动方式（不想用脚本）
+
+```bash
+git clone --depth 1 https://github.com/AstrBotDevs/AstrBot .local/astrbot
+python3 -m venv .local/venv
+.local/venv/bin/pip install -r .local/astrbot/requirements.txt
+mkdir -p .local/astrbot/data/plugins
+cp -r plugins/astrbot_plugin_kouhu_oj .local/astrbot/data/plugins/
+cd .local/astrbot && ../venv/bin/python main.py
+```
 
 完整步骤与实测记录见 [docs/local-test.md](docs/local-test.md)。
 
