@@ -270,6 +270,25 @@ python3 tests/local_harness.py
 
 判题模型换成真实的之后，输出的「锐评」就是模型实际写的，可以直接评估提示词和 `rubric` 的效果。
 
+### 判题质量评估
+
+接了真实模型后，用 `tools/judge_eval.py` 量化评估判题准不准：
+
+```bash
+# 直接从 AstrBot 配置读模型
+python3 tools/judge_eval.py --config .local/astrbot/data/cmd_config.json
+
+# 或手动指定
+KOUHU_LLM_BASE_URL=... KOUHU_LLM_API_KEY=... KOUHU_LLM_MODEL=... python3 tools/judge_eval.py
+```
+
+它会跑 9 个预置用例（正确答案 / 经典错误答案 / 只给结论 / 敷衍作答 / 递归却声称 O(1) 等），输出两个关键指标：
+
+- **JSON 解析成功率** —— 模型是否听话地按格式返回
+- **判定符合预期** —— 判得对不对
+
+换模型时跑一遍就能对比出哪个更适合判题。
+
 > 测试用 `tests/_astrbot_stub.py` 提供 AstrBot 桩模块，把 `astrbot.*` 替换成最小实现，因此可以在任何有 Python 3.10+ 的机器上运行。
 
 ---
