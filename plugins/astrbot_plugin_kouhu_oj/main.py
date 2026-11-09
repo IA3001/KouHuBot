@@ -67,7 +67,7 @@ RE_Q = re.compile(r"^\s*/?\s*(?:q|n|new)(?:\s+(\S+))?\s*$", re.I)
 RE_SUBMIT = re.compile(r"^\s*/?\s*(?:s|submit)\s+([\s\S]+?)\s*$", re.I)
 RE_GIVEUP = re.compile(r"^\s*/?\s*(?:g|giveup)\s*$", re.I)
 RE_RANK = re.compile(r"^\s*/?\s*(?:r|rank)\s*$", re.I)
-RE_CURRENT = re.compile(r"^\s*/?\s*(?:p|problem)\s*$", re.I)
+RE_CURRENT = re.compile(r"^\s*/?\s*(?:p|problem|cur|current)\s*$", re.I)
 RE_GRM = re.compile(r"^\s*/?\s*(?:grm|grammar)(?:\s+(\S+))?\s*$", re.I)
 RE_ME = re.compile(r"^\s*/?\s*(?:me|mine)\s*$", re.I)
 RE_HELP = re.compile(r"^\s*/?\s*(?:h|help)\s*$", re.I)
@@ -79,7 +79,7 @@ q e           抽简单题（e/m/h 或 简单/中等/困难）
 grm      抽一道 C++ 坑点题（看代码找 bug）
 s 你的解答   提交，模型判分
 g        放弃（算法题给链接，坑点题给答案）
-p        重看当前题
+p / cur  重看当前题
 r        排行榜
 me       查看自己的过题记录
 h        帮助
@@ -796,11 +796,12 @@ class KouHuOJ(Star):
 
         user_id, user_name = self._sender(event)
 
-        # 已经 AC 过的题就不再调模型了，省 token
+        # 只有满分才锁题。原来只要 AC（哪怕 90 分）就锁，群友想刷满分没路可走。
         progress = self._store.get_progress(scope, user_id, problem["slug"])
-        if progress and progress.get("solved"):
+        best_score = int(progress.get("best_score") or 0) if progress else 0
+        if progress and progress.get("solved") and best_score >= 100:
             yield event.plain_result(
-                f"「{problem['title']}」你已经 AC 过了，等换题再交吧"
+                f"「{problem['title']}」你已经满分了，等换题再交吧"
             )
             return
 
@@ -830,6 +831,8 @@ class KouHuOJ(Star):
             f"{emoji} {result['verdict']}  {result['score']} 分",
             f"题目：{problem['title']}",
         ]
+        if progress and result["score"] > best_score:
+            lines[-1] += f"（最好成绩 {best_score} → {result['score']}）"
         if result["comment"]:
             lines.append("")
             lines.append(result["comment"])

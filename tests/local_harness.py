@@ -321,26 +321,43 @@ async def main() -> int:
     out = await runner.user_says(e, "cmd_submit")
     runner.check("判定为 AC", "AC" in out and "95 分" in out, out[:100])
 
-    # ---------- 5. 已 AC 重复提交 ----------
-    banner("5. 已 AC 的题再交（应拦截，不调模型）")
+    # ---------- 5. 部分 AC 后继续交 ----------
+    # 规则改过：原来只要 AC（哪怕 95 分）就锁题，群友想刷满分没路可走。
+    # 现在只有满分才锁，没满分可以继续交。
+    banner("5. 95 分后再交（没满分，允许继续刷）")
     before = ctx.call_count
-    e = E("s 再交一次", group_id=group, sender_id="1001", sender_name="小明")
+    ctx.reply_queue.append(
+        json.dumps({"verdict": "WA", "score": 10, "comment": "这次反而更糙了"}, ensure_ascii=False)
+    )
+    e = E("s 再交一次，这次写得很糙", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_submit")
-    runner.check("拦截重复提交", "已经 AC 过" in out, out[:100])
-    runner.check("没有浪费模型调用", ctx.call_count == before)
+    runner.check("95 分后不再拦截", "已经 AC 过" not in out, out[:150])
+    runner.check("确实走了判题", ctx.call_count == before + 1)
+    slug_now = (plugin._store.get_current(scope) or {}).get("slug", "")
+    prog = plugin._store.get_progress(scope, "1001", slug_now)
+    runner.check("更差的分数不覆盖最好成绩", prog and prog["best_score"] == 95, str(prog))
+
+    # ---------- 5.5 满分后锁题 ----------
+    banner("5.5 满分后再交（应拦截，不调模型）")
+    plugin._store.record_attempt(scope, "1001", "小明", slug_now, first_title, "AC", 100)
+    before = ctx.call_count
+    e = E("s 满分了还交", group_id=group, sender_id="1001", sender_name="小明")
+    out = await runner.user_says(e, "cmd_submit")
+    runner.check("满分后拦截", "满分" in out, out[:150])
+    runner.check("满分后不浪费模型调用", ctx.call_count == before)
 
     # ---------- 6. 排行榜 ----------
     banner("6. r 排行榜")
     e = E("r", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_rank")
-    runner.check("榜单含小明", "小明" in out and "95 分" in out, out[:150])
+    runner.check("榜单含小明", "小明" in out and "100 分" in out, out[:150])
     runner.check("统计 AC 题数", "AC 1/1 题" in out, out[:150])
 
     # ---------- 6.5 个人过题记录 ----------
     banner("6.5 me 查看自己的过题记录")
     e = E("me", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_me")
-    runner.check("显示总分", "总分 95" in out, out[:150])
+    runner.check("显示总分", "总分 100" in out, out[:150])
     runner.check("显示 AC 题数", "AC 1 题" in out, out[:150])
     runner.check("列出做过的题", first_title and first_title in out, out[:150])
 
@@ -424,6 +441,35 @@ async def main() -> int:
     out = await runner.user_says(e, "cmd_help")
     for token in ("q", "s", "g", "r", "grm"):
         runner.check(f"帮助里列出了 {token}", f"\n{token}" in out or f"{token} " in out)
+
+    # ---------- 12. 刷分 ----------
+    banner("12. 刷分（部分 AC 不该锁题）")
+    retry_group = "990011223"
+    e = E("q", group_id=retry_group, sender_id="2001", sender_name="刷分哥")
+    await runner.user_says(e, "cmd_question")
+
+    ctx.reply_queue.append(
+        json.dumps({"verdict": "AC", "score": 90, "comment": "思路对但边界没说清"}, ensure_ascii=False)
+    )
+    e = E("s 哈希表一遍扫", group_id=retry_group, sender_id="2001", sender_name="刷分哥")
+    out = await runner.user_says(e, "cmd_submit")
+    runner.check("先拿到 90 分", "90 分" in out, out[:120])
+
+    ctx.reply_queue.append(
+        json.dumps({"verdict": "AC", "score": 100, "comment": "补齐边界处理"}, ensure_ascii=False)
+    )
+    e = E("s 哈希表一遍扫，先查后存", group_id=retry_group, sender_id="2001", sender_name="刷分哥")
+    out = await runner.user_says(e, "cmd_submit")
+    runner.check("90 分后还能再交（不被锁）", "100 分" in out, out[:160])
+    runner.check("提示最好成绩变化", "90 → 100" in out, out[:160])
+
+    e = E("s 再来一次", group_id=retry_group, sender_id="2001", sender_name="刷分哥")
+    out = await runner.user_says(e, "cmd_submit")
+    runner.check("满分后才锁题", "满分" in out, out[:160])
+
+    e = E("cur", group_id=retry_group, sender_id="2001", sender_name="刷分哥")
+    out = await runner.user_says(e, "cmd_current")
+    runner.check("cur 也能重看当前题", bool(out.strip()), out[:120])
 
     # ---------- 汇总 ----------
     banner("数据落库核对")

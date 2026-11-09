@@ -90,6 +90,9 @@ def test_command_regex(mod) -> None:
         "g": mod.RE_GIVEUP,
         "giveup": mod.RE_GIVEUP,
         "p": mod.RE_CURRENT,
+        "problem": mod.RE_CURRENT,
+        "cur": mod.RE_CURRENT,
+        "current": mod.RE_CURRENT,
         "r": mod.RE_RANK,
         "me": mod.RE_ME,
         "h": mod.RE_HELP,
@@ -107,11 +110,13 @@ def test_command_regex(mod) -> None:
         "好的": mod.RE_Q,
         "go": mod.RE_GIVEUP,
         "p2": mod.RE_CURRENT,
+        "curve": mod.RE_CURRENT,
+        "pure": mod.RE_CURRENT,
         "men": mod.RE_ME,
     }
     for text, pattern in should_not_match.items():
         assert not pattern.match(text), f"不应匹配却匹配了：{text!r}"
-    print("  ✅ 指令正则：q/n/new/s/g/p/r/me/h 命中正确，且不误伤普通聊天")
+    print("  ✅ 指令正则：q/n/new/s/g/p/cur/r/me/h 命中正确，且不误伤普通聊天")
 
 
 def test_pitfalls(mod) -> None:
