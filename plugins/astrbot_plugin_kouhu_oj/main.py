@@ -85,7 +85,7 @@ PITFALL_PREFIX = "grm:"
 KIND_EXPR = "(CASE WHEN slug LIKE 'grm:%' THEN 'pitfall' ELSE 'algo' END)"
 
 # 指令正则：允许带 / 前缀，大小写不敏感
-PLUGIN_VERSION = "0.4.1"
+PLUGIN_VERSION = "0.4.2"
 
 # 状态快照里允许出现的配置项白名单。
 # 注意：只从插件自己的 config 取，绝不读 AstrBot 的 cmd_config.json——
@@ -719,6 +719,7 @@ class KouHuOJ(Star):
         problem: dict,
         submission: str,
         pitfall: dict | None = None,
+        timeout: float = 90.0,
     ) -> dict | None:
         provider_id = str(self.config.get("judge_provider_id") or "").strip()
         if not provider_id:
@@ -744,10 +745,16 @@ class KouHuOJ(Star):
         # 模型接口偶尔会抖（超时、限流、返回空），重试一次再放弃。
         # 不重试的话群友会莫名其妙看到「判题失败」。
         last_raw = ""
+        # 每次尝试单独限时：模型卡住时不能无限等，否则群友那边就是「石沉大海」。
+        # 线上真出现过一次——提交后群里毫无反应，因为 httpx 一直挂着。
+        per_attempt = max(5.0, timeout / 2)
         for attempt in range(2):
             try:
-                response = await self.context.llm_generate(
-                    chat_provider_id=provider_id, prompt=prompt
+                response = await asyncio.wait_for(
+                    self.context.llm_generate(
+                        chat_provider_id=provider_id, prompt=prompt
+                    ),
+                    timeout=per_attempt,
                 )
                 raw = getattr(response, "completion_text", None) or str(response)
                 last_raw = raw
@@ -756,6 +763,10 @@ class KouHuOJ(Star):
                     return result
                 logger.warning(
                     f"[KouHuOJ] 判题结果解析失败（第 {attempt + 1} 次）：{raw[:200]!r}"
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[KouHuOJ] 判题超时（第 {attempt + 1} 次，{per_attempt:.0f}s）"
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"[KouHuOJ] 判题调用失败（第 {attempt + 1} 次）：{exc}")
@@ -966,7 +977,34 @@ class KouHuOJ(Star):
             if slug.startswith("grm:"):
                 pitfall = self._pitfalls.get(slug[len("grm:"):]) if self._pitfalls else None
 
-        result = await self._judge(event, problem, submission, pitfall=pitfall)
+        # 判题要调模型，几秒到几十秒不等。先不吭声地等着，群友会以为机器人挂了。
+        # 但判得快的时候多回一句又很吵，所以只在超过 ack_delay 还没回来时才吭声。
+        judge_timeout = float(self.config.get("judge_timeout_seconds", 90))
+        ack_delay = float(self.config.get("judge_ack_delay_seconds", 5))
+        judge_task = asyncio.create_task(
+            self._judge(
+                event, problem, submission, pitfall=pitfall, timeout=judge_timeout
+            )
+        )
+        started = time.monotonic()
+
+        await asyncio.wait({judge_task}, timeout=max(0.0, ack_delay))
+        if not judge_task.done():
+            yield event.plain_result("正在判题，模型有点慢，稍等……")
+
+        remaining = max(5.0, judge_timeout + 5 - (time.monotonic() - started))
+        try:
+            result = await asyncio.wait_for(judge_task, timeout=remaining)
+        except asyncio.TimeoutError:
+            judge_task.cancel()
+            logger.error(
+                f"[KouHuOJ] 判题整体超时（{judge_timeout:.0f}s），放弃等待"
+            )
+            yield event.plain_result(
+                "判题超时了，模型一直没响应。稍后再试，或换个模型（WebUI → 服务提供商）。"
+            )
+            return
+
         if result is None:
             yield event.plain_result("判题失败了（模型没给出可解析的结果），稍后再试")
             return
@@ -1282,17 +1320,26 @@ class KouHuOJ(Star):
             + "\n【群友的问题结束】"
         )
 
+        ask_timeout = float(self.config.get("ask_timeout_seconds", 60))
+        per_attempt = max(5.0, ask_timeout / 2)
         for attempt in range(2):
             try:
-                response = await self.context.llm_generate(
-                    chat_provider_id=provider_id,
-                    prompt=prompt,
-                    system_prompt=ASK_SYSTEM_PROMPT,
+                response = await asyncio.wait_for(
+                    self.context.llm_generate(
+                        chat_provider_id=provider_id,
+                        prompt=prompt,
+                        system_prompt=ASK_SYSTEM_PROMPT,
+                    ),
+                    timeout=per_attempt,
                 )
                 text = (getattr(response, "completion_text", None) or "").strip()
                 if text:
                     return text
                 logger.warning(f"[KouHuOJ] 自由问答返回空（第 {attempt + 1} 次）")
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[KouHuOJ] 自由问答超时（第 {attempt + 1} 次，{per_attempt:.0f}s）"
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"[KouHuOJ] 自由问答失败（第 {attempt + 1} 次）：{exc}")
             if attempt == 0:

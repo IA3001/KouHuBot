@@ -32,6 +32,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -123,6 +124,9 @@ class FakeContext:
         self.reply_queue: list[str] = []
         self.last_prompt: str = ""
         self.call_count = 0
+        # 故障注入：delay 模拟慢模型，hang 模拟模型卡死（永不返回）
+        self.delay: float = 0.0
+        self.hang: bool = False
 
     async def get_current_chat_provider_id(self, umo=None) -> str:
         # 真实 API 是 async 的，这里必须一致，否则漏 await 的 bug 测不出来
@@ -141,6 +145,10 @@ class FakeContext:
         )
         self.call_count += 1
         self.last_prompt = prompt
+        if self.hang:
+            await asyncio.sleep(3600)  # 模拟模型永远不返回，靠上层超时兜住
+        if self.delay:
+            await asyncio.sleep(self.delay)
 
         base_url = os.getenv("KOUHU_LLM_BASE_URL", "").strip()
         api_key = os.getenv("KOUHU_LLM_API_KEY", "").strip()
@@ -583,6 +591,42 @@ async def main() -> int:
     e = E("me", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_me")
     runner.check("me 分两段展示", "【算法题】" in out and "【坑点题】" in out, out[:200])
+
+    # ---------- 15. 模型卡住/变慢 ----------
+    banner("15. 模型卡死或变慢（不能石沉大海）")
+    slow_group = "112233445"
+    e = E("q", group_id=slow_group, sender_id="3001", sender_name="慢模型")
+    await runner.user_says(e, "cmd_question")
+
+    # 慢模型：超过 ack 延迟就先回一句，然后仍然给出判题结果
+    plugin.config["judge_ack_delay_seconds"] = 0.05
+    plugin.config["judge_timeout_seconds"] = 5
+    ctx.delay = 0.3
+    ctx.reply_queue.append(
+        json.dumps({"verdict": "AC", "score": 100, "comment": "慢但答对了"}, ensure_ascii=False)
+    )
+    e = E("s 慢模型的正确解答", group_id=slow_group, sender_id="3001", sender_name="慢模型")
+    out = await runner.user_says(e, "cmd_submit")
+    runner.check("慢的时候先回一句「正在判题」", "正在判题" in out, out[:150])
+    runner.check("慢但最终给出了判题结果", "AC" in out and "100 分" in out, out[:200])
+    ctx.delay = 0.0
+
+    # 卡死模型：必须超时收场，不能一直挂着
+    plugin.config["judge_ack_delay_seconds"] = 0.05
+    plugin.config["judge_timeout_seconds"] = 0.6
+    ctx.hang = True
+    # 换个用户：3001 刚拿了满分，会被「已满分」拦住
+    e = E("s 模型会卡死的解答", group_id=slow_group, sender_id="3002", sender_name="卡死模型")
+    started = time.monotonic()
+    out = await runner.user_says(e, "cmd_submit")
+    elapsed = time.monotonic() - started
+    ctx.hang = False
+    runner.check("模型卡死时给出超时提示", "超时" in out, out[:200])
+    runner.check("没有无限等待", elapsed < 10, f"{elapsed:.1f}s")
+
+    # 恢复默认，别影响后面的用例
+    plugin.config["judge_ack_delay_seconds"] = 5
+    plugin.config["judge_timeout_seconds"] = 90
 
     # ---------- 汇总 ----------
     banner("数据落库核对")

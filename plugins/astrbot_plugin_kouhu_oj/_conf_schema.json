@@ -69,5 +69,23 @@
     "type": "string",
     "hint": "模型生成要几秒，先回一句避免像死机。留空则不回复。",
     "default": "让我看看……"
+  },
+  "judge_timeout_seconds": {
+    "description": "判题超时（秒）",
+    "type": "int",
+    "hint": "模型超过这个时间没响应就放弃，回一句超时提示。不设超时的话模型卡住时群里会毫无反应。",
+    "default": 90
+  },
+  "judge_ack_delay_seconds": {
+    "description": "判题多久没结果就先回一句",
+    "type": "int",
+    "hint": "判题快的时候不吭声，超过这个秒数还没结果就回「正在判题」，避免像死机。设 0 表示总是先回一句。",
+    "default": 5
+  },
+  "ask_timeout_seconds": {
+    "description": "自由问答超时（秒）",
+    "type": "int",
+    "hint": "ask 调用模型的总超时。",
+    "default": 60
   }
 }

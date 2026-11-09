@@ -579,6 +579,32 @@ KOUHU_LLM_BASE_URL=... KOUHU_LLM_API_KEY=... KOUHU_LLM_MODEL=... \
 
 ---
 
+## 两个线上踩到的坑
+
+### 判题卡住时群里毫无反应
+
+AstrBot 的模型调用默认超时 **120 秒**，而判题还带一次重试。模型接口卡住时
+最坏情况是**静默 4 分钟**，群友只会以为机器人死了。
+
+现在：
+
+- 单次模型调用限时（`judge_timeout_seconds` 的一半，默认 45 秒）
+- 整体限时 `judge_timeout_seconds`（默认 90 秒），超时明确回一句「判题超时了」
+- 超过 `judge_ack_delay_seconds`（默认 5 秒）还没结果，先回「正在判题，稍等……」
+  ——判得快的时候不会多这一句
+
+### 日志里刷 `Failed to parse release information`
+
+这是 **AstrBot 自带的检查更新功能**在报错，不是本插件的问题。
+
+触发路径是打开 WebUI 时前端自动检查 AstrBot 新版本，而服务器连不上 GitHub：
+
+```
+astrbot/core/zip_updater.py → httpx.ReadTimeout → Failed to parse release information
+```
+
+日志自己都写了「不影响除项目更新外的正常使用」。忽略即可，不用管。
+
 ## 已知限制
 
 - **只能加到自己当群主的群**（QQ 官方平台约束，无法绕过）
