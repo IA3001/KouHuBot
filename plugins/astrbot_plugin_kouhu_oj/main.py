@@ -225,6 +225,52 @@ def parse_verdict(raw: str) -> dict | None:
 # ----------------------------------------------------------------------
 # 存储
 # ----------------------------------------------------------------------
+_DDL_CURRENT_PROBLEM = """
+    CREATE TABLE IF NOT EXISTS current_problem (
+        scope_id      TEXT PRIMARY KEY,
+        slug          TEXT NOT NULL,
+        frontend_id   TEXT,
+        title         TEXT NOT NULL,
+        difficulty    TEXT,
+        content_html  TEXT,
+        link          TEXT,
+        kind          TEXT DEFAULT 'algo',
+        answer        TEXT,
+        issued_at     REAL NOT NULL,
+        issued_by     TEXT
+    )
+"""
+
+_DDL_PROGRESS = """
+    CREATE TABLE IF NOT EXISTS progress (
+        scope_id   TEXT NOT NULL,
+        user_id    TEXT NOT NULL,
+        user_name  TEXT,
+        slug       TEXT NOT NULL,
+        title      TEXT,
+        attempts   INTEGER DEFAULT 0,
+        best_score INTEGER DEFAULT 0,
+        solved     INTEGER DEFAULT 0,
+        gave_up    INTEGER DEFAULT 0,
+        last_at    REAL,
+        PRIMARY KEY (scope_id, user_id, slug)
+    )
+"""
+
+_PROGRESS_COLUMNS = (
+    "scope_id",
+    "user_id",
+    "user_name",
+    "slug",
+    "title",
+    "attempts",
+    "best_score",
+    "solved",
+    "gave_up",
+    "last_at",
+)
+
+
 class OjStore:
     """每个群（或私聊）各自一套状态。"""
 
@@ -252,40 +298,8 @@ class OjStore:
             cur.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             logger.info(f"[KouHuOJ] 数据库结构升级到 v{SCHEMA_VERSION}，旧数据已清理")
 
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS current_problem (
-                scope_id      TEXT PRIMARY KEY,
-                slug          TEXT NOT NULL,
-                frontend_id   TEXT,
-                title         TEXT NOT NULL,
-                difficulty    TEXT,
-                content_html  TEXT,
-                link          TEXT,
-                kind          TEXT DEFAULT 'algo',
-                answer        TEXT,
-                issued_at     REAL NOT NULL,
-                issued_by     TEXT
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS progress (
-                scope_id   TEXT NOT NULL,
-                user_id    TEXT NOT NULL,
-                user_name  TEXT,
-                slug       TEXT NOT NULL,
-                title      TEXT,
-                attempts   INTEGER DEFAULT 0,
-                best_score INTEGER DEFAULT 0,
-                solved     INTEGER DEFAULT 0,
-                gave_up    INTEGER DEFAULT 0,
-                last_at    REAL,
-                PRIMARY KEY (scope_id, user_id, slug)
-            )
-            """
-        )
+        cur.execute(_DDL_CURRENT_PROBLEM)
+        cur.execute(_DDL_PROGRESS)
         # 兜底：CREATE TABLE IF NOT EXISTS 对已存在的表是空操作，
         # 所以老库升级上来时不会自动多出新列。这里按需 ALTER 补齐，
         # 以后再加字段即使忘了改上面的 DROP 列表也不会炸。
@@ -302,10 +316,36 @@ class OjStore:
                 "title": "TEXT",
             },
         )
+        self._ensure_progress_pk()
 
         self._conn.commit()
 
     # -- 当前题 --------------------------------------------------------
+    def _ensure_progress_pk(self) -> None:
+        """progress 缺主键时重建表。
+
+        record_attempt 用的是 ON CONFLICT(scope_id, user_id, slug)，
+        表上没有对应唯一约束的话会直接抛
+        "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint"，
+        而且是在判题成功之后才炸，群友只会看到毫无反应。
+        """
+        rows = self._conn.execute("PRAGMA table_info(progress)").fetchall()
+        if not rows:
+            return
+        pk = [row[1] for row in sorted(rows, key=lambda row: row[5]) if row[5]]
+        if pk == ["scope_id", "user_id", "slug"]:
+            return
+
+        logger.warning(f"[KouHuOJ] progress 表主键异常（当前 {pk}），重建并保留数据")
+        self._conn.execute("ALTER TABLE progress RENAME TO progress_legacy")
+        self._conn.execute(_DDL_PROGRESS)
+        cols = ", ".join(_PROGRESS_COLUMNS)
+        self._conn.execute(
+            f"INSERT OR IGNORE INTO progress ({cols}) SELECT {cols} FROM progress_legacy"
+        )
+        self._conn.execute("DROP TABLE progress_legacy")
+        self._conn.commit()
+
     def _ensure_columns(self, table: str, columns: dict[str, str]) -> None:
         """给已存在的表补上缺失的列。"""
         existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
