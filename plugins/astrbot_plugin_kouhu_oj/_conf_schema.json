@@ -17,6 +17,12 @@
     "hint": "同一个群两次抽题之间的最小间隔，防止刷屏。",
     "default": 15
   },
+  "ack_message": {
+    "description": "抽题时的即时回复",
+    "type": "string",
+    "hint": "拉题和渲染要几秒，先回一句避免像死机。留空则不回复，只在出图时响应。",
+    "default": "正在抽题，题面马上发出。"
+  },
   "leaderboard_size": {
     "description": "排行榜显示人数",
     "type": "int",
@@ -26,7 +32,12 @@
     "description": "默认难度",
     "type": "string",
     "hint": "不带参数抽题时用这个难度。留空表示不限。群友也可以用 q e / q m / q h 临时指定。",
-    "options": ["", "easy", "medium", "hard"],
+    "options": [
+      "",
+      "easy",
+      "medium",
+      "hard"
+    ],
     "default": ""
   },
   "image_width": {

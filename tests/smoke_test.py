@@ -80,6 +80,9 @@ def test_command_regex(mod) -> None:
         "/q": mod.RE_Q,
         "q e": mod.RE_Q,
         "q 简单": mod.RE_Q,
+        "n": mod.RE_Q,
+        "new": mod.RE_Q,
+        "new m": mod.RE_Q,
         "s 我的思路是哈希表": mod.RE_SUBMIT,
         "/s 用双指针": mod.RE_SUBMIT,
         "submit 排序后二分": mod.RE_SUBMIT,
@@ -95,6 +98,8 @@ def test_command_regex(mod) -> None:
     should_not_match = {
         "quit": mod.RE_Q,
         "qq": mod.RE_Q,
+        "no": mod.RE_Q,
+        "news": mod.RE_Q,
         "question 这题怎么做": mod.RE_Q,
         "s": mod.RE_SUBMIT,  # 光一个 s 不算提交
         "好的": mod.RE_Q,
@@ -103,7 +108,7 @@ def test_command_regex(mod) -> None:
     }
     for text, pattern in should_not_match.items():
         assert not pattern.match(text), f"不应匹配却匹配了：{text!r}"
-    print("  ✅ 指令正则：q/s/g/p/r/h 命中正确，且不误伤普通聊天")
+    print("  ✅ 指令正则：q/n/new/s/g/p/r/h 命中正确，且不误伤普通聊天")
 
 
 def test_store(mod) -> None:

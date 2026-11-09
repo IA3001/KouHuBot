@@ -56,7 +56,7 @@ VERDICTS = (VERDICT_AC, VERDICT_PARTIAL, VERDICT_WA)
 VERDICT_EMOJI = {VERDICT_AC: "✅", VERDICT_PARTIAL: "🟡", VERDICT_WA: "❌"}
 
 # 指令正则：允许带 / 前缀，大小写不敏感
-RE_Q = re.compile(r"^\s*/?\s*q(?:\s+(\S+))?\s*$", re.I)
+RE_Q = re.compile(r"^\s*/?\s*(?:q|n|new)(?:\s+(\S+))?\s*$", re.I)
 RE_SUBMIT = re.compile(r"^\s*/?\s*(?:s|submit)\s+([\s\S]+?)\s*$", re.I)
 RE_GIVEUP = re.compile(r"^\s*/?\s*(?:g|giveup)\s*$", re.I)
 RE_RANK = re.compile(r"^\s*/?\s*(?:r|rank)\s*$", re.I)
@@ -65,8 +65,8 @@ RE_HELP = re.compile(r"^\s*/?\s*(?:h|help)\s*$", re.I)
 
 HELP_TEXT = """口胡 OJ 指令（都很短，方便打字）
 
-q        抽一道题（发图片）
-q e      抽简单题（e/m/h 或 简单/中等/困难）
+q / n / new   抽一道题（发图片）
+q e           抽简单题（e/m/h 或 简单/中等/困难）
 s 你的解答   提交，模型判分
 g        放弃，给原题链接
 p        重看当前题
@@ -461,6 +461,12 @@ class KouHuOJ(Star):
 
         current = self._store.get_current(scope)
         exclude = (current["slug"],) if current else ()
+
+        # 先回一句，再去做网络请求和渲染。
+        # 拉题 + 出图要好几秒，没有反馈用户会以为机器人死了。
+        ack = str(self.config.get("ack_message", "正在抽题，题面马上发出。") or "").strip()
+        if ack:
+            yield event.plain_result(ack)
 
         try:
             problem = await self._source.random_problem(difficulty=difficulty, exclude=exclude)

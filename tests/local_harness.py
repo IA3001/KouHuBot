@@ -246,6 +246,9 @@ async def main() -> int:
         ("q", mod.RE_Q, True),
         ("/q", mod.RE_Q, True),
         ("q e", mod.RE_Q, True),
+        ("n", mod.RE_Q, True),
+        ("new", mod.RE_Q, True),
+        ("no", mod.RE_Q, False),
         ("quit", mod.RE_Q, False),
         ("qq", mod.RE_Q, False),
         ("s 用哈希表", mod.RE_SUBMIT, True),
@@ -271,6 +274,8 @@ async def main() -> int:
     e = E("q", group_id=group, sender_id="1001", sender_name="小明")
     out = await runner.user_says(e, "cmd_question")
     img = image_path_of(out)
+    runner.check("先回了「正在抽题」", "正在抽题" in out, out[:120])
+    runner.check("提示在图片之前", out.find("正在抽题") < out.find("[image]"), out[:120])
     runner.check("返回了图片", img is not None, out[:120])
     runner.check("图片文件真实存在", bool(img) and Path(img).is_file(), img or "")
     if img and Path(img).is_file():
