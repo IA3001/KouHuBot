@@ -145,11 +145,48 @@ KouHuBot/
 
 打开 <http://localhost:6185> 即可。
 
+### 接入前自检
+
+配置完机器人后，先跑一条命令确认：
+
+```bash
+./run.sh doctor
+```
+
+它会逐项检查并给出结论：
+
+```
+✅ AstrBot 配置文件可读
+✅ QQ 官方机器人平台已启用          AppID 1906359488
+✅ use_markdown 已关闭（群聊更稳）
+✅ AppID / Secret 有效               access_token 有效期 2595 秒
+✅ 已启用模型提供商                  hopeplay/gpt-6.1-sol
+✅ 坑点库可读                        40 条
+✅ 插件已同步到 AstrBot
+✅ 找到中文字体                      NotoSansCJK-Regular.ttc
+```
+
+AppID/Secret 是直接打腾讯的 token 接口验证的，不是只看配置有没有填——
+填错了这里会明确报出来。
+
+还有四件事本地查不到，必须去 QQ 开放平台后台确认：
+
+| 检查项 | 不做的后果 |
+|---|---|
+| IP 白名单加上服务器公网 IP | WebSocket 连不上，日志只有 `Websocket session starting.` |
+| 群设置打开「获取群内全部消息」 | 只有 @ 机器人才有反应，裸指令 `q` 失效 |
+| 机器人已在目标群里，且你是群主 | 收不到消息 |
+| 沙箱环境的机器人要发布到线上 | 只有白名单用户能触发 |
+
+> `Websocket session starting.` 之后没有日志是正常的——botpy 的日志被关了。
+> 真正的判断标准是**能不能收到群消息**。
+
 | 命令 | 作用 |
 |---|---|
 | `./run.sh` | 一键启动（首次自动准备环境） |
 | `./run.sh stop` | 停止 |
 | `./run.sh restart` | 重启 |
+| `./run.sh doctor` | 接入前自检 |
 | `./run.sh status` | 查看运行状态 |
 | `./run.sh password` | 重置并显示 WebUI 密码 |
 | `./run.sh logs` | 跟踪日志 |

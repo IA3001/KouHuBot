@@ -242,6 +242,7 @@ case "${1:-start}" in
   password) do_password ;;
   setup)    ensure_source; ensure_venv; ensure_deps; sync_plugin; ok "环境准备完成，运行 ./run.sh start 启动" ;;
   logs)     tail -f "$LOG_FILE" ;;
+  doctor)   python3 "$REPO_ROOT/tools/doctor.py" ;;
   *)
     cat <<EOF
 KouHuBot 本地启动入口
@@ -253,6 +254,7 @@ KouHuBot 本地启动入口
   ./run.sh password   重置并显示 WebUI 密码
   ./run.sh logs       跟踪日志
   ./run.sh setup      只准备环境
+  ./run.sh doctor     接入前自检（凭证、插件、字体、端口）
 
 环境变量：KOUHU_PORT=6185  改 WebUI 端口（会写回 AstrBot 配置）
 EOF
