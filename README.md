@@ -86,6 +86,7 @@ KouHuBot/
 │   └── setup-swap.sh          # 创建 2G swap（2C2G 必做）
 ├── docs/
 │   ├── architecture.md        # 数据流、判题设计、状态模型
+│   ├── local-test.md          # 不用 Docker 的本地运行手册（已实测）
 │   └── deploy.md              # 从零到跑通的部署手册
 ├── plugins/
 │   └── astrbot_plugin_kouhu_oj/
@@ -95,9 +96,39 @@ KouHuBot/
 │       ├── _conf_schema.json  # WebUI 可视化配置项
 │       └── requirements.txt   # 仅用标准库，无第三方依赖
 ├── tests/
-│   └── smoke_test.py          # 无需 AstrBot 的离线冒烟测试
+│   ├── _astrbot_stub.py       # AstrBot 桩模块（测试替身）
+│   ├── smoke_test.py          # 离线冒烟测试
+│   └── local_harness.py       # 模拟群聊，跑完整对话流程
 └── README.md
 ```
+
+---
+
+## 本地运行（不用 Docker）
+
+想先验证能不能跑，直接对着 AstrBot 源码启动即可：
+
+```bash
+git clone --depth 1 https://github.com/AstrBotDevs/AstrBot
+cd AstrBot
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+
+mkdir -p data/plugins
+cp -r ../KouHuBot/plugins/astrbot_plugin_kouhu_oj data/plugins/
+
+python main.py
+```
+
+日志出现下面这行就说明插件跑通了：
+
+```
+[KouHuOJ] 就绪：题库 8 条（本次载入 8 条），数据目录 .../data/plugin_data/astrbot_plugin_kouhu_oj
+```
+
+然后浏览器打开 <http://localhost:6185>（用户名 `astrbot`）。
+
+完整步骤与实测记录见 [docs/local-test.md](docs/local-test.md)。
 
 ---
 
@@ -189,13 +220,32 @@ docker compose restart astrbot
 
 ---
 
-## 开发与测试
+## 本地测试（不需要 Docker，不需要 QQ 凭证）
+
+两套测试都是纯 Python，无需安装 AstrBot、无需构建镜像：
 
 ```bash
+# 1) 冒烟测试：判题解析 / 防注入 / SQLite 状态机
 python3 tests/smoke_test.py
+
+# 2) 模拟群聊：把插件完整跑一遍对话流程
+python3 tests/local_harness.py
 ```
 
-测试用桩模块替代 AstrBot，无需真实运行环境，覆盖判题解析、防注入提示词、SQLite 状态机。
+`local_harness.py` 会模拟一个 QQ 群，依次演示：未出题就交卷 → 抽题 → 判 WA → 判 AC → 重复提交拦截 → 排行榜 → 换人换题 → 放弃看答案 → **提示词注入攻击** → 模型输出异常兜底 → 帮助，共 33 项断言。
+
+默认用**本地模拟判题**（不消耗 token）。想验证真实判题质量，接上自己的模型：
+
+```bash
+export KOUHU_LLM_BASE_URL=https://api.deepseek.com/v1
+export KOUHU_LLM_API_KEY=sk-xxxx
+export KOUHU_LLM_MODEL=deepseek-chat
+python3 tests/local_harness.py
+```
+
+判题模型换成真实的之后，输出的「锐评」就是模型实际写的，可以直接评估提示词和 `rubric` 的效果。
+
+> 测试用 `tests/_astrbot_stub.py` 提供 AstrBot 桩模块，把 `astrbot.*` 替换成最小实现，因此可以在任何有 Python 3.10+ 的机器上运行。
 
 ---
 

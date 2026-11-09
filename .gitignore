@@ -26,3 +26,6 @@ Thumbs.db
 # ---- 备份 ----
 *.bak
 *.swp
+
+# ---- 本地测试环境（AstrBot 源码 / venv） ----
+.local/
