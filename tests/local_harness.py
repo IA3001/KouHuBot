@@ -124,10 +124,17 @@ class FakeContext:
         self.last_prompt: str = ""
         self.call_count = 0
 
-    def get_current_chat_provider_id(self, umo=None) -> str:
+    async def get_current_chat_provider_id(self, umo=None) -> str:
+        # 真实 API 是 async 的，这里必须一致，否则漏 await 的 bug 测不出来
         return "mock-provider"
 
     async def llm_generate(self, chat_provider_id=None, prompt=""):
+        # 真实接口要求 provider_id 是字符串。如果调用方漏了 await，
+        # 传进来的会是协程对象，这里直接炸出来，而不是让假判题蒙混过关
+        assert isinstance(chat_provider_id, str), (
+            f"chat_provider_id 必须是 str，实际是 {type(chat_provider_id).__name__}"
+            "（大概率是漏了 await）"
+        )
         self.call_count += 1
         self.last_prompt = prompt
 
@@ -379,6 +386,9 @@ async def main() -> int:
 
     # ---------- 10. 模型输出异常 ----------
     banner("10. 模型输出乱七八糟（应明确告知而非瞎判）")
+    # 判题失败会重试一次，所以排两条一样的「胡言乱语」，
+    # 否则第二次会落到假判题的空队列默认值（可解析），这条用例就测不到了
+    ctx.reply_queue.append("我觉得这道题挺好的，但是我不想按格式回答。")
     ctx.reply_queue.append("我觉得这道题挺好的，但是我不想按格式回答。")
     e = E("s 随便试试", group_id=group, sender_id="1004", sender_name="小刚")
     out = await runner.user_says(e, "cmd_submit")

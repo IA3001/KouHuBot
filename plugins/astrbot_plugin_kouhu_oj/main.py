@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import os
@@ -537,10 +538,13 @@ class KouHuOJ(Star):
         provider_id = str(self.config.get("judge_provider_id") or "").strip()
         if not provider_id:
             try:
-                provider_id = self.context.get_current_chat_provider_id(
+                # 注意：这是 async 方法，漏 await 会把协程对象当 provider_id 传下去，
+                # 报 "Provider <coroutine ...> not found"
+                provider_id = await self.context.get_current_chat_provider_id(
                     umo=event.unified_msg_origin
                 )
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[KouHuOJ] 获取当前会话模型失败：{exc}")
                 provider_id = None
         if not provider_id:
             return None
@@ -552,16 +556,30 @@ class KouHuOJ(Star):
             blocks = html_to_blocks(problem.get("content_html") or "")
             statement = blocks_to_plain(blocks)
             prompt = build_judge_prompt(problem.get("title", ""), statement, submission)
-        try:
-            response = await self.context.llm_generate(
-                chat_provider_id=provider_id, prompt=prompt
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"[KouHuOJ] 判题调用失败：{exc}")
-            return None
+        # 模型接口偶尔会抖（超时、限流、返回空），重试一次再放弃。
+        # 不重试的话群友会莫名其妙看到「判题失败」。
+        last_raw = ""
+        for attempt in range(2):
+            try:
+                response = await self.context.llm_generate(
+                    chat_provider_id=provider_id, prompt=prompt
+                )
+                raw = getattr(response, "completion_text", None) or str(response)
+                last_raw = raw
+                result = parse_verdict(raw)
+                if result:
+                    return result
+                logger.warning(
+                    f"[KouHuOJ] 判题结果解析失败（第 {attempt + 1} 次）：{raw[:200]!r}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[KouHuOJ] 判题调用失败（第 {attempt + 1} 次）：{exc}")
 
-        raw = getattr(response, "completion_text", None) or str(response)
-        return parse_verdict(raw)
+            if attempt == 0:
+                await asyncio.sleep(1.5)
+
+        logger.error(f"[KouHuOJ] 判题两次都失败，最后输出：{last_raw[:300]!r}")
+        return None
 
     @staticmethod
     def _pitfall_to_problem(pitfall: dict) -> dict:
