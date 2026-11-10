@@ -586,7 +586,10 @@ async def main() -> int:
     out = await runner.says(E("ask 你更新了什么功能", **alice), "cmd_ask")
     runner.check("答了更新日志", "当前版本" in out, out)
     runner.check("带了版本号", mod.PLUGIN_VERSION in out, out)
-    runner.check("讲了功能变化", "坑点题" in out or "题库" in out, out)
+    # 别断言具体内容——版本一升，这一版的日志就换了，断言会跟着失效。
+    # 判据应该是「真的贴出了日志正文」：有标题行、有列表项。
+    runner.check("贴出了日志正文", f"## {mod.PLUGIN_VERSION}" in out and "- " in out, out)
+    runner.check("不是空壳回复", len(out) > 120, f"只有 {len(out)} 字")
     runner.check("没走大模型（省 token）", ctx.call_count == before_calls,
                  f"多调了 {ctx.call_count - before_calls} 次模型")
     runner.check("没出现「没有相关信息」", "没有" not in out[:40], out[:80])
