@@ -619,6 +619,22 @@ async def main() -> int:
         runner.check(f"{q} 答了版本", mod.PLUGIN_VERSION in out, out[:80])
         runner.check(f"{q} 贴了日志正文", f"## {mod.PLUGIN_VERSION}" in out, out[:80])
 
+    before_calls = ctx.call_count
+    for q in ("ver list", "ver history", "更新日志 历史"):
+        runner.check(f"{q} 路由匹配", bool(mod.RE_VER.fullmatch(q)))
+        out = await runner.says(E(q, **alice), "cmd_version")
+        runner.check(f"{q} 列出历史", "0.5.0" in out and "0.6.0" in out, out)
+    for q in ("ver 0.6.0", "/ver v0.6.0", "更新日志 0.6.0"):
+        runner.check(f"{q} 路由匹配", bool(mod.RE_VER.fullmatch(q)))
+        out = await runner.says(E(q, **alice), "cmd_version")
+        runner.check(f"{q} 返回指定历史正文", "## 0.6.0" in out and "64 → 103" in out, out)
+        runner.check(f"{q} 不混入当前日志", f"## {mod.PLUGIN_VERSION}" not in out, out)
+    out = await runner.says(E("ver 9.9.9", **alice), "cmd_version")
+    runner.check("未知版本不冒充当前日志", "没有找到 9.9.9" in out and "ver list" in out, out)
+    out = await runner.says(E("ver abc", **alice), "cmd_version")
+    runner.check("错误参数给用法", "ver 0.6.0" in out, out)
+    runner.check("历史查询全程不调用模型", ctx.call_count == before_calls)
+
     # 日志读不到时要明说，不能静默退回模型
     saved_paths = mod._CHANGELOG_CANDIDATES
     saved_embed = mod._EMBEDDED_CHANGELOG

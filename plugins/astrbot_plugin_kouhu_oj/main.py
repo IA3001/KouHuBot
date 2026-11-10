@@ -72,7 +72,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.6.2"
+PLUGIN_VERSION = "0.6.3"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -216,7 +216,7 @@ RE_HELP = re.compile(r"^\s*/?\s*help\s*$", re.I)
 RE_ASK = re.compile(r"^\s*/?\s*ask\s+([\s\S]+?)\s*$", re.I)
 # 更新日志单独一条指令：ask 要过意图匹配，匹配不上就退回模型；
 # 而「想看日志」是最确定的需求，不该靠猜。
-RE_VER = re.compile(r"^\s*/?\s*(?:ver|version|changelog|更新|更新日志)\s*$", re.I)
+RE_VER = re.compile(r"^\s*/?\s*(?:ver|version|changelog|更新|更新日志)(?:\s+([^\r\n]+?))?\s*$", re.I)
 RE_SKIP = re.compile(r"^\s*/?\s*skip\s*$", re.I)
 RE_TIER = re.compile(r"^\s*/?\s*tier(?:\s+(\d+))?\s*$", re.I)
 RE_STATUS = re.compile(r"^\s*/?\s*status\s*$", re.I)
@@ -231,6 +231,8 @@ rank          积分榜
 me            我的战绩
 ask 问题       自由问答：题库、运行情况，随便问
 ver           版本号和这一版改了什么
+ver list      历史版本列表
+ver 0.6.0     查看指定版本的更新日志
 help          这条帮助
 
 坑点题是另一条独立的线（看代码找 bug），指令都挂在 grm 下面：
@@ -2017,15 +2019,29 @@ class KouHuOJ(Star):
                 "插件文件可能没同步全，重启容器试试。"
             )
             return
-        body = _changelog_section(changelog, PLUGIN_VERSION)
-        if not body:
-            # 版本号更新了但日志没跟上，把最新一节给他，别让指令空转
-            body = changelog.split("## ", 2)[-1][:1200]
+        match = RE_VER.match(event.message_str or "")
+        arg = (match.group(1) or "").strip() if match else ""
+        versions = re.findall(r"^##\s+(\d+\.\d+\.\d+)\s*$", changelog, re.M)
+        usage = "ver 查看当前版本\nver list 查看历史版本\nver 0.6.0 查看指定版本"
+        if arg.lower() in ("list", "history", "历史", "列表"):
             yield event.plain_result(
-                f"{head}（这一版还没写日志记录）\n\n{body}"[:1600]
+                f"{head}\n\n有更新记录的版本：\n"
+                + "\n".join(versions)
+                + "\n\n用 ver 版本号 查看详细更新，例如 ver 0.6.0"
             )
             return
-        yield event.plain_result(f"{head}\n\n{body}"[:1600])
+        requested = re.fullmatch(r"v?(\d+\.\d+\.\d+)", arg, re.I) if arg else None
+        if arg and not requested:
+            yield event.plain_result(f"{head}\n\n{usage}")
+            return
+        version = requested.group(1) if requested else PLUGIN_VERSION
+        body = _changelog_section(changelog, version)
+        if not body:
+            yield event.plain_result(
+                f"{head}\n\n没有找到 {version} 的更新记录。\n用 ver list 查看有记录的版本。"
+            )
+            return
+        yield event.plain_result(f"{head}\n\n{body}\n\n历史版本：ver list"[:1800])
 
     @filter.regex(RE_HELP)
     @_consumes
