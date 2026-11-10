@@ -12,6 +12,13 @@ with patch.dict(sys.modules,{'astrbot':types.ModuleType('astrbot'),'astrbot.api'
 from growth_probe import CANDIDATE
 
 class GrowthTest(unittest.TestCase):
+    def test_cpp_standard_aliases(self):
+        for spelling in ('C++17','GNU++17','cpp17','-std=c++17','17'):
+            with tempfile.TemporaryDirectory() as directory:
+                bank=GrowthBank(directory)
+                item=bank.stage(dict(CANDIDATE,cpp_standard=spelling),{'url':'https://oi-wiki.org/lang/csl/','hash':'x'},[])
+                self.assertEqual(item['cpp_standard'],'c++17')
+
     def test_sources_are_restricted(self):
         self.assertTrue(trusted_url('https://oi-wiki.org/lang/csl/'))
         for url in ('http://oi-wiki.org/','https://evil.org/a','https://oi-wiki.org.evil.org/a','https://x@oi-wiki.org/a','https://oi-wiki.org:444/a'):

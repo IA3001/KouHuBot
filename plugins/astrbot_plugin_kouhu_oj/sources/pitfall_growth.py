@@ -109,7 +109,14 @@ class GrowthBank:
         for key in ('title','question','buggy_code','answer','fix','category'):
             if not isinstance(item.get(key),str) or not 1<=len(item[key])<=12000: raise ValueError(f'候选字段不合法：{key}')
         if item.get('level') not in (1,2,3): raise ValueError('难度须为1–3')
-        if item.get('cpp_standard') not in ('c++17','c++20','c++23'): raise ValueError('C++标准不支持')
+        item=dict(item)
+        raw_standard=item.get('cpp_standard')
+        standard=re.sub(r'\s+','',str(raw_standard)).lower().replace('gnu++','c++').replace('cpp','c++')
+        standard=standard.removeprefix('-std=')
+        if standard in ('17','20','23'): standard='c++'+standard
+        if standard not in ('c++17','c++20','c++23'):
+            raise ValueError(f'C++标准不支持：{raw_standard!r}，支持C++17/20/23')
+        item['cpp_standard']=standard
         fingerprint=hashlib.sha256(re.sub(r'\s+','',item['buggy_code']).encode()).hexdigest()
         signatures={hashlib.sha256(re.sub(r'\s+','',x.get('buggy_code','')).encode()).hexdigest() for x in existing+self.state['approved']+self.state['candidates']}
         if fingerprint in signatures: raise ValueError('与现有题目代码重复')

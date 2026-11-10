@@ -944,6 +944,14 @@ async def main() -> int:
     plugin._store.close_problem(range_scope,'gave_up','1001')
     out=await runner.says(E('new CF999999Z',**range_user),'cmd_new')
     runner.check('不存在的指定题号不随机换题','没有找到' in out and plugin._store.current(range_scope)['status']=='gave_up',out)
+    pending_future=asyncio.get_running_loop().create_future()
+    plugin._pending_preparations[range_scope]={'task':pending_future,'sender':'1001'}
+    out=await runner.says(E('cur',**range_user),'cmd_problem')
+    runner.check('慢速准备cur显示任务保留','任务没有丢失' in out,out)
+    pending_future.set_result(dict(plugin._cf.problems[requested_key]))
+    out=await runner.says(E('cur',**range_user),'cmd_problem')
+    runner.check('cur领取后台完成中文题',plugin._store.current(range_scope)['status']=='open' and range_scope not in plugin._pending_preparations,out)
+    plugin._store.close_problem(range_scope,'gave_up','1001')
     saved_provider=plugin.config.get('judge_provider_id')
     plugin.config['judge_provider_id']=''
     ctx.reply_queue.append('给定整数数组，求最大值。')

@@ -991,6 +991,7 @@ class KouHuOJ(Star):
         self._growth: GrowthBank | None = None
         self._growth_lock = asyncio.Lock()
         self._translation_event = ContextVar('translation_event',default=None)
+        self._pending_preparations = {}
 
     # -- 生命周期 ------------------------------------------------------
     async def initialize(self) -> None:
@@ -1020,6 +1021,12 @@ class KouHuOJ(Star):
         )
 
     async def terminate(self) -> None:
+        pending_tasks=[p['task'] for p in self._pending_preparations.values()]
+        for task in pending_tasks:
+            task.cancel()
+        if pending_tasks:
+            await asyncio.gather(*pending_tasks,return_exceptions=True)
+        self._pending_preparations.clear()
         if self._store:
             self._store.close()
             self._store = None
@@ -1231,6 +1238,29 @@ class KouHuOJ(Star):
         """new [l-r] —— 按群档位或指定 CF rating 区间派题"""
         match = RE_NEW.match(event.message_str or '')
         arg = (match.group(1) or '').strip() if match else ''
+        pending_scope=self._scope_of(event)
+        pending=self._pending_preparations.get(pending_scope)
+        if pending:
+            task=pending['task']
+            if not task.done():
+                yield event.plain_result('中文题面仍在准备，任务没有丢失。稍后发 cur 领取；不需要反复 new。')
+                return
+            self._pending_preparations.pop(pending_scope,None)
+            try:
+                prepared=task.result()
+            except Exception as exc:
+                logger.warning(f'[KouHuOJ] 后台准备失败：{type(exc).__name__}: {exc}')
+                yield event.plain_result('本轮中文题面准备失败，可重新发 new；详见后台日志。')
+                return
+            current=self._store.current(pending_scope)
+            if current and current.get('status')==STATUS_OPEN:
+                yield event.plain_result('当前已有开放题，发cur查看。')
+                return
+            self._store.open_problem(pending_scope,prepared,pending['sender'])
+            self._store.note_issued(pending_scope)
+            async for result in self.cmd_problem(event):
+                yield result
+            return
         rating_range = None
         requested_key = None
         if arg and re.fullmatch(r'(?:CF)?[1-9]\d{0,5}[A-Za-z]\d?',arg,re.I):
@@ -1311,15 +1341,19 @@ class KouHuOJ(Star):
                 # One deadline for fetch + all translation retries, rather than
                 # restarting a 90-second timer for every paragraph/model call.
                 prepare_timeout=max(5,min(90,float(self.config.get('prepare_timeout_seconds',60))))
-                problem = await asyncio.wait_for(self._cf.fetch(entry),timeout=prepare_timeout)
+                task=asyncio.create_task(asyncio.wait_for(self._cf.fetch(entry),timeout=240))
+                self._pending_preparations[scope]={'task':task,'sender':sender_id}
+                problem = await asyncio.wait_for(asyncio.shield(task),timeout=min(25,prepare_timeout))
+                self._pending_preparations.pop(scope,None)
             finally:
                 self._translation_event.reset(token)
         except asyncio.TimeoutError:
             self._last_fetch_error='TimeoutError: 派题准备超过总时限'
             logger.warning(f"[KouHuOJ] {entry['cf_key']} 派题准备超时（含抓取及翻译总计 {prepare_timeout:g} 秒）")
-            yield event.plain_result('题面准备超时，本轮已停止等待，当前题目未被替换。请稍后重试；管理员可检查翻译模型的响应速度。')
+            yield event.plain_result('题面仍在后台准备（最多4分钟），任务已保留。稍后发 cur 领取中文题面，不要反复 new；当前题目未被替换。')
             return
         except Exception as exc:  # noqa: BLE001
+            self._pending_preparations.pop(scope,None)
             self._last_fetch_error = f'{type(exc).__name__}: {exc}'
             logger.error(f"[KouHuOJ] 抓取题面失败 {entry['cf_key']}：{type(exc).__name__}: {exc}")
             yield event.plain_result(
@@ -1361,6 +1395,10 @@ class KouHuOJ(Star):
             yield event.plain_result("插件还没初始化完，稍等几秒再试")
             return
         scope = self._scope_of(event)
+        if scope in self._pending_preparations:
+            async for result in self.cmd_new(event):
+                yield result
+            return
         current = self._store.current(scope)
         if not current:
             yield event.plain_result("还没派题，发 new 抽一道")
