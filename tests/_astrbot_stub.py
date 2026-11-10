@@ -72,8 +72,20 @@ class AstrMessageEvent:
         self._sender_name = sender_name
         self.role = role
         self._umo = umo or f"qq_official:GroupMessage:{group_id}"
+        self._stopped = False
 
     # ---- 插件实际调用的接口 ----
+    def stop_event(self) -> None:
+        """吃掉这条消息，后续 handler 不再执行。
+
+        真实接口在 astrbot.core.platform.astr_message_event.AstrMessageEvent 上，
+        是本插件挡掉 AstrBot 内置 /help、/new 的关键。
+        """
+        self._stopped = True
+
+    def is_stopped(self) -> bool:
+        return self._stopped
+
     def get_group_id(self) -> str:
         return self._group_id
 

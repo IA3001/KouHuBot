@@ -50,24 +50,79 @@ class PitfallSource:
                 return item
         return None
 
+    def levels(self) -> dict[int, int]:
+        """{难度: 条数}，给 status / 帮助提示用。"""
+        out: dict[int, int] = {}
+        for item in self._load():
+            lv = int(item.get("level") or 2)
+            out[lv] = out.get(lv, 0) + 1
+        return dict(sorted(out.items()))
+
+    def resolve_category(self, token: str) -> str | None:
+        """把群友打的分类名映射到标准分类。
+
+        支持中文全名、中文简写、拼音首字母，因为群里打字习惯统一不了：
+        「输入输出」「输入」「io」「sr」都应该能命中输入输出。
+        """
+        token = (token or "").strip().lower()
+        if not token:
+            return None
+        aliases = {
+            "输入输出": ("输入输出", "输入", "io", "srsc", "sr", "inout"),
+            "整数与溢出": ("整数", "溢出", "int", "overflow"),
+            "数组与内存": ("数组", "内存", "array", "mem"),
+            "排序与比较器": ("排序", "比较器", "sort", "cmp"),
+            "STL": ("stl", "容器", "container"),
+            "字符串": ("字符串", "string", "str"),
+            "宏与预处理": ("宏", "预处理", "macro", "define"),
+            "运算符": ("运算符", "运算", "operator", "op"),
+            "数学": ("数学", "math"),
+            "图论": ("图论", "图", "graph"),
+            "递归与栈": ("递归", "栈", "recursion", "stack"),
+            "二分": ("二分", "binary", "bs"),
+            "复杂度": ("复杂度", "复杂", "complexity", "complex"),
+            "多组数据": ("多组", "多测", "multi"),
+        }
+        for real, names in aliases.items():
+            if token == real.lower():
+                return real
+            for n in names:
+                if token == n.lower():
+                    return real
+        # 兜底：包含关系
+        for item in self._load():
+            cat = item.get("category") or ""
+            if cat and (token in cat.lower() or cat.lower() in token):
+                return cat
+        return None
+
     def random_pitfall(
-        self, exclude: tuple[str, ...] = (), category: str | None = None
+        self,
+        exclude: tuple[str, ...] = (),
+        category: str | None = None,
+        level: int | None = None,
+        level_max: int | None = None,
     ) -> dict:
+        """随机抽一条。
+
+        category 支持别名（见 resolve_category）；
+        level 精确匹配，level_max 表示「不超过这个难度」。
+        过滤后为空时**不静默退回到全部题库**——那样群友明明指定了「图论 L3」，
+        拿到一道输入输出的题，会以为插件坏了。直接报错让调用方告诉用户。
+        """
         items = self._load()
         if not items:
             raise LookupError("坑点库是空的，检查 pitfalls.json")
 
         pool = [item for item in items if item["id"] not in set(exclude)]
         if category:
-            key = category.strip().lower()
-            matched = [
-                item
-                for item in pool
-                if key in (item.get("category") or "").lower()
-                or key in item["id"].lower()
-            ]
-            if matched:
-                pool = matched
+            real = self.resolve_category(category) or category
+            pool = [item for item in pool if item.get("category") == real]
+        if level is not None:
+            pool = [item for item in pool if int(item.get("level") or 2) == int(level)]
+        elif level_max is not None:
+            pool = [item for item in pool if int(item.get("level") or 2) <= int(level_max)]
+
         if not pool:
-            pool = items
+            raise LookupError("这个条件下没有坑点题，换个分类或难度试试")
         return random.choice(pool)

@@ -31,8 +31,7 @@ event.message_str
       ├─ RE_GIVEUP   (^/?giveup$)           → cmd_giveup    放弃
       ├─ RE_RANK     (^/?rank$)             → cmd_rank      积分榜
       ├─ RE_ME       (^/?me$)               → cmd_me        我的战绩
-      ├─ RE_JOIN     (^/?join$)             → cmd_join      报名
-      ├─ RE_GRM      (^/?grammar(\s+\S+)?$) → cmd_pitfall   坑点题
+      ├─ RE_GRM      (^/?grammar\s*.*$)      → cmd_pitfall   坑点题（命名空间）
       ├─ RE_ASK      (^/?ask\s+(.+)$)       → cmd_ask       自由问答
       ├─ RE_HELP     (^/?help$)             → cmd_help      帮助
       ├─ RE_SKIP     (^/?skip$)             → cmd_skip      管理员：强制跳题
@@ -47,7 +46,41 @@ event.message_str
 - **指令一律完整英文单词，没有单字符别名**。单字母（`q`/`s`/`g`/`r`）在群里极易误伤
   普通聊天，而且 `s` 和 `g` 这种误触发会直接扣分或关题。全词 + `^...$` 全串锚定，
   `news`、`ranking`、`given` 都不会命中。
+- **坑点题是一个独立的命名空间**，不是顶层指令。见下一节。
+- **每个 handler 结束都要 `event.stop_event()`**。AstrBot 自带一批内置指令
+  （`/help`、`/new`、`/reset`、`/stats`），它们的匹配优先级和本插件相同，
+  而且在本插件之后**还会再跑一遍**。不挡的话群里会出现：
+  - 发 `help` → 先收到本插件的帮助，紧接着又收到一份 AstrBot 内置帮助
+  - 发 `new` → 本插件派了题，同时回一句「✅ Switched to new conversation」
+
+  所以每个 handler 都套了一层 `@_consumes`，在 `finally` 里调 `stop_event()`
+  （用 finally 才能覆盖提前 return、抛异常、被取消三种情况）。
 - Handler yield 出结果后事件即被消费，不会再触发 AstrBot 默认的大模型回复。
+
+### 2.1 坑点题为什么是独立命名空间
+
+坑点题（看代码找 bug）和 CF 正题是**两条完全独立的线**：
+
+| | 正题 | 坑点题 |
+|---|---|---|
+| 作用域 | `group:<群号>` | `group:<群号>:grammar` |
+| 当前题槽位 | 独立 | 独立 |
+| 指令 | `new` / `problem` / `submit` / `giveup` | 全部加 `grammar` 前缀 |
+| 是否计分 | 是 | 否 |
+
+两条线可以同时开着。最初的设计里，`submit` 和 `giveup` 会**先**去查坑点题槽位，
+查到有开着的坑点题就判坑点题，否则判正题。这带来两个实际问题：
+
+1. **抢占**：正题和坑点题同时开着时，一条 `submit` 判的是哪道题完全取决于
+   哪个槽位有题，群友没法预期，也没法只提交其中一道。
+2. **参数歧义**：`grammar` 原本支持 `grammar <分类>` 抽指定分类。
+   但这个位置是自由的，`grammar problem` 会被当成「抽一道分类叫 problem 的题」，
+   于是「重看当前坑点题」根本没有入口。
+
+所以改成命名空间隔离：`grammar` 后面的第一个词是**子命令**，
+`new`（默认）/ `problem` / `submit` / `giveup` / `list`。
+不是已知子命令时，再尝试当成分类（`grammar 二分` 比 `grammar new 二分` 顺手），
+分类也匹配不上就打印用法——这样 `grammar submitt` 这种手滑不会静默变成抽题。
 
 ## 3. 状态模型
 

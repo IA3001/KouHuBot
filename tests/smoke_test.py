@@ -240,8 +240,8 @@ def test_store(mod, tmp: Path) -> None:
     scope = "group:1"
 
     eq("新群默认档位 1200", store.state(scope)["current_tier"], 1200)
-    check("新人是新加入", store.join(scope, "u1", "张三") is True)
-    check("重复 join 不算新", store.join(scope, "u1", "张三") is False)
+    check("第一次提交时建档", store.ensure_player(scope, "u1", "张三") is True)
+    check("重复提交不算新玩家", store.ensure_player(scope, "u1", "张三") is False)
     check("报名后可查到", store.player(scope, "u1") is not None)
     check("没报名查不到", store.player(scope, "u2") is None)
 
@@ -288,6 +288,125 @@ def test_store(mod, tmp: Path) -> None:
     store2.close()
 
 
+def test_pitfalls(tmp: Path) -> None:
+    """坑点题库：分类别名、难度过滤、以及**不能泄底**。"""
+    print("\n[pitfalls] 坑点题库")
+    import importlib
+    import json
+
+    pf = importlib.import_module("sources.pitfalls")
+    src = pf.PitfallSource()
+
+    check("题库非空", src.count() >= 60, f"实际 {src.count()} 条")
+
+    cats = src.categories()
+    check("分类数 >= 12", len(cats) >= 12, str(cats))
+    check("没有非法分类「输出」", "输出" not in cats, str(cats))
+
+    levels = src.levels()
+    check("三档难度都有题", all(levels.get(i, 0) > 0 for i in (1, 2, 3)), str(levels))
+    check("入门档不少于 10 条", levels.get(1, 0) >= 10, str(levels))
+
+    # 分类别名：群里打字习惯不统一，这些都得认
+    for token, want in [
+        ("输入", "输入输出"), ("io", "输入输出"),
+        ("图论", "图论"), ("graph", "图论"),
+        ("二分", "二分"), ("bs", "二分"),
+        ("宏", "宏与预处理"), ("stl", "STL"),
+    ]:
+        eq(f"分类别名 {token!r}", src.resolve_category(token), want)
+
+    # 按分类 + 难度抽，抽到的必须真符合
+    for _ in range(20):
+        item = src.random_pitfall(category="二分", level=1)
+        if item["category"] != "二分" or int(item["level"]) != 1:
+            check("按分类难度抽题", False, str(item))
+            break
+    else:
+        check("按分类难度抽题（20 次）", True)
+
+    # 过滤后为空必须报错，不能静默退回全库
+    try:
+        src.random_pitfall(category="图论", level=3)
+    except LookupError:
+        check("无匹配时报错而不是乱给", True)
+    else:
+        check("无匹配时报错而不是乱给", False, "静默返回了别的题")
+
+    # ---- 泄底检查：这是题库最容易出的事故 ----
+    items = json.loads(
+        (Path(__file__).resolve().parent.parent
+         / "plugins" / "astrbot_plugin_kouhu_oj" / "pitfalls.json").read_text(encoding="utf-8")
+    )
+    leak_words = ["错", "死循环", "越界", "溢出", "没", "少", "应该", "注意",
+                  "问题", "不对", "漏", "仍", "遮蔽", "bug", "BUG"]
+    bad_comments = []
+    for item in items:
+        for line in item["buggy_code"].split("\n"):
+            if "//" not in line:
+                continue
+            comment = line.split("//", 1)[1]
+            if any(w in comment for w in leak_words):
+                bad_comments.append(f"{item['id']}: //{comment.strip()}")
+    check("代码注释不泄底", not bad_comments, "; ".join(bad_comments[:3]))
+
+    # 问句里不能出现答案的关键术语
+    leaks = []
+    for item in items:
+        q, ans = item["question"], item["answer"]
+        for term in ["严格弱序", "未初始化", "迭代器失效", "无符号回绕",
+                     "取地址", "严格弱", "越界", "溢出"]:
+            if term in ans and term in q:
+                leaks.append(f"{item['id']}: {term}")
+    check("问句不含答案术语", not leaks, "; ".join(leaks[:3]))
+
+    # 每条都要有可用的代码和答案
+    empty = [i["id"] for i in items
+             if not i.get("buggy_code", "").strip() or not i.get("answer", "").strip()]
+    check("每条都有代码和答案", not empty, str(empty[:3]))
+
+
+def test_no_title_leak(tmp: Path) -> None:
+    """题面卡片不能出现题目名字、题号、难度、分值。
+
+    这是「防搜题解」的核心：有题号就能直接去搜，有难度分值会直接劝退。
+    """
+    print("\n[render] 题面卡片不泄底")
+    import importlib
+
+    render = importlib.import_module("render")
+
+    prob = {
+        "cf_key": "1542E2",
+        "title": "E2. Abnormal Permutation Pairs (hard version)",
+        "tier": 2600,
+        "points": 1950,
+        "statement_cn": "给定 $$$n$$$，求方案数。",
+        "examples": [{"input": "1", "output": "1"}],
+        "time_limit": 4.0,
+        "memory_limit": 512,
+    }
+
+    # 直接检查卡片头部，避免依赖 OCR
+    import inspect
+    src = inspect.getsource(render.render_cf_statement)
+    check("题面卡头部不含 title", 'problem.get("title")' not in src, src[:200])
+    check("题面卡头部不含分值", "points" not in src, src[:200])
+    check("题面卡头部不含难度", "tier" not in src, src[:200])
+
+    # 文件名里也不能带题号
+    path = render.render_cf_statement(prob, out_dir=str(tmp / "img"), width=600)
+    name = Path(path).name
+    check("文件名不含题号", "1542" not in name and "E2" not in name, name)
+
+    # 坑点题卡片：标题留空（坑点的 title 本身就是答案）
+    pit = render.render_problem(
+        {"title": "", "content_html": "<p>这段代码结果不对</p>", "tags": [], "link": ""},
+        out_dir=str(tmp / "img"), width=600,
+    )
+    check("坑点卡能渲染", Path(pit).exists())
+
+
 def test_package_import(tmp: Path) -> None:
     """按 AstrBot 的方式以「包」加载插件。
 
@@ -318,9 +437,9 @@ def test_package_import(tmp: Path) -> None:
         eq("包加载下 normalize_tex 生效", cf.normalize_tex(r"a \le b"), r"a \leq b")
 
         main_mod = importlib.import_module("data.plugins.astrbot_plugin_kouhu_oj.main")
-        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.5.0")
+        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.5.1")
         cmds = [n for n in dir(main_mod.KouHuOJ) if n.startswith("cmd_")]
-        check(f"指令齐全（{len(cmds)} 个）", len(cmds) >= 13, str(sorted(cmds)))
+        check(f"指令齐全（{len(cmds)} 个）", len(cmds) >= 12, str(sorted(cmds)))
     finally:
         sys.path.remove(str(root))
 
@@ -340,6 +459,8 @@ def main() -> int:
     test_judge_prompt(mod)
     test_cache(cf_mod, tmp)
     test_store(mod, tmp)
+    test_pitfalls(tmp)
+    test_no_title_leak(tmp)
     test_package_import(tmp)
 
     print(f"\n{'─' * 60}")

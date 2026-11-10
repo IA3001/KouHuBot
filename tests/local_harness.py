@@ -340,10 +340,13 @@ async def main() -> int:
         ("r", mod.RE_RANK, False),
         ("problem", mod.RE_PROBLEM, True),
         ("p", mod.RE_PROBLEM, False),
-        ("join", mod.RE_JOIN, True),
         ("me", mod.RE_ME, True),
         ("men", mod.RE_ME, False),
         ("grammar", mod.RE_GRM, True),
+        ("grammar new", mod.RE_GRM, True),
+        ("grammar problem", mod.RE_GRM, True),
+        ("grammar submit 少了标记", mod.RE_GRM, True),
+        ("grammar giveup", mod.RE_GRM, True),
         ("grm", mod.RE_GRM, False),
         ("help", mod.RE_HELP, True),
         ("h", mod.RE_HELP, False),
@@ -369,19 +372,16 @@ async def main() -> int:
     runner.check("只有 AC / WA 两档", "PARTIAL" not in prompt)
     runner.check("含注入防御", "<student_answer>" in prompt)
 
-    # ---------- 2. 报名 ----------
-    banner("2. join 报名")
-    out = await runner.says(E("join", **alice), "cmd_join")
-    runner.check("报名成功", "报名成功" in out, out)
-    out = await runner.says(E("join", **alice), "cmd_join")
-    runner.check("重复报名有提示", "已经在名单" in out, out)
-    await runner.says(E("join", **bob), "cmd_join", quiet=True)
+    # ---------- 2. 没有 join 指令 ----------
+    banner("2. join 已移除（没作用的东西不该占一个指令）")
+    runner.check("RE_JOIN 不存在", not hasattr(mod, "RE_JOIN"))
+    runner.check("cmd_join 不存在", not hasattr(mod.KouHuOJ, "cmd_join"))
 
-    # ---------- 3. 没报名不能交 ----------
-    banner("3. 没报名不能 submit")
+    # ---------- 3. 没派题时 submit 有明确提示 ----------
+    banner("3. 没派题就 submit 要提示，不能静默")
     carol = {"group_id": group, "sender_id": "1003", "sender_name": "Carol"}
     out = await runner.says(E("submit 随便写", **carol), "cmd_submit")
-    runner.check("提示先 join", "join" in out, out)
+    runner.check("提示还没派题", "还没派题" in out, out)
 
     # ---------- 4. 派题 ----------
     banner("4. new 派题，出两张图（题面 + 样例）")
@@ -390,8 +390,9 @@ async def main() -> int:
     runner.check("出了两张图", len(imgs) == 2, f"实际 {len(imgs)} 张")
     for path in imgs:
         runner.check(f"图片存在 {Path(path).name}", Path(path).exists())
-    runner.check("提示了分值", "分" in out, out)
+    runner.check("不显示难度和分值", "难度 CF" not in out and "答对得" not in out, out)
     runner.check("没泄露题号", "4A" not in out, out)
+    runner.check("没泄露题目名字", "Watermelon" not in out, out)
 
     current = plugin._store.current(scope)
     runner.check("当前题已入库", current is not None and current["status"] == "open")
@@ -474,7 +475,52 @@ async def main() -> int:
     runner.check("显示解题数", "解题" in out, out)
     runner.check("显示放弃数", "放弃" in out, out)
     out = await runner.says(E("me", **carol), "cmd_me")
-    runner.check("未报名有提示", "还没报名" in out, out)
+    runner.check("没做过题有提示", "还没做过题" in out, out)
+
+    # ---------- 12b. 坑点题：独立命名空间 ----------
+    banner("12b. grammar 是独立命名空间，不和正题抢 submit")
+    out = await runner.says(E("grammar", **alice), "cmd_pitfall")
+    runner.check("抽到坑点题", "找 bug" in out, out)
+    runner.check("出了坑点题图", len(image_path_of(out)) == 1, out)
+    runner.check("不显示坑点标题", "忘了取地址" not in out and "没关同步" not in out, out)
+    runner.check("显示了分类和难度", "难度" in out and "/3" in out, out)
+
+    # 坑点题开着的同时，顶层 submit 仍然只作用于正题
+    gscope = scope + mod.GRAMMAR_SUFFIX
+    runner.check("坑点题有自己的槽位", plugin._store.current(gscope) is not None)
+    open_cf = plugin._store.current(scope)
+    out = await runner.says(E("submit 用哈希表", **alice), "cmd_submit")
+    runner.check("顶层 submit 判的是正题", "坑点" not in out, out)
+    runner.check("坑点题槽位没被动过",
+                 plugin._store.current(gscope)["status"] == "open")
+
+    out = await runner.says(E("grammar problem", **alice), "cmd_pitfall")
+    runner.check("grammar problem 重看", len(image_path_of(out)) == 1, out)
+    runner.check("重看提示用 grammar 指令", "grammar submit" in out, out)
+
+    out = await runner.says(E("grammar submit 少了标记已访问会重复入队", **alice), "cmd_pitfall")
+    runner.check("grammar submit 能判", "找到了" in out or "WA" in out, out)
+
+    out = await runner.says(E("grammar giveup", **alice), "cmd_pitfall")
+    runner.check("grammar giveup 给答案", "这道坑点" in out, out)
+    runner.check("给了正确写法", "正确写法" in out, out)
+    runner.check("坑点题已关闭", plugin._store.current(gscope)["status"] == "gave_up")
+
+    out = await runner.says(E("grammar list", **alice), "cmd_pitfall")
+    runner.check("grammar list 出分类", "按分类" in out, out)
+    runner.check("list 里有二分", "二分" in out, out)
+
+    out = await runner.says(E("grammar new 二分 1", **alice), "cmd_pitfall")
+    runner.check("能按分类难度抽", "二分" in out and "难度 1/3" in out, out)
+
+    out = await runner.says(E("grammar 二分", **alice), "cmd_pitfall")
+    runner.check("直接写分类也能抽", "二分" in out, out)
+
+    out = await runner.says(E("grammar 不存在的分类", **alice), "cmd_pitfall")
+    runner.check("非法分类列用法", "grammar submit" in out, out)
+
+    out = await runner.says(E("grammar 乱写参数", **alice), "cmd_pitfall")
+    runner.check("未知子命令列用法", "grammar submit" in out, out)
 
     # ---------- 13. 档位升降 ----------
     banner("13. 档位：派满 20 道、解出 50% → 升一档")
@@ -545,8 +591,10 @@ async def main() -> int:
     # ---------- 18. 帮助 ----------
     banner("18. help")
     out = await runner.says(E("help", **alice), "cmd_help")
-    for word in ("new", "submit", "giveup", "rank", "join", "grammar"):
+    for word in ("new", "submit", "giveup", "rank", "grammar"):
         runner.check(f"帮助里有 {word}", word in out)
+    runner.check("帮助里没有 join", "join" not in out, out)
+    runner.check("帮助里写了 grammar 子命令", "grammar submit" in out, out)
 
     # ---------- 19. 数据持久化 ----------
     banner("19. 重开数据库，数据要还在")

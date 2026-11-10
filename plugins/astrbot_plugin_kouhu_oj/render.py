@@ -366,10 +366,14 @@ def render_problem(
     ops: list[dict] = []
     y = _PADDING
 
-    title_lines = _wrap(probe, problem.get("title") or "未命名题目", title_font, inner_width)
-    for line in title_lines:
-        ops.append({"kind": "text", "text": line, "font": title_font, "x": _PADDING, "y": y, "fill": _TITLE_FG})
-        y += int(_TITLE_SIZE * _LINE_RATIO)
+    # 标题为空就整段不画。坑点题靠这个把答案藏起来——
+    # 坑点的 title 本身就是答案（比如「cin 没关同步导致 TLE」），
+    # 发到群里等于直接把谜底写在脸上。
+    title = problem.get("title") or ""
+    if title:
+        for line in _wrap(probe, title, title_font, inner_width):
+            ops.append({"kind": "text", "text": line, "font": title_font, "x": _PADDING, "y": y, "fill": _TITLE_FG})
+            y += int(_TITLE_SIZE * _LINE_RATIO)
 
     difficulty = (problem.get("difficulty") or "").upper()
 
@@ -387,8 +391,11 @@ def render_problem(
         )
         y += int(_META_SIZE * _LINE_RATIO) + 6
 
-    ops.append({"kind": "rule", "y": y, "x": _PADDING, "w": inner_width})
-    y += 24
+    # 没有标题也没有 meta 时（坑点题就是这样），顶部不画分隔线也不留空，
+    # 否则卡片顶上会挂一条莫名其妙的横线加一段空白。
+    if y > _PADDING:
+        ops.append({"kind": "rule", "y": y, "x": _PADDING, "w": inner_width})
+        y += 24
 
     truncated = False
     for block in blocks:
@@ -1016,12 +1023,25 @@ def _render_cf_card(
     return path
 
 
+def _opaque_name(suffix: str) -> str:
+    """给临时图片起个不含题号的名字。
+
+    以前用的是 cf_key（如 1542E2-q.png），万一哪天被平台当成文件名展示出来，
+    题号就泄露了。这里换成随机串，反正文件用完就删。
+    """
+    import uuid
+
+    return f"{uuid.uuid4().hex[:10]}-{suffix}"
+
+
 def render_cf_statement(problem: dict, out_dir: str | None = None, width: int = 900) -> str:
-    """题面正文图。"""
-    header = [
-        problem.get("title") or "未命名题目",
-        f"难度 CF {problem.get('tier')} · 本题 {problem.get('points')} 分",
-    ]
+    """题面正文图。
+
+    刻意**不显示题目名字和题号**：有题号就能直接搜题解，题目就白出了。
+    也**不显示难度和分值**——看到「CF 2600 / 1950 分」会直接劝退或者反向
+    暴露这题大概要用什么级别的算法。名字和题号在判 AC / 放弃时才揭晓。
+    """
+    header = ["算法题"]
     text = problem.get("statement_cn") or problem.get("statement_en") or ""
     paragraphs = [p for p in re.split(r"\n{2,}", text) if p.strip()]
     footer = (
@@ -1031,7 +1051,7 @@ def render_cf_statement(problem: dict, out_dir: str | None = None, width: int = 
     return _render_cf_card(
         header_lines=header, paragraphs=paragraphs, examples=None,
         footer=footer, out_dir=out_dir, width=width,
-        name_hint=f"{problem.get('cf_key', 'cf')}-q",
+        name_hint=_opaque_name("q"),
     )
 
 
@@ -1044,9 +1064,9 @@ def render_cf_examples(problem: dict, out_dir: str | None = None, width: int = 9
         blocks.append((f"样例 {i} · 输出", ex.get("output", "")))
     if not blocks:
         blocks = [("没有样例", "（这道题没有提供样例）")]
-    header = [problem.get("title") or "样例", "样例"]
+    header = ["样例"]
     return _render_cf_card(
         header_lines=header, paragraphs=[], examples=blocks,
         footer="提交：submit 你的思路", out_dir=out_dir, width=width,
-        name_hint=f"{problem.get('cf_key', 'cf')}-ex",
+        name_hint=_opaque_name("ex"),
     )
