@@ -451,15 +451,6 @@ async def main() -> int:
     out = await runner.says(E(f"history show {review_id}", **alice), "cmd_history")
     runner.check("开放题历史不提前回放判词", "结束后" in out, out)
 
-    out = await runner.says(E("report 翻译中的范围疑似错误", **alice), "cmd_report")
-    runner.check("开放题反馈建工单", "已登记" in out, out)
-    report_rows, _ = plugin._store.tickets(scope, user="1001")
-    report_id = report_rows[0]['id']
-    out = await runner.says(E(f"tickets show {report_id}", **alice), "cmd_tickets")
-    runner.check("开放题工单不回显敏感描述", "结束后" in out and "翻译中的范围" not in out, out)
-    out = await runner.says(E("report 重复反馈", **alice), "cmd_report")
-    runner.check("重复反馈被拦截", "已登记" not in out, out)
-
     # ---------- 7. AC 计分 ----------
     banner("7. submit 判 AC：加分、揭晓题号、关闭题目")
     runner.judge("AC")
@@ -505,39 +496,14 @@ async def main() -> int:
     runner.check('历史题面和样例都能回看', len(image_path_of(out)) == 2 and '未切换' in out, out)
     runner.check('回看历史不切换判题槽位', plugin._store.current(scope) == saved_slot)
     out = await runner.says(E(f'history show {first_key}', **alice), 'cmd_history')
-    runner.check('按题查看各次作答及申诉号', 'WA' in out and 'AC' in out and 'appeal' in out, out)
+    runner.check('按题查看各次作答', 'WA' in out and 'AC' in out, out)
     out = await runner.says(E('sol 5', **alice), 'cmd_solution')
     runner.check('旧sol数字入口明确迁移指引', '不再表示提交记录号' in out and '628B' in out, out)
     out = await runner.says(E('help', **alice), 'cmd_help')
-    runner.check('菜单分类和统一装饰', all(x in out for x in ('🎯 正题练习','🧩 C++ 坑点','📖 历史与复盘','🏆 积分与规则','🛠 反馈与复核','💬 帮助与更新','🔐 管理员','› history problem 628B')), out)
+    runner.check('菜单分类和统一装饰', all(x in out for x in ('🎯 正题练习','🧩 C++ 坑点','📖 历史与复盘','🏆 积分与规则','💬 帮助与更新','🔐 管理员','› history problem 628B')), out)
 
-    banner("7c. 工单、申诉与管理员操作")
-    admin = {**alice, "role": "admin"}
-    original_score = plugin._store.player(scope, "1001")['total_score']
-    ctx.reply_queue.clear()
-    ctx.reply_queue.append("支持原判：两层循环无法通过数据范围，建议优化复杂度。")
-    out = await runner.says(E(f"appeal {review_id} 我认为复杂度足够", **alice), "cmd_appeal")
-    runner.check("申诉有模型复核并等待人工", "模型复核" in out and "支持原判" in out and "等待管理员" in out, out)
-    runner.check("复核不改分", plugin._store.player(scope, "1001")['total_score'] == original_score)
-    calls = ctx.call_count
-    out = await runner.says(E(f"appeal {review_id} 再试一次", **alice), "cmd_appeal")
-    runner.check("重复申诉不再调用模型", ctx.call_count == calls and "已登记" not in out, out)
-    out = await runner.says(E(f"appeal {review_id} 越权请求", **bob), "cmd_appeal")
-    runner.check("不能申诉他人提交", "找不到" in out, out)
-    out = await runner.says(E(f"tickets show {report_id}", **bob), "cmd_tickets")
-    runner.check("普通成员不能看他人工单", "找不到" in out, out)
-    out = await runner.says(E("tickets pending", **alice), "cmd_tickets")
-    runner.check("待办列表限管理员", "管理员权限" in out, out)
-    out = await runner.says(E("tickets pending", **admin), "cmd_tickets")
-    runner.check("管理员能查待办", f"#{report_id}" in out and "待处理" in out, out)
-    out = await runner.says(E(f"tickets pause {report_id} 待校对翻译", **admin), "cmd_tickets")
-    runner.check("管理员暂停问题题目", first_key in plugin._store.paused_keys(scope), out)
-    out = await runner.says(E(f"tickets unpause {report_id} 已修订翻译", **admin), "cmd_tickets")
-    runner.check("修订后解除暂停", first_key not in plugin._store.paused_keys(scope), out)
-    out = await runner.says(E(f"tickets resolve {report_id} 已核对原文并修正", **admin), "cmd_tickets")
-    runner.check("管理员关闭工单", plugin._store.ticket(scope,report_id)['status'] == 'resolved', out)
-    out = await runner.says(E(f"tickets show {report_id}", **alice), "cmd_tickets")
-    runner.check("用户能回看完整处理审计", "已核对原文并修正" in out and "pause" in out and "unpause" in out, out)
+    runner.check('反馈与申诉指令已移除', all(not hasattr(plugin,name) for name in ('cmd_report','cmd_appeal','cmd_tickets')))
+    runner.check('菜单无工单入口', all(word not in mod.HELP_TEXT for word in ('report','appeal','tickets')))
 
     # ---------- 8. 已关闭的题不能再交 ----------
     banner("8. 题目已关闭后再 submit 应当被拒")
@@ -891,26 +857,6 @@ async def main() -> int:
     saved_current = plugin._store.current(scope)
     saved_used = plugin._store.used_keys(scope)
 
-    banner("Sprint 3 暂停抽题、复核失败与线路隔离")
-    testgroup = {**alice, "group_id": "paused-only"}
-    testscope = plugin._scope_of(E("new", **testgroup))
-    for key in plugin._cf.problems:
-        plugin._store.pause(testscope, key, "admin", "待检查")
-    out = await runner.says(E("new", **testgroup), "cmd_new")
-    runner.check("暂停正题不进入抽取", plugin._store.current(testscope) is None and "没有可派" in out, out)
-    grammar_scope = testscope + ":grammar"
-    for item in plugin._pitfalls._load():
-        plugin._store.pause(grammar_scope, mod.PITFALL_PREFIX + item['id'], "admin", "待检查")
-    out = await runner.says(E("grm new", **testgroup), "cmd_pitfall")
-    runner.check("所有坑点暂停后不因记忆重置重入", plugin._store.current(grammar_scope) is None, out)
-    original_entries, _ = plugin._store.review_history(scope, "1001")
-    ac_entry = next(row for row in original_entries if row['cf_key'] == first_key and row['verdict'] == 'AC')
-    ctx.reply_queue.clear()
-    ctx.reply_queue.append("")
-    out = await runner.says(E(f"appeal {ac_entry['id']} 请求检查", **alice), "cmd_appeal")
-    runner.check("复核失败工单保留供人工处理", "已保存" in out and "人工处理" in out, out)
-    out = await runner.says(E(f"tickets show {report_id}", **testgroup), "cmd_tickets")
-    runner.check("不同群不能查看工单", "找不到" in out, out)
     previous_reviews, previous_total = plugin._store.review_history(scope, "1001")
     first_entry = next(row for row in previous_reviews if row['cf_key'] == first_key)
     plugin._store.open_problem(scope, {"cf_key": first_key, "title": "Watermelon"}, "admin")
