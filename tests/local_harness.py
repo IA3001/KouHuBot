@@ -766,6 +766,47 @@ async def main() -> int:
     runner.check("帮助里没有 join", "join" not in out, out)
     runner.check("帮助里写了 grm 子命令", "grm sub" in out, out)
 
+    banner("18b. Sprint 1 规则、实榜和元数据隔离")
+    calls = ctx.call_count
+    for command, handler in (("rules", "cmd_rules"), ("ask rank 是怎么计算的", "cmd_ask"), ("ask hint 扣分吗", "cmd_ask")):
+        out = await runner.says(E(command, **alice), handler)
+        runner.check(f"{command} 解释规则", "首次提交即 AC" in out and "不扣分" in out and "30%" in out and "10%" in out, out)
+    runner.check("规则直接回答不走模型", ctx.call_count == calls)
+    for value in (None, "abc", -10, 0, 999):
+        plugin.config["leaderboard_size"] = value
+        snap = plugin._status_snapshot(scope)
+        runner.check(f"真实榜单配置 {value} 可读", isinstance(snap["本群积分榜"], list), str(snap["本群积分榜"]))
+    saved_render = mod.render_leaderboard
+    try:
+        mod.render_leaderboard = lambda *args, **kwargs: None
+        out = await runner.says(E("rank", **alice), "cmd_rank")
+        runner.check("图片失败文字榜可读", "Alice" in out and "分" in out, out)
+    finally:
+        mod.render_leaderboard = saved_render
+    plugin._store.open_problem(scope, {"cf_key": "987654Z9", "title": "SECRET TITLE", "tier": 3200, "points": 3700}, "admin")
+    plugin._last_fetch_error = "failed https://codeforces.com/problemset/problem/987654/Z9"
+    snap = plugin._status_snapshot(scope)
+    public = json.dumps(snap, ensure_ascii=False)
+    runner.check("快照不含当前题元数据", all(x not in public for x in ("987654Z9", "SECRET TITLE", "3700", "3200")), public)
+    runner.check("快照保留公开群档位", "1800" in public)
+    out = await runner.says(E("status", **admin), "cmd_status")
+    runner.check("status 不露题号或异常链接", "987654" not in out and "codeforces.com" not in out, out)
+    runner.check("健康摘要不露异常内容", "987654" not in plugin._health_line(scope))
+    clean = mod.hide_problem_metadata("SECRET TITLE CF987654Z9 难度 3200 分值3700 https://codeforces.com/problemset/problem/987654/Z9", {"title": "SECRET TITLE", "cf_key": "987654Z9"})
+    runner.check("模型输出明确元数据被遮蔽", all(x not in clean for x in ("SECRET TITLE", "3200", "3700", "codeforces.com")), clean)
+
+    for uid, name, points, first in (("a", "A", 100, False), ("b", "B", 100, True), ("c", "C", 200, False)):
+        plugin._store.ensure_player("rank-test", uid, name)
+        plugin._store.add_score("rank-test", uid, points, first)
+    runner.check("同分按首交AC排序", [r["user_name"] for r in plugin._store.leaderboard("rank-test", 10)] == ["C", "B", "A"])
+    plugin._store.ensure_player("rank-test", "d", "D")
+    plugin._store.add_score("rank-test", "d", 50, False)
+    plugin._store.add_score("rank-test", "d", 50, False)
+    runner.check("同分先比解题数", [r["user_name"] for r in plugin._store.leaderboard("rank-test", 10)] == ["C", "D", "B", "A"])
+    plugin._store.note_pitfall(scope + ":grammar", "upgrade-remember")
+    saved_current = plugin._store.current(scope)
+    saved_used = plugin._store.used_keys(scope)
+
     # ---------- 19. 数据持久化 ----------
     banner("19. 重开数据库，数据要还在")
     db_path = data_root / "plugin_data" / mod.PLUGIN_NAME / "kouhu_oj.db"
@@ -776,6 +817,9 @@ async def main() -> int:
     runner.check("排行榜还查得到", bool(store2.leaderboard(scope, 10)))
     runner.check("提示重启后仍在", store2.hints(scope, first_key) == ["方向提示甲", "关键观察乙", "解法框架丙"])
     runner.check("提示不串到别的题", store2.hints(scope, "another-key") is None)
+    runner.check("当前题状态保留", store2.current(scope) == saved_current)
+    runner.check("正题出题记忆保留", store2.used_keys(scope) == saved_used)
+    runner.check("坑点出题记忆保留", "upgrade-remember" in store2.used_pitfalls(scope + ":grammar"))
     store2.close()
 
     # ---------- 汇总 ----------

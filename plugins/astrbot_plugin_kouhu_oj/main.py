@@ -43,7 +43,7 @@ from astrbot.api.star import Context, Star
 
 try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
     from . import scoring
-    from .capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES
+    from .capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
     from .render import (
         blocks_to_plain,
         build_meta_text,
@@ -60,7 +60,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import scoring  # type: ignore
-    from capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES
+    from capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
     from render import (  # type: ignore
         blocks_to_plain,
         build_meta_text,
@@ -74,7 +74,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.7.1"
+PLUGIN_VERSION = "0.7.2"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -226,6 +226,7 @@ RE_ME = re.compile(r"^\s*/?\s*me\s*$", re.I)
 # 否则「同时开着一道正题和一道坑点题」时 submit 该判哪道就说不清了。
 RE_GRM = re.compile(r"^\s*/?\s*(?:grm|grammar)(?:\s+([\s\S]+?))?\s*$", re.I)
 RE_HELP = re.compile(r"^\s*/?\s*help\s*$", re.I)
+RE_RULES = re.compile(r"^\s*/?\s*(?:rules|规则)\s*$", re.I)
 RE_ABOUT = re.compile(r"^\s*/?\s*(?:about|自我介绍|功能介绍)\s*$", re.I)
 RE_HINT = re.compile(r"^\s*/?\s*hint(?:\s+([^\r\n]+?))?\s*$", re.I)
 RE_ASK = re.compile(r"^\s*/?\s*ask\s+([\s\S]+?)\s*$", re.I)
@@ -249,6 +250,7 @@ ask 问题       自由问答：题库、运行情况，随便问
 ver           版本号和这一版改了什么
 ver list      历史版本列表
 ver 0.6.0     查看指定版本的更新日志
+rules         计分、排名、升降档和提示规则
 about         自我介绍、当前功能和上手方式
 help          这条帮助
 
@@ -332,6 +334,20 @@ def build_pitfall_prompt(pitfall: dict, submission: str) -> str:
 """
 
 
+def hide_problem_metadata(text: str, problem: dict) -> str:
+    """遮蔽模型输出中可明确识别的元数据；不尝试禁止从题面自行推理。"""
+    for field in ("title", "cf_key", "url", "link"):
+        value = str(problem.get(field) or "").strip()
+        if field == "title":
+            value = re.sub(r"^[A-Z]\d*\.\s*", "", value)
+        if value:
+            prefix = r"(?:CF\s*)?" if field == "cf_key" else ""
+            text = re.sub(r"(?<!\w)" + prefix + re.escape(value) + r"(?!\w)", "〔题目信息隐藏〕", text, flags=re.I)
+    text = re.sub(r"https?://(?:www\.)?codeforces\.com/\S+", "〔题目链接隐藏〕", text, flags=re.I)
+    text = re.sub(r"(?:题号|题名|标题|难度|rating|分值|得分)\s*[:：=]?\s*(?:CF\s*)?\d+[A-Za-z\d]*", "〔题目信息隐藏〕", text, flags=re.I)
+    return text
+
+
 def build_judge_prompt(problem: dict, submission: str) -> str:
     """算法题的判题提示词。
 
@@ -341,13 +357,13 @@ def build_judge_prompt(problem: dict, submission: str) -> str:
     2. 强制先做复杂度估算。CF 题面从不写「必须以 O(n log n) 运行」，
        只给数据范围和时限。不逼模型算操作数，它会把暴力解判成 AC。
     """
-    title = problem.get("title") or ""
     statement = problem.get("statement_en") or ""
     time_limit = problem.get("time_limit") or 2.0
     memory_limit = problem.get("memory_limit") or 256
     return f"""你是一个严格的算法题评委，正在批改群友对下面这道题的解答。
 
-【题目】{title}
+【题目】匿名算法题
+评语禁止输出原题标题、题号、实际难度、具体分值、来源链接；只分析作答。
 
 【题面】
 {statement}
@@ -1326,7 +1342,10 @@ class KouHuOJ(Star):
             if not latest or latest["cf_key"] != key or latest.get("status") != STATUS_OPEN:
                 yield event.plain_result("生成期间正题已结束或更换，本次提示不再展示")
                 return
-            yield event.plain_result(f"第 {arg} 级提示（模型生成）\n\n{hints[int(arg) - 1]}")
+            metadata = dict(self._cache.get(key) or {})
+            metadata["cf_key"] = key
+            visible = hide_problem_metadata(hints[int(arg) - 1], metadata)
+            yield event.plain_result(f"第 {arg} 级提示（模型生成）\n\n{visible}")
 
     # -- 指令：提交 ----------------------------------------------------
     @filter.regex(RE_SUBMIT)
@@ -1407,6 +1426,7 @@ class KouHuOJ(Star):
             self._store.record_attempt(scope, cf_key, sender_id, n, verdict)
 
             if verdict != VERDICT_AC:
+                comment = hide_problem_metadata(comment, {**problem, "cf_key": cf_key})
                 yield event.plain_result(
                     f"❌ WA\n{comment}\n\n（答错不扣分，想好了再 sub。做不出来可以 giveup）"
                 )
@@ -1485,7 +1505,7 @@ class KouHuOJ(Star):
             yield event.plain_result("插件还没初始化完，稍等几秒再试")
             return
         scope = self._scope_of(event)
-        limit = int(self.config.get("leaderboard_size", 10))
+        limit = max(1, min(50, _as_int(self.config.get("leaderboard_size"), 10)))
         rows = self._store.leaderboard(scope, limit)
         state = self._store.state(scope)
         health = self._health_line(scope)
@@ -1514,7 +1534,7 @@ class KouHuOJ(Star):
         lines = [f"口胡 OJ 积分榜（当前难度 CF {state['current_tier']}）"]
         for i, row in enumerate(rows, 1):
             lines.append(
-                f"{i}. {row['user_name']}  {row['total_score']} 分"
+                f"{i}. {row['user_name']}  {row['total']} 分"
                 f"（{row['solved']} 题）"
             )
         lines.append("")
@@ -1530,7 +1550,7 @@ class KouHuOJ(Star):
             ago = int(time.time() - self._last_fetch_ok)
             bits.append(f"上次抓题 {_fmt_uptime(ago)}前")
         if self._last_fetch_error:
-            bits.append(f"上次抓题失败：{self._last_fetch_error[:60]}")
+            bits.append("上次抓题失败，请管理员查看日志")
         return "· " + " · ".join(bits) if bits else ""
 
     # -- 指令：我的战绩 ------------------------------------------------
@@ -1637,14 +1657,14 @@ class KouHuOJ(Star):
             f"口胡 OJ {PLUGIN_VERSION}",
             f"已运行 {_fmt_uptime(time.monotonic() - self._started_at)}",
             f"群难度 CF {state['current_tier']}，本档已派 {state['tier_issued']} 道",
-            f"当前题：{current['cf_key'] if current else '无'}（{current['status'] if current else '-'}）",
+            f"当前题：{'进行中（结束后揭晓题号）' if current and current['status'] == STATUS_OPEN else current['cf_key'] if current else '无'}（{current['status'] if current else '-'}）",
             f"题库缓存 {self._cache.ready_count() if self._cache else 0} 道",
             f"报名 {stats.get('报名人数', 0)} 人 · 累计解题 {stats.get('累计解题', 0)} 次",
         ]
         if self._last_fetch_ok:
             lines.append(f"上次抓题 {_fmt_uptime(time.time() - self._last_fetch_ok)}前")
         if self._last_fetch_error:
-            lines.append(f"上次抓题失败：{self._last_fetch_error[:80]}")
+            lines.append("上次抓题失败，请管理员查看日志")
         for key, value in _system_info().items():
             lines.append(f"{key}：{value}")
         yield event.plain_result("\n".join(lines))
@@ -1973,17 +1993,17 @@ class KouHuOJ(Star):
             }
             current = self._store.current(scope)
             snapshot["本群当前题目"] = (
-                {"难度档": f"CF {current.get('tier')}", "分值": current.get("points")}
+                {"状态": current.get("status"), "说明": "当前题目信息在结束后揭晓"}
                 if current
                 else "这个群还没派过题"
             )
             # 配置项可能是 None 或非数字（升级后旧配置里没有这个键，
             # 或者被人手工改坏），int() 会直接抛 TypeError。
-            size = _as_int(self.config.get("leaderboard_size"), 10)
+            size = max(1, min(50, _as_int(self.config.get("leaderboard_size"), 10)))
             try:
                 rows = self._store.leaderboard(scope, size)
                 snapshot["本群积分榜"] = [
-                    {"昵称": r["user_name"], "积分": r["total_score"], "解题": r["solved"]}
+                    {"昵称": r["user_name"], "积分": r["total"], "解题": r["solved"]}
                     for r in rows
                 ] or "暂无记录"
             except Exception as exc:  # noqa: BLE001
@@ -1998,10 +2018,12 @@ class KouHuOJ(Star):
         snapshot["配置"] = {
             key: self.config.get(key) for key in SAFE_CONFIG_KEYS if key in self.config
         }
+        snapshot["规则说明"] = rules_text()
         snapshot["已实现功能介绍"] = INTRO_TEXT
         snapshot["尚未实现的计划功能"] = PLANNED_FEATURES
         snapshot["指令"] = {
             "about": "自我介绍和已实现功能",
+            "rules": "计分、排名、升降档和提示规则",
             "ver [list|版本号]": "查看当前更新、历史摘要或指定版本记录",
             "new": "派一道新题",
             "cur": "重看当前题",
@@ -2093,6 +2115,10 @@ class KouHuOJ(Star):
         # 问「更新了什么」这类问题，直接读 CHANGELOG 回答。
         # 不走模型：模型不知道仓库里有什么，只会说「日志里没有这个信息」，
         # 而日志就在那儿。而且版本历史这种事实性内容，让模型转述容易编。
+        if RULES_ASK.search(question):
+            yield event.plain_result(rules_text())
+            return
+
         if INTRO_ASK.search(question):
             yield event.plain_result(INTRO_TEXT)
             return
@@ -2174,6 +2200,11 @@ class KouHuOJ(Star):
             )
             return
         yield event.plain_result(f"{head}\n\n{body}\n\n历史版本：ver list"[:1800])
+
+    @filter.regex(RE_RULES)
+    @_consumes
+    async def cmd_rules(self, event: AstrMessageEvent):
+        yield event.plain_result(rules_text())
 
     @filter.regex(RE_ABOUT)
     @_consumes
