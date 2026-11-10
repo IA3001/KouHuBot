@@ -30,6 +30,7 @@ import pathlib
 import re
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -153,6 +154,9 @@ class FakeCfSource:
             if scoring.tier_of(p["rating"]) == tier:
                 return dict(p)
         return None
+
+    def pick_range(self, low, high, exclude=None):
+        return next((dict(p) for p in self.problems.values() if low <= p['rating'] <= high and p['cf_key'] not in (exclude or set())), None)
 
     async def fetch(self, entry: dict) -> dict:
         if self.fail_fetch:
@@ -328,7 +332,7 @@ async def main() -> int:
     cases = [
         ("new", mod.RE_NEW, True),
         ("/new", mod.RE_NEW, True),
-        ("new 1200", mod.RE_NEW, False),
+        ("new 1200", mod.RE_NEW, True),  # 参数由处理器校验并返回用法
         ("n", mod.RE_NEW, False),
         ("q", mod.RE_NEW, False),
         ("news", mod.RE_NEW, False),
@@ -879,6 +883,27 @@ async def main() -> int:
     runner.check("解析空响应明确失败且可重试", "生成失败" in out, out)
     saved_current = plugin._store.current(scope)
     saved_used = plugin._store.used_keys(scope)
+
+    range_user = {**alice, 'group_id':'range-test'}
+    range_scope = plugin._scope_of(E('new',**range_user))
+    for bad in ('new [1600-1200]','new [700-900]','new [800-3600]','new [1-2','new abc'):
+        out = await runner.says(E(bad,**range_user),'cmd_new')
+        runner.check('错误区间不改状态 '+bad, '用法' in out and plugin._store.current(range_scope) is None,out)
+    target_rating = next(iter(plugin._cf.problems.values()))['rating']
+    tier_before = plugin._store.state(range_scope)['current_tier']
+    out = await runner.says(E(f'new [{target_rating}-{target_rating}]',**range_user),'cmd_new')
+    chosen = plugin._store.current(range_scope)
+    runner.check('闭区间可按单rating抽题', chosen is not None and plugin._cf.problems[chosen['cf_key']]['rating']==target_rating,out)
+    runner.check('指定范围不更改群档位', plugin._store.state(range_scope)['current_tier']==tier_before)
+    out = await runner.says(E('new 800-3500',**range_user),'cmd_new')
+    runner.check('区间抽题遵守当前题槽位', '当前这道题' in out and plugin._store.current(range_scope)==chosen,out)
+    plugin._store.close_problem(range_scope,'gave_up','1001')
+    for key,p in plugin._cf.problems.items():
+        if p['rating']==target_rating:
+            plugin._store._conn.execute('INSERT OR IGNORE INTO used_problems(scope_id,cf_key,at) VALUES(?,?,?)',(range_scope,key,time.time()))
+    plugin._store._conn.commit()
+    out = await runner.says(E(f'new {target_rating}-{target_rating}',**range_user),'cmd_new')
+    runner.check('指定区间耗尽不跨范围派题', '区间没有' in out and plugin._store.current(range_scope)['status']=='gave_up',out)
 
     # ---------- 19. 数据持久化 ----------
     banner("19. 重开数据库，数据要还在")

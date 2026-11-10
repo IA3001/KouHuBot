@@ -468,6 +468,14 @@ class CodeforcesSource:
             return None
         return pool[0] if len(pool) == 1 else pool[time.time_ns() % len(pool)]
 
+    def pick_range(self, low: int, high: int, exclude: set[str] | None = None) -> dict | None:
+        """按实际 CF rating 闭区间抽题，不扩展区间或按档位取整。"""
+        import secrets
+        excluded = exclude or set()
+        pool = [p for p in self._catalog if isinstance(p.get('rating'), int)
+                and low <= p['rating'] <= high and p['cf_key'] not in excluded]
+        return secrets.choice(pool) if pool else None
+
     # -- 题面 ----------------------------------------------------------
     def _scrape_sync(self, cf_key: str, contest_id: int, idx: str) -> dict:
         """抓一道题的题面页。

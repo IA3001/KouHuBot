@@ -78,7 +78,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.12.2"
+PLUGIN_VERSION = "0.13.0"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -219,7 +219,7 @@ def _consumes(handler):
 # ----------------------------------------------------------------------
 # 指令正则：一律完整英文单词，允许带 / 前缀，大小写不敏感
 # ----------------------------------------------------------------------
-RE_NEW = re.compile(r"^\s*/?\s*new\s*$", re.I)
+RE_NEW = re.compile(r"^\s*/?\s*new(?:\s+([^\r\n]+?))?\s*$", re.I)
 RE_SUBMIT = re.compile(r"^\s*/?\s*(?:sub|submit)\s+([\s\S]+?)\s*$", re.I)
 RE_GIVEUP = re.compile(r"^\s*/?\s*giveup\s*$", re.I)
 RE_RANK = re.compile(r"^\s*/?\s*rank\s*$", re.I)
@@ -249,7 +249,8 @@ HELP_TEXT = """╭── 📚 口胡 OJ · 指令菜单 ──╮
 
 🎯 正题练习
 ━━━━━━━━━━━━━━━━
-› new · 抽一道新题
+› new [1200-1600] · 按 CF rating 区间抽题
+› new · 按群难度档位抽题
 › cur · 重看当前题面与样例
 › sub 思路 · 提交思路、伪代码或代码
 › hint 1 / 2 / 3 · 方向 / 观察 / 框架
@@ -1179,7 +1180,19 @@ class KouHuOJ(Star):
     @filter.regex(RE_NEW)
     @_consumes
     async def cmd_new(self, event: AstrMessageEvent):
-        """new —— 派一道新题"""
+        """new [l-r] —— 按群档位或指定 CF rating 区间派题"""
+        match = RE_NEW.match(event.message_str or '')
+        arg = (match.group(1) or '').strip() if match else ''
+        rating_range = None
+        if arg:
+            bounds = re.fullmatch(r'\[\s*(\d{1,4})\s*-\s*(\d{1,4})\s*\]|(\d{1,4})\s*-\s*(\d{1,4})', arg)
+            if bounds:
+                low, high = map(int, (bounds.group(1) or bounds.group(3), bounds.group(2) or bounds.group(4)))
+                if 800 <= low <= high <= 3500:
+                    rating_range = (low,high)
+            if rating_range is None:
+                yield event.plain_result('用法：new 或 new [1200-1600]（也支持 new 1200-1600）。CF rating 范围 800–3500，左端不能大于右端。')
+                return
         if not self._store or not self._cf:
             yield event.plain_result("插件还没初始化完，稍等几秒再试")
             return
@@ -1218,7 +1231,10 @@ class KouHuOJ(Star):
                 return
 
         used = self._store.used_keys(scope)
-        entry = self._cf.pick(tier, exclude=used)
+        entry = self._cf.pick_range(*rating_range, exclude=used) if rating_range else self._cf.pick(tier, exclude=used)
+        if entry is None and rating_range:
+            yield event.plain_result(f'CF {rating_range[0]}–{rating_range[1]} 区间没有尚未派过的可用题，请换个区间。当前题目未改变。')
+            return
         if entry is None:
             # 这一档题派完了，往下找一档
             for delta in (-1, 1, -2, 2, -3, 3):
@@ -2101,7 +2117,7 @@ class KouHuOJ(Star):
             "sol [题号]": "已结束正题的模型解析，例如 sol 628B；不再使用提交记录号，非官方题解",
             "history [grm] [页码]": "本群自己的按题汇总历史；history [grm] problem 题号 只发题面与样例不切换当前判题；show 题号 [页码] 查看个人各次提交与判词",
             "ver [list|版本号]": "查看当前更新、历史摘要或指定版本记录",
-            "new": "派一道新题",
+            "new [l-r]": "new 按群档位派题；new [1200-1600] 或 new 1200-1600 按实际CF rating闭区间随机抽取本群未出过的题，支持800–3500；不改变群档位，无题不扩范围，仍参与群解出率统计",
             "cur": "重看当前题",
             "sub <思路>": "提交作答",
             "hint 1/2/3": "当前正题的三级提示：方向、关键观察、解法框架；模型生成，群内可见，不扣分",
