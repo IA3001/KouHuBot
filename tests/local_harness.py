@@ -606,6 +606,17 @@ async def main() -> int:
     runner.check("结束后能抽下一道", "二分" in out, out)
     runner.check("新题也出图", len(image_path_of(out)) == 1, out)
 
+    banner("12b. 自我介绍与功能事实")
+    calls = ctx.call_count
+    for command, handler in (("about", "cmd_about"), ("自我介绍", "cmd_about"), ("ask 你能做什么", "cmd_ask"), ("ask 现在已经有哪些功能了", "cmd_ask")):
+        out = await runner.says(E(command, **alice), handler)
+        runner.check(f"{command} 完整介绍", all(word in out for word in ("hint 1", "grm new", "rank", "ver list", "help")), out)
+        runner.check(f"{command} 区分计划", "还在计划中" in out and "模型" in out, out)
+    runner.check("自我介绍不调模型", ctx.call_count == calls)
+    snap = plugin._status_snapshot(scope)
+    runner.check("模型快照带功能说明", snap["已实现功能介绍"] == mod.INTRO_TEXT)
+    runner.check("模型快照明确未实现能力", "个人训练" in snap["尚未实现的计划功能"])
+
     # ---------- 12c. ask 问更新日志 ----------
     banner("12c. ask 问更新日志：直接读文件，不经过模型")
     before_calls = ctx.call_count

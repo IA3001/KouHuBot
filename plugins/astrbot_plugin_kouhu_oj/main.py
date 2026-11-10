@@ -43,6 +43,7 @@ from astrbot.api.star import Context, Star
 
 try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
     from . import scoring
+    from .capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES
     from .render import (
         blocks_to_plain,
         build_meta_text,
@@ -59,6 +60,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import scoring  # type: ignore
+    from capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES
     from render import (  # type: ignore
         blocks_to_plain,
         build_meta_text,
@@ -72,7 +74,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.7.0"
+PLUGIN_VERSION = "0.7.1"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -224,6 +226,7 @@ RE_ME = re.compile(r"^\s*/?\s*me\s*$", re.I)
 # 否则「同时开着一道正题和一道坑点题」时 submit 该判哪道就说不清了。
 RE_GRM = re.compile(r"^\s*/?\s*(?:grm|grammar)(?:\s+([\s\S]+?))?\s*$", re.I)
 RE_HELP = re.compile(r"^\s*/?\s*help\s*$", re.I)
+RE_ABOUT = re.compile(r"^\s*/?\s*(?:about|自我介绍|功能介绍)\s*$", re.I)
 RE_HINT = re.compile(r"^\s*/?\s*hint(?:\s+([^\r\n]+?))?\s*$", re.I)
 RE_ASK = re.compile(r"^\s*/?\s*ask\s+([\s\S]+?)\s*$", re.I)
 # 更新日志单独一条指令：ask 要过意图匹配，匹配不上就退回模型；
@@ -246,6 +249,7 @@ ask 问题       自由问答：题库、运行情况，随便问
 ver           版本号和这一版改了什么
 ver list      历史版本列表
 ver 0.6.0     查看指定版本的更新日志
+about         自我介绍、当前功能和上手方式
 help          这条帮助
 
 坑点题是另一条独立的线（看代码找 bug），指令都挂在 grm 下面：
@@ -1994,7 +1998,11 @@ class KouHuOJ(Star):
         snapshot["配置"] = {
             key: self.config.get(key) for key in SAFE_CONFIG_KEYS if key in self.config
         }
+        snapshot["已实现功能介绍"] = INTRO_TEXT
+        snapshot["尚未实现的计划功能"] = PLANNED_FEATURES
         snapshot["指令"] = {
+            "about": "自我介绍和已实现功能",
+            "ver [list|版本号]": "查看当前更新、历史摘要或指定版本记录",
             "new": "派一道新题",
             "cur": "重看当前题",
             "sub <思路>": "提交作答",
@@ -2085,6 +2093,10 @@ class KouHuOJ(Star):
         # 问「更新了什么」这类问题，直接读 CHANGELOG 回答。
         # 不走模型：模型不知道仓库里有什么，只会说「日志里没有这个信息」，
         # 而日志就在那儿。而且版本历史这种事实性内容，让模型转述容易编。
+        if INTRO_ASK.search(question):
+            yield event.plain_result(INTRO_TEXT)
+            return
+
         if _CHANGELOG_ASK.search(question):
             changelog, origin = _changelog_source()
             if not changelog:
@@ -2162,6 +2174,12 @@ class KouHuOJ(Star):
             )
             return
         yield event.plain_result(f"{head}\n\n{body}\n\n历史版本：ver list"[:1800])
+
+    @filter.regex(RE_ABOUT)
+    @_consumes
+    async def cmd_about(self, event: AstrMessageEvent):
+        """about —— 功能与自我介绍。"""
+        yield event.plain_result(INTRO_TEXT)
 
     @filter.regex(RE_HELP)
     @_consumes
