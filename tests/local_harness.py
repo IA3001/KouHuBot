@@ -292,6 +292,9 @@ async def main() -> int:
     print(f"判题模式：{'真实大模型 ' + os.getenv('KOUHU_LLM_MODEL', '') if real_llm else '本地模拟（不消耗 token）'}")
 
     mod = stub.load_plugin(data_root=data_root)
+    async def fake_editorial(contest_id, **kwargs):
+        return {'url':f'https://codeforces.com/blog/entry/{contest_id}', 'title':'Tutorial', 'text':'Official tutorial fixture: inspect the problem and derive a linear solution.'}
+    mod.fetch_official_editorial = fake_editorial
     import scoring
 
     ctx = FakeContext()
@@ -487,7 +490,8 @@ async def main() -> int:
     ctx.reply_queue.append("关键观察：奇偶性。步骤：检查是否能拆成两个正偶数。时间 O(1)，空间 O(1)。")
     calls = ctx.call_count
     out = await runner.says(E("sol", **alice), "cmd_solution")
-    runner.check("题后解析明确模型来源", "非官方" in out and "关键观察" in out, out)
+    runner.check("题后解析明确官方参考和模型整理", 'CF官方题解参考' in out and 'https://codeforces.com/blog/entry/' in out and '模型中文整理' in out and '关键观察' in out,out)
+    runner.check('模型实际获得官方正文', 'Official tutorial fixture' in ctx.last_prompt and first_key in ctx.last_prompt)
     out = await runner.says(E(f"sol {first_key}", **alice), "cmd_solution")
     runner.check("历史解析复用缓存", "关键观察" in out and ctx.call_count == calls + 1, out)
     out = await runner.says(E(f"sol {first_key}", **bob), "cmd_solution")
@@ -893,6 +897,14 @@ async def main() -> int:
     ctx.reply_queue.append("")
     out = await runner.says(E("sol", **alice), "cmd_solution")
     runner.check("解析空响应明确失败且可重试", "生成失败" in out, out)
+    from unittest.mock import AsyncMock
+    calls_before = ctx.call_count
+    with patch.object(mod,'fetch_official_editorial',new=AsyncMock(return_value=None)):
+        out = await runner.says(E('sol',**alice),'cmd_solution')
+    runner.check('没有官方题解不生成纯模型解析', '暂不生成纯模型解析' in out and ctx.call_count==calls_before,out)
+    with patch.object(mod,'fetch_official_editorial',new=AsyncMock(side_effect=RuntimeError('HTTP 403'))):
+        out = await runner.says(E('sol',**alice),'cmd_solution')
+    runner.check('官方抓取失败明确提示并不调用模型', '获取失败' in out and ctx.call_count==calls_before,out)
     saved_current = plugin._store.current(scope)
     saved_used = plugin._store.used_keys(scope)
 
