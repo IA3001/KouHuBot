@@ -78,7 +78,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.13.1"
+PLUGIN_VERSION = "0.13.2"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -1143,14 +1143,37 @@ class KouHuOJ(Star):
         """渲染 CF 题面：正文一张、样例一张。"""
         if not self._image_dir:
             return []
-        width = int(self.config.get("image_width", 900))
+        width = max(320, min(4096, _as_int(self.config.get('image_width'), 900)))
         paths: list[str] = []
         for func in (render_cf_statement, render_cf_examples):
             try:
                 paths.append(func(problem, out_dir=str(self._image_dir), width=width))
             except Exception as exc:  # noqa: BLE001
-                logger.warning(f"[KouHuOJ] 渲染题面失败（{func.__name__}）：{exc}")
-        return paths
+                logger.warning(f"[KouHuOJ] 渲染题面失败（{getattr(func, '__name__', type(func).__name__)}）：{exc}")
+        # 缺正文时不能只发送样例；缺样例时也要保留完整文字兜底。
+        return paths if len(paths) == 2 else []
+
+    @staticmethod
+    def _cf_text_pages(problem: dict) -> list[str]:
+        """完整可读兜底，只使用公开题面字段，不输出题名、题号和评分。"""
+        blocks = [
+            '图片暂时生成失败，先发送文字题面。',
+            f"时间限制：{problem.get('time_limit') or '未提供'} 秒 · 内存限制：{problem.get('memory_limit') or '未提供'} MB",
+            problem.get('statement_cn') or problem.get('statement_en') or '题面为空',
+        ]
+        for index, example in enumerate(problem.get('examples') or [],1):
+            blocks.append(f"样例 {index} · 输入\n{example.get('input','')}\n样例 {index} · 输出\n{example.get('output','')}")
+        text = '\n\n'.join(blocks)
+        pages = []
+        while text:
+            end = min(1500,len(text))
+            if end < len(text):
+                split = text.rfind('\n',0,end)
+                if split >= 750:
+                    end = split + 1
+            pages.append(text[:end])
+            text = text[end:]
+        return pages
 
     @staticmethod
     def _pitfall_to_problem(pitfall: dict) -> dict:
@@ -1274,10 +1297,8 @@ class KouHuOJ(Star):
             for path in images:
                 yield event.image_result(path)
         else:
-            # 渲染挂了也别把题目名字打出来
-            yield event.plain_result(
-                problem.get("statement_cn") or problem.get("statement_en") or "题面为空"
-            )
+            for page in self._cf_text_pages(problem):
+                yield event.plain_result(page)
         hint = "思路想好了发 sub 你的思路（写伪代码或代码也行）。做不出来发 giveup。"
         # 两条线同时开着时，明确说一句，否则群友会不知道自己那条 submit 判的是哪道题
         gcur = self._store.current(scope + GRAMMAR_SUFFIX)
@@ -1306,10 +1327,11 @@ class KouHuOJ(Star):
         problem = CodeforcesSource._row_to_problem(cached)   # noqa: SLF001
         images = self._render_cf(problem)
         if not images:
-            yield event.plain_result("题面渲染失败，看日志排查")
-            return
-        for path in images:
-            yield event.image_result(path)
+            for page in self._cf_text_pages(problem):
+                yield event.plain_result(page)
+        else:
+            for path in images:
+                yield event.image_result(path)
         status = current.get("status")
         if status != STATUS_OPEN:
             yield event.plain_result("这题已经结束了，发 new 抽下一道")
@@ -2351,7 +2373,8 @@ class KouHuOJ(Star):
                             yield event.image_result(path)
                     except Exception as exc:
                         logger.warning(f'[KouHuOJ] 历史题面渲染失败：{exc}')
-                        yield event.plain_result(problem.get('statement_cn') or problem.get('statement_en') or '题面为空')
+                        for page in self._cf_text_pages(problem):
+                            yield event.plain_result(page)
                 yield event.plain_result('📖 历史题面回看 · 当前判题未切换。sub 仍提交给正在进行的题。')
                 return
             if self._review_hidden(scope,entry):

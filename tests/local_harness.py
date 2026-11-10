@@ -547,6 +547,17 @@ async def main() -> int:
     runner.check("又派了一题", len(image_path_of(out)) == 2, out)
     out = await runner.says(E("cur", **alice), "cmd_problem")
     runner.check("重看也出两张图", len(image_path_of(out)) == 2, out)
+    from unittest.mock import patch
+    slot_before = plugin._store.current(scope)
+    with patch.object(mod,'render_cf_statement',side_effect=RuntimeError('Chromium missing')):
+        out = await runner.says(E('cur',**alice),'cmd_problem')
+    runner.check('正文失败样例成功仍发送完整题面', '文字题面' in out and '样例 1' in out and '内存限制' in out,out)
+    runner.check('渲染失败不改变题目槽位', plugin._store.current(scope)==slot_before)
+    with patch.object(mod,'render_cf_statement',side_effect=RuntimeError('browser crashed')), patch.object(mod,'render_cf_examples',side_effect=RuntimeError('browser crashed')):
+        out = await runner.says(E('cur',**alice),'cmd_problem')
+    runner.check('浏览器全部失败仍可读题', '文字题面' in out and '题面渲染失败，看日志' not in out,out)
+    pages = plugin._cf_text_pages({'statement_cn':'正文'*3000,'examples':[{'input':'1','output':'2'}], 'title':'SECRET','cf_key':'SECRET','rating':9999})
+    runner.check('长文字分消息不截断且不泄露题目信息', all(len(p)<=1500 for p in pages) and '正文'*3000 in ''.join(pages) and '样例 1' in ''.join(pages) and 'SECRET' not in ''.join(pages))
 
     # ---------- 11. 排行榜 ----------
     banner("11. rank 排行榜")
