@@ -17,6 +17,15 @@ import time
 
 from PIL import Image, ImageDraw, ImageFont
 
+# 公式归一化在 sources/codeforces.py 里（和题面解析放在一起）。
+# 这里必须兼容两种加载方式，否则线上公式会静默退化成源码：
+#   - AstrBot 里：插件是包，走相对导入
+#   - 本地测试：main.py 是顶层模块，走绝对导入
+try:
+    from .sources.codeforces import normalize_tex as _normalize_tex
+except ImportError:  # pragma: no cover - 仅本地测试走这条
+    from sources.codeforces import normalize_tex as _normalize_tex
+
 # 色板
 _BG = "#FFFFFF"
 _TITLE_FG = "#111827"
@@ -710,3 +719,334 @@ def render_leaderboard(
     output_path = os.path.join(directory, filename)
     image.save(output_path, "PNG", optimize=True)
     return output_path
+
+
+# --------------------------------------------------------------------------
+# Codeforces 题面渲染
+# --------------------------------------------------------------------------
+# CF 题面里混着 $$$...$$$ 包起来的 LaTeX，单纯画文字只能看到源码。
+# 这里把公式用 matplotlib mathtext 画成小图，再按「文字 + 图」混排进同一行。
+#
+# 为什么用 mathtext 而不是完整 LaTeX：后者要装 TeX 发行版（上百 MB），
+# 2C2G 的机器放不下。mathtext 是 matplotlib 自带的子集，实测覆盖 CF 题面
+# 里的公式可达 100%（CF 用了 \le \ge \lt \gt 等非标准别名，需要先归一化）。
+
+_TEX_DPI = 200
+_TEX_SIZE_PT = 10          # mathtext 基准字号，配合 200dpi 正好和 21px 正文相当
+_tex_cache: dict[str, Image.Image | None] = {}
+_mathtext_ready = False
+
+
+def _ensure_mathtext() -> bool:
+    """延迟导入 matplotlib，并把它的一次性缓存目录指到可写位置。"""
+    global _mathtext_ready
+    if _mathtext_ready:
+        return True
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        # 容器里 $HOME 可能只读，matplotlib 会因此刷一堆警告并反复重建缓存
+        os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "mpl-kouhu"))
+        _mathtext_ready = True
+        return True
+    except Exception:                                  # pragma: no cover
+        return False
+
+
+def tex_image(tex: str) -> Image.Image | None:
+    """把一段 LaTeX 渲染成 PIL 图像。失败返回 None，调用方退回纯文本。"""
+    tex = (tex or "").strip()
+    if not tex:
+        return None
+    if tex in _tex_cache:
+        cached = _tex_cache[tex]
+        return cached.copy() if cached is not None else None
+    if not _ensure_mathtext():
+        _tex_cache[tex] = None
+        return None
+
+    import io
+    from matplotlib import mathtext
+
+    normalize_tex = _normalize_tex
+
+    body = normalize_tex(tex)
+    image: Image.Image | None = None
+    try:
+        buf = io.BytesIO()
+        mathtext.math_to_image(f"${body}$", buf, dpi=_TEX_DPI, format="png")
+        buf.seek(0)
+        image = Image.open(buf).convert("RGBA")
+    except Exception:
+        image = None
+    if image is None:
+        # 归一化救不回来的，用原始写法再试一次
+        try:
+            buf = io.BytesIO()
+            mathtext.math_to_image(f"${tex}$", buf, dpi=_TEX_DPI, format="png")
+            buf.seek(0)
+            image = Image.open(buf).convert("RGBA")
+        except Exception:
+            image = None
+    _tex_cache[tex] = image
+    return image.copy() if image is not None else None
+
+
+_RICH_RE = re.compile(r"\$\$\$(.+?)\$\$\$", re.S)
+
+
+def rich_tokens(text: str) -> list[tuple[str, str]]:
+    """把含 $$$...$$$ 的文本切成 [('text', ...), ('tex', ...)] 序列。"""
+    tokens: list[tuple[str, str]] = []
+    pos = 0
+    for m in _RICH_RE.finditer(text):
+        if m.start() > pos:
+            tokens.append(("text", text[pos:m.start()]))
+        tokens.append(("tex", m.group(1)))
+        pos = m.end()
+    if pos < len(text):
+        tokens.append(("text", text[pos:]))
+    return tokens
+
+
+def _split_words(chunk: str) -> list[str]:
+    """把文字切成可换行的最小单元：中文按字，英文按词。"""
+    out: list[str] = []
+    buf = ""
+    for ch in chunk:
+        if ch.isascii() and (ch.isalnum() or ch in "_-'\".,;:!?()[]{}<>=+*/%^&|~`"):
+            buf += ch
+        elif ch == " ":
+            if buf:
+                out.append(buf)
+                buf = ""
+            out.append(" ")
+        else:
+            if buf:
+                out.append(buf)
+                buf = ""
+            out.append(ch)
+    if buf:
+        out.append(buf)
+    return out
+
+
+def _layout_rich(
+    paragraphs: list[str],
+    font: ImageFont.FreeTypeFont,
+    inner_width: int,
+    line_height: int,
+) -> list[dict]:
+    """把若干段落排成行。每行是 [{'kind':'text'|'img', ...}] 的列表。"""
+    probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    lines: list[dict] = []
+
+    first = True
+    for para in paragraphs:
+        if not para.strip():
+            continue
+        if not first:
+            # 段落之间留一点空隙，否则整段题面糊成一块
+            lines.append({"items": [], "height": int(line_height * 0.55)})
+        first = False
+        # 段内的单个换行（比如 <li> 拆出来的项）是强制断行，不能当普通空白
+        for sub in para.split("\n"):
+            current: list[dict] = []
+            width = 0
+            for kind, value in rich_tokens(sub):
+                if kind == "tex":
+                    img = tex_image(value)
+                    if img is not None:
+                        if img.width > inner_width:        # 超宽的公式缩到行宽
+                            ratio = inner_width / img.width
+                            img = img.resize((inner_width, max(1, int(img.height * ratio))))
+                        if current and width + img.width > inner_width:
+                            lines.append({"items": current, "height": line_height})
+                            current, width = [], 0
+                        current.append({
+                            "kind": "img", "image": img,
+                            "width": img.width, "height": img.height,
+                        })
+                        width += img.width
+                        continue
+                    # 渲染不出来就把公式源码当文字放，至少信息不丢
+                    value = value.strip()
+
+                for word in _split_words(value):
+                    w = probe.textlength(word, font=font)
+                    if current and width + w > inner_width:
+                        lines.append({"items": current, "height": line_height})
+                        current, width = [], 0
+                    if word == " " and not current:
+                        continue
+                    current.append({"kind": "text", "text": word, "width": w})
+                    width += w
+            lines.append({"items": current, "height": line_height})
+    return lines
+
+
+def _line_pixel_height(line: dict, line_height: int) -> int:
+    """一行里如果嵌了比正文高的公式，行高要跟着撑开。"""
+    tallest = line_height
+    for item in line["items"]:
+        if item["kind"] == "img":
+            tallest = max(tallest, item["height"] + 6)
+    return tallest
+
+
+def _render_cf_card(
+    *,
+    header_lines: list[str],
+    paragraphs: list[str],
+    examples: list[tuple[str, str]] | None,
+    footer: str,
+    out_dir: str | None,
+    width: int,
+    name_hint: str,
+) -> str:
+    """画一张 CF 题面卡。paragraphs 里可以带 $$$...$$$ 公式。"""
+    title_font = _font(_TITLE_SIZE, "bold")
+    meta_font = _font(_META_SIZE)
+    body_font = _font(_BODY_SIZE)
+    code_font = _font(_CODE_SIZE, "mono")
+    foot_font = _font(_FOOT_SIZE)
+
+    inner_width = width - _PADDING * 2
+    body_line = int(_BODY_SIZE * _LINE_RATIO)
+    code_line = int(_CODE_SIZE * _LINE_RATIO)
+
+    ops: list[dict] = []
+    y = _PADDING
+
+    for line in header_lines:
+        for wrapped in _wrap(
+            ImageDraw.Draw(Image.new("RGB", (8, 8))), line, title_font if header_lines.index(line) == 0 else meta_font, inner_width
+        ):
+            font = title_font if header_lines.index(line) == 0 else meta_font
+            ops.append({
+                "kind": "text", "text": wrapped, "font": font, "x": _PADDING, "y": y,
+                "fill": _TITLE_FG if font is title_font else _MUTED_FG,
+            })
+            y += int(font.size * _LINE_RATIO)
+        y += 4
+
+    y += 8
+    ops.append({"kind": "rule", "y": y, "x": _PADDING, "w": inner_width})
+    y += 24
+
+    for line in _layout_rich(paragraphs, body_font, inner_width, body_line):
+        h = _line_pixel_height(line, body_line)
+        if y + h > _MAX_HEIGHT:
+            ops.append({
+                "kind": "text", "text": "……题面较长，完整内容见原题",
+                "font": meta_font, "x": _PADDING, "y": y, "fill": _MUTED_FG,
+            })
+            y += int(_META_SIZE * _LINE_RATIO)
+            break
+        if not line["items"]:
+            y += h
+            continue
+        x = _PADDING
+        baseline_top = y + max(0, (h - body_line) // 2)
+        for item in line["items"]:
+            if item["kind"] == "text":
+                ops.append({
+                    "kind": "text", "text": item["text"], "font": body_font,
+                    "x": int(x), "y": baseline_top, "fill": _BODY_FG,
+                })
+            else:
+                top = y + max(0, (h - item["height"]) // 2)
+                ops.append({
+                    "kind": "image", "image": item["image"],
+                    "x": int(x), "y": int(top),
+                })
+            x += item["width"]
+        y += h
+
+    for label, block in (examples or []):
+        y += 14
+        ops.append({"kind": "text", "text": label, "font": meta_font, "x": _PADDING, "y": y, "fill": _MUTED_FG})
+        y += int(_META_SIZE * _LINE_RATIO)
+        rows = block.split("\n") or [""]
+        box_h = max(1, len(rows)) * code_line + 20
+        if y + box_h > _MAX_HEIGHT:
+            break
+        ops.append({"kind": "code_box", "x": _PADDING, "y": y, "w": inner_width, "h": box_h})
+        inner_y = y + 10
+        for row in rows:
+            ops.append({
+                "kind": "text",
+                "text": _truncate_to_width(ImageDraw.Draw(Image.new("RGB", (8, 8))), row or " ", code_font, inner_width - 24),
+                "font": code_font, "x": _PADDING + 12, "y": inner_y, "fill": _CODE_FG,
+            })
+            inner_y += code_line
+        y += box_h + 10
+
+    y += 16
+    ops.append({"kind": "rule", "y": y, "x": _PADDING, "w": inner_width})
+    y += 18
+    if footer:
+        for wrapped in _wrap(ImageDraw.Draw(Image.new("RGB", (8, 8))), footer, foot_font, inner_width):
+            ops.append({"kind": "text", "text": wrapped, "font": foot_font, "x": _PADDING, "y": y, "fill": _MUTED_FG})
+            y += int(_FOOT_SIZE * _LINE_RATIO)
+
+    total_height = max(y + _PADDING, _PADDING * 2 + 40)
+    image = Image.new("RGB", (width, total_height), _BG)
+    draw = ImageDraw.Draw(image)
+    for op in ops:
+        if op["kind"] == "text":
+            draw.text((op["x"], op["y"]), op["text"], font=op["font"], fill=op["fill"])
+        elif op["kind"] == "rule":
+            draw.line([(op["x"], op["y"]), (op["x"] + op["w"], op["y"])], fill=_RULE, width=1)
+        elif op["kind"] == "code_box":
+            draw.rounded_rectangle(
+                [(op["x"], op["y"]), (op["x"] + op["w"], op["y"] + op["h"])],
+                radius=8, fill=_CODE_BG,
+            )
+        elif op["kind"] == "image":
+            img = op["image"]
+            image.paste(img, (op["x"], op["y"]), img if img.mode == "RGBA" else None)
+
+    directory = out_dir or tempfile.gettempdir()
+    os.makedirs(directory, exist_ok=True)
+    safe = re.sub(r"[^0-9A-Za-z_-]+", "-", str(name_hint))
+    path = os.path.join(directory, f"kouhu_{safe}_{int(time.time() * 1000)}.png")
+    image.save(path, "PNG", optimize=True)
+    return path
+
+
+def render_cf_statement(problem: dict, out_dir: str | None = None, width: int = 900) -> str:
+    """题面正文图。"""
+    header = [
+        problem.get("title") or "未命名题目",
+        f"难度 CF {problem.get('tier')} · 本题 {problem.get('points')} 分",
+    ]
+    text = problem.get("statement_cn") or problem.get("statement_en") or ""
+    paragraphs = [p for p in re.split(r"\n{2,}", text) if p.strip()]
+    footer = (
+        f"时限 {problem.get('time_limit') or '-'} 秒 · "
+        f"内存 {problem.get('memory_limit') or '-'} MB"
+    )
+    return _render_cf_card(
+        header_lines=header, paragraphs=paragraphs, examples=None,
+        footer=footer, out_dir=out_dir, width=width,
+        name_hint=f"{problem.get('cf_key', 'cf')}-q",
+    )
+
+
+def render_cf_examples(problem: dict, out_dir: str | None = None, width: int = 900) -> str:
+    """样例图。样例是验证理解的关键，单独一张，别挤在正文里。"""
+    examples = problem.get("examples") or []
+    blocks: list[tuple[str, str]] = []
+    for i, ex in enumerate(examples[:3], 1):
+        blocks.append((f"样例 {i} · 输入", ex.get("input", "")))
+        blocks.append((f"样例 {i} · 输出", ex.get("output", "")))
+    if not blocks:
+        blocks = [("没有样例", "（这道题没有提供样例）")]
+    header = [problem.get("title") or "样例", "样例"]
+    return _render_cf_card(
+        header_lines=header, paragraphs=[], examples=blocks,
+        footer="提交：submit 你的思路", out_dir=out_dir, width=width,
+        name_hint=f"{problem.get('cf_key', 'cf')}-ex",
+    )

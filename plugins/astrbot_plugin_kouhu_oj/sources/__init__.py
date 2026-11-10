@@ -1,31 +1,16 @@
 """题目源集合。
 
-目前只有一个 LeetCode 中文站。想加别的源（Codeforces、牛客……），
-只要实现 `random_problem()` 和 `problem_detail()` 两个方法，返回同样结构的
-dict 就能直接接进 `main.py`。
+目前只有一个源：Codeforces。
 
-统一返回结构：
-    {
-        "slug":         str,   # 源站内唯一标识
-        "frontend_id":  str,   # 展示编号，如 "1"
-        "title":        str,   # 中文标题
-        "difficulty":   str,   # EASY / MEDIUM / HARD
-        "content_html": str,   # 题面 HTML（渲染图片和存库都用它）
-        "tags":       [str],   # 标签，可为空
-        "link":         str,   # 原题链接
-    }
+为什么换掉了原来的 LeetCode：
+  1. LeetCode 没有官方难度分值，做不了「按难度给分」的积分制；
+  2. CF 每道题都有官方 rating（800~3500），分档天然可用；
+  3. CF 题库是一份静态 JSON（problemset.problems），一次拿全，不用一题一请求。
+
+`codeforces.py` 负责：题目总表、按难度抽题、抓题面 HTML、翻成中文、落缓存。
+题面缓存是独立的 `cf_cache.db`，和积分库分开存，升级表结构不会把题一起清掉。
 """
 
-from .leetcode import (  # noqa: F401
-    DIFFICULTY_LABEL,
-    LeetCodeSource,
-    SourceError,
-    normalize_difficulty,
-)
+from .codeforces import CfCache, CodeforcesSource  # noqa: F401
 
-__all__ = [
-    "DIFFICULTY_LABEL",
-    "LeetCodeSource",
-    "SourceError",
-    "normalize_difficulty",
-]
+__all__ = ["CfCache", "CodeforcesSource"]

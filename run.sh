@@ -257,7 +257,7 @@ do_start() {
         warn "日志里没看到 QQ 平台加载 —— 检查平台是否已启用、AppID/Secret 是否填了"
       fi
       if grep -q "KouHuOJ.*就绪" "$LOG_FILE" 2>/dev/null; then
-        ok "插件已加载：$(grep -o '题目源 LeetCode 中文站 + 内置坑点 [0-9]* 条' "$LOG_FILE" | tail -1)"
+        ok "插件已加载：$(grep -o '题目源 Codeforces + 内置坑点 [0-9]* 条，题面缓存 [0-9]* 道' "$LOG_FILE" | tail -1)"
       else
         warn "暂未看到插件加载日志，稍等几秒或看 ./run.sh logs"
       fi

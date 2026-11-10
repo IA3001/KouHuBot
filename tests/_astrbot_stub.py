@@ -64,11 +64,13 @@ class AstrMessageEvent:
         sender_id: str = "1001",
         sender_name: str = "群友",
         umo: str | None = None,
+        role: str = "member",
     ) -> None:
         self.message_str = message
         self._group_id = group_id
         self._sender_id = sender_id
         self._sender_name = sender_name
+        self.role = role
         self._umo = umo or f"qq_official:GroupMessage:{group_id}"
 
     # ---- 插件实际调用的接口 ----
@@ -80,6 +82,10 @@ class AstrMessageEvent:
 
     def get_sender_name(self) -> str:
         return self._sender_name
+
+    def is_admin(self) -> bool:
+        # 真实 AstrBot 里就是判 role == "admin"
+        return self.role == "admin"
 
     @property
     def unified_msg_origin(self) -> str:

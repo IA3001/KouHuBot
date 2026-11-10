@@ -45,12 +45,12 @@ python main.py
 [Core] [INFO] AstrBot v4.29.4
 [astrbot_plugin_kouhu_oj] [INFO] [star.star_manager:1136]: Loading plugin astrbot_plugin_kouhu_oj ...
 [astrbot_plugin_kouhu_oj] [INFO] [star.star_manager:1226]: Plugin astrbot_plugin_kouhu_oj (v0.2.0) by KouHuBot: 群内 OJ ...
-[astrbot_plugin_kouhu_oj] [INFO] [main:...]: [KouHuOJ] 就绪：题目源 LeetCode 中文站，数据目录 .../data/plugin_data/astrbot_plugin_kouhu_oj
+[astrbot_plugin_kouhu_oj] [INFO] [main:...]: [KouHuOJ] 就绪：题目源 Codeforces + 内置坑点 40 条，题面缓存 0 道，数据目录 .../data/plugin_data/astrbot_plugin_kouhu_oj
 [Core] [INFO] [core.core_lifecycle:364]: AstrBot started.
 [Core] [INFO] [dashboard.server:662]: Starting WebUI at http://0.0.0.0:6185
 ```
 
-看到「就绪：题目源 LeetCode 中文站」就说明插件已经跑通了——它建好了 SQLite，题目源也初始化完成。
+看到「就绪：题目源 Codeforces」就说明插件已经跑通了——它建好了两个 SQLite，题目总表也拉到了。
 
 ## 5. 打开 WebUI
 

@@ -1,8 +1,8 @@
 {
   "judge_provider_id": {
-    "description": "判题用的模型",
+    "description": "判题和翻译用的模型",
     "type": "string",
-    "hint": "留空则用当前会话的默认模型。判题调用比较频繁，建议单独指定一个便宜且稳定的模型。",
+    "hint": "留空则用当前会话的默认模型。判题和题面翻译都走这个模型，建议单独指定一个稳定且便宜的。翻译要求模型能正常处理英文题面。",
     "default": ""
   },
   "max_submission_chars": {
@@ -11,34 +11,16 @@
     "hint": "超过这个长度直接拒绝，防止有人粘贴超长内容烧 token。",
     "default": 2000
   },
-  "issue_cooldown_seconds": {
-    "description": "抽题冷却（秒）",
+  "new_cooldown_seconds": {
+    "description": "派题冷却（秒）",
     "type": "int",
-    "hint": "同一个群两次抽题之间的最小间隔，防止刷屏。",
-    "default": 15
-  },
-  "ack_message": {
-    "description": "抽题时的即时回复",
-    "type": "string",
-    "hint": "拉题和渲染要几秒，先回一句避免像死机。留空则不回复，只在出图时响应。",
-    "default": "正在抽题，题面马上发出。"
+    "hint": "同一个群两次 new 之间的最小间隔，防止刷屏。",
+    "default": 5
   },
   "leaderboard_size": {
     "description": "排行榜显示人数",
     "type": "int",
     "default": 10
-  },
-  "difficulty_filter": {
-    "description": "默认难度",
-    "type": "string",
-    "hint": "不带参数抽题时用这个难度。留空表示不限。群友也可以用 q e / q m / q h 临时指定。",
-    "options": [
-      "",
-      "easy",
-      "medium",
-      "hard"
-    ],
-    "default": ""
   },
   "image_width": {
     "description": "题目图片宽度（像素）",
@@ -46,11 +28,17 @@
     "hint": "默认 900。手机上 900 左右清晰度刚好，调太大会让图片体积暴涨。",
     "default": 900
   },
-  "source_timeout_seconds": {
-    "description": "拉题超时（秒）",
+  "fetch_timeout_seconds": {
+    "description": "抓题超时（秒）",
     "type": "int",
-    "hint": "访问 LeetCode 的最长等待时间，网络差可以调大。",
-    "default": 20
+    "hint": "访问 Codeforces 的最长等待时间。CF 有 Cloudflare，偶尔会慢，网络差可以调大。",
+    "default": 40
+  },
+  "translate_timeout_seconds": {
+    "description": "题面翻译超时（秒）",
+    "type": "int",
+    "hint": "一道题的题面通常一两千 token，正常十几秒能翻完。超时就退回英文原题面，不影响出题。",
+    "default": 90
   },
   "ask_cooldown_seconds": {
     "description": "自由问答冷却（秒）",

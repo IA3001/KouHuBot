@@ -185,7 +185,7 @@ docker compose logs -f astrbot | grep KouHuOJ
 看到类似日志即成功：
 
 ```
-[KouHuOJ] 就绪：题目源 LeetCode 中文站，数据目录 /AstrBot/data/plugin_data/astrbot_plugin_kouhu_oj
+[KouHuOJ] 就绪：题目源 Codeforces + 内置坑点 40 条，题面缓存 0 道，数据目录 /AstrBot/data/plugin_data/astrbot_plugin_kouhu_oj
 ```
 
 然后在 WebUI 插件页确认「口胡 OJ」已启用。
@@ -241,7 +241,8 @@ docker compose start astrbot
 
 ### 换题目源
 
-题目不落盘、不预置，插件每次抽题都实时请求 LeetCode。
+题目预置在本地 `cf_cache.db` 里：派题时优先从缓存取，缓存不够才去 Codeforces 抓。
+抓到的题面永久保留，所以 CF 那边反爬再升级也不会立刻断供。
 想换别的站点，在 `plugins/astrbot_plugin_kouhu_oj/sources/` 下新增一个实现类，
 然后改 `main.py` 里 `initialize()` 中实例化题目源的那一行。
 

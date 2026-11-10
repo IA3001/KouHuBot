@@ -37,6 +37,7 @@ services:
       - ${DATA_DIR:-../data}:/AstrBot/data
 
     # 升级镜像后，数据卷里还是旧版插件。设成 force 重启即可换成镜像自带版本。
+    # 一般不需要：entrypoint 会自动比对版本号决定是否同步
     # KOUHU_PLUGIN_SYNC: force
 
     # ---- 2C2G 资源护栏：防止 AstrBot 吃满内存导致整机不可用 ----

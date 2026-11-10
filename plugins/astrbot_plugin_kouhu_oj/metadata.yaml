@@ -1,10 +1,10 @@
 name: astrbot_plugin_kouhu_oj
-desc: 群内 OJ —— q 抽算法题（实时抓取并渲染成图片）、grm 抽 C++ 算竞坑点题、s 提交后由大模型判题锐评、r 排行榜、ask 自由问答。
-version: v0.4.2
+desc: 群内 OJ —— new 从 Codeforces 派题（题面翻中文、公式渲染成图片）、submit 提交思路由大模型判题、giveup 放弃、rank 积分榜、grammar 坑点题、ask 自由问答。
+version: v0.5.0
 author: KouHuBot
 repo: https://github.com/IA3001/KouHuBot
 display_name: 口胡 OJ
-short_desc: 群内即兴做题，模型负责判题和锐评
+short_desc: 群内做题上分，题号做出前不公布
 support_platforms:
   - qq_official
   - qq_official_webhook
