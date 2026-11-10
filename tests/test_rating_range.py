@@ -45,6 +45,19 @@ class RatingRangeTest(unittest.TestCase):
             asyncio.run(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',title='test',rating=800,tier=800)))
         source._cache.bump_used.assert_not_called()
 
+    def test_dropped_formula_recovers_by_translating_only_prose(self):
+        import asyncio
+        from unittest.mock import Mock, AsyncMock
+        source=self.source
+        source._cache=Mock()
+        source._cache.get.return_value=dict(cf_key='1A',contest_id=1,idx='A',statement_en='Find the maximum value of $$$x$$$ in the array.',statement_cn=None,examples='[]')
+        source._translate=AsyncMock(side_effect=['求数组最大值。','求最大值','在数组中。'])
+        result=asyncio.run(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',title='test',rating=800,tier=800)))
+        self.assertIn('$$$x$$$',result['statement_cn'])
+        self.assertIn('求最大值',result['statement_cn'])
+        self.assertEqual(source._translate.await_count,3)
+        self.assertTrue(all('⟦' not in call.args[0] for call in source._translate.await_args_list[1:]))
+
     def test_complete_cache_avoids_scraping(self):
         import asyncio
         from unittest.mock import Mock

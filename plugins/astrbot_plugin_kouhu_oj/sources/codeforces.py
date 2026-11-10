@@ -554,7 +554,25 @@ class CodeforcesSource:
                             if not re.search('[A-Za-z]', paragraph):
                                 translated_parts.append(paragraph)
                             else:
-                                translated_parts.append(await self._translate(paragraph))
+                                expected_tokens = re.findall(r'⟦\d+⟧',paragraph)
+                                result = await self._translate(paragraph)
+                                actual_tokens = re.findall(r'[⟦\[［【]+\s*(\d+)\s*[⟧\]］】]+',result)
+                                expected_ids = [re.search(r'\d+',x).group() for x in expected_tokens]
+                                if actual_tokens != expected_ids or translation_incomplete(result):
+                                    # Keep formula placeholders in Python; translate only prose
+                                    # fragments so a model cannot renumber/drop math tokens.
+                                    pieces = re.split(r'(⟦\d+⟧)',paragraph)
+                                    safe_parts=[]
+                                    for piece in pieces:
+                                        if not piece or re.fullmatch(r'⟦\d+⟧',piece) or not re.search(r'[A-Za-z]{2}',piece):
+                                            safe_parts.append(piece)
+                                            continue
+                                        fragment=await self._translate(piece)
+                                        if translation_incomplete(fragment) or re.search(r'[⟦\[［【]+\s*\d+\s*[⟧\]］】]+',fragment):
+                                            raise ValueError('正文片段翻译未完成')
+                                        safe_parts.append(fragment)
+                                    result=''.join(safe_parts)
+                                translated_parts.append(result)
                         translated = '\n\n'.join(translated_parts)
                         tokens = [int(x) for x in re.findall(r'[⟦\[［【]+\s*(\d+)\s*[⟧\]］】]+', translated)]
                         restored = restore_tex(translated, tex)

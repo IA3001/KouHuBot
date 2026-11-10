@@ -85,7 +85,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.16.2"
+PLUGIN_VERSION = "0.16.3"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -1302,7 +1302,7 @@ class KouHuOJ(Star):
             self._last_fetch_error = str(exc)
             logger.error(f"[KouHuOJ] 抓取题面失败 {entry['cf_key']}：{exc}")
             yield event.plain_result(
-                ('中文题面暂未准备好，请检查模型配置后重试 new；当前题目未被替换。' if '翻译' in str(exc) else '这道题没拉下来（Codeforces 那边没响应或反爬拦了），再发一次 new 换个题试试')
+                ('中文题面翻译未通过完整性检查（可能是公式被改动、漏译或模型超时），请重试 new；当前题目未被替换。' if '翻译' in str(exc) else '这道题没拉下来（Codeforces 那边没响应或反爬拦了），再发一次 new 换个题试试')
             )
             return
 
