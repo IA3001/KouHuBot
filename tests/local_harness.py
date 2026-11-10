@@ -441,6 +441,16 @@ async def main() -> int:
     runner.check("题目仍 open", plugin._store.current(scope)["status"] == "open")
     runner.check("提交次数已记", panel["attempts"] == 1, str(panel["attempts"]))
 
+    calls = ctx.call_count
+    out = await runner.says(E("sol", **alice), "cmd_solution")
+    runner.check("开放题禁看解析", "还没结束" in out and ctx.call_count == calls, out)
+    out = await runner.says(E("history", **alice), "cmd_history")
+    runner.check("开放题历史隐藏题号", first_key not in out and "进行中" in out, out)
+    first_reviews, _ = plugin._store.review_history(scope, "1001")
+    review_id = first_reviews[0]["id"]
+    out = await runner.says(E(f"history show {review_id}", **alice), "cmd_history")
+    runner.check("开放题历史不提前回放判词", "结束后" in out, out)
+
     # ---------- 7. AC 计分 ----------
     banner("7. submit 判 AC：加分、揭晓题号、关闭题目")
     runner.judge("AC")
@@ -458,6 +468,25 @@ async def main() -> int:
     calls = ctx.call_count
     out = await runner.says(E("hint 1", **alice), "cmd_hint")
     runner.check("结束后不给提示", "已经结束" in out and ctx.call_count == calls, out)
+
+    banner("7b. 复盘、个人记录与提示归因")
+    out = await runner.says(E("history", **alice), "cmd_history")
+    runner.check("历史含AC和WA", "AC" in out and "WA" in out and first_key in out, out)
+    runner.check("记录主动请求提示级别", "提示1级" in out and "不代表独立完成" in out, out)
+    out = await runner.says(E(f"history show {review_id}", **alice), "cmd_history")
+    runner.check("详情有原作答与判词", "两层循环" in out and "1e10" in out, out)
+    out = await runner.says(E(f"history show {review_id}", **bob), "cmd_history")
+    runner.check("不能查看他人记录", "找不到" in out, out)
+    out = await runner.says(E("history 99", **alice), "cmd_history")
+    runner.check("历史页码越界有提示", "只有" in out, out)
+    ctx.reply_queue.append("关键观察：奇偶性。步骤：检查是否能拆成两个正偶数。时间 O(1)，空间 O(1)。")
+    calls = ctx.call_count
+    out = await runner.says(E("sol", **alice), "cmd_solution")
+    runner.check("题后解析明确模型来源", "非官方" in out and "关键观察" in out, out)
+    out = await runner.says(E(f"sol {review_id}", **alice), "cmd_solution")
+    runner.check("历史解析复用缓存", "关键观察" in out and ctx.call_count == calls + 1, out)
+    out = await runner.says(E(f"sol {review_id}", **bob), "cmd_solution")
+    runner.check("历史解析不允许越权记录号", "找不到" in out, out)
 
     # ---------- 8. 已关闭的题不能再交 ----------
     banner("8. 题目已关闭后再 submit 应当被拒")
@@ -578,6 +607,10 @@ async def main() -> int:
     runner.check("给了正确写法", "正确写法" in out, out)
     runner.check("坑点题已关闭", plugin._store.current(gscope)["status"] == "gave_up")
 
+    out = await runner.says(E("history grm", **alice), "cmd_history")
+    runner.check("坑点历史独立且保留判定", "我的坑点记录" in out and "GIVEUP" in out, out)
+    out = await runner.says(E("history", **alice), "cmd_history")
+    runner.check("正题历史不混坑点", "GIVEUP" not in out or "pitfall:" not in out, out)
     out = await runner.says(E("grm list", **alice), "cmd_pitfall")
     runner.check("grammar list 出分类", "按分类" in out, out)
     runner.check("list 里有二分", "二分" in out, out)
@@ -807,6 +840,22 @@ async def main() -> int:
     saved_current = plugin._store.current(scope)
     saved_used = plugin._store.used_keys(scope)
 
+    previous_reviews, previous_total = plugin._store.review_history(scope, "1001")
+    first_entry = next(row for row in previous_reviews if row['cf_key'] == first_key)
+    plugin._store.open_problem(scope, {"cf_key": first_key, "title": "Watermelon"}, "admin")
+    calls = ctx.call_count
+    out = await runner.says(E(f"sol {first_entry['id']}", **alice), "cmd_solution")
+    runner.check("同题重新开放不漏历史解析", "还没结束" in out and ctx.call_count == calls, out)
+    out = await runner.says(E(f"history show {first_entry['id']}", **alice), "cmd_history")
+    runner.check("重新开放不回放历史作答", "结束后" in out, out)
+    plugin._store.close_problem(scope, "gave_up", "admin")
+    ctx.reply_queue.clear()
+    ctx.reply_queue.append("")
+    out = await runner.says(E("sol", **alice), "cmd_solution")
+    runner.check("解析空响应明确失败且可重试", "生成失败" in out, out)
+    saved_current = plugin._store.current(scope)
+    saved_used = plugin._store.used_keys(scope)
+
     # ---------- 19. 数据持久化 ----------
     banner("19. 重开数据库，数据要还在")
     db_path = data_root / "plugin_data" / mod.PLUGIN_NAME / "kouhu_oj.db"
@@ -815,6 +864,8 @@ async def main() -> int:
     kept = store2.player(scope, "1001")
     runner.check("积分还在", kept is not None and kept["total_score"] > 0, str(kept))
     runner.check("排行榜还查得到", bool(store2.leaderboard(scope, 10)))
+    runner.check("历史重启不重复导入", store2.review_history(scope, "1001")[1] == previous_total)
+    runner.check("历史解析缓存保留", bool(store2.solution(first_entry['round_id'])))
     runner.check("提示重启后仍在", store2.hints(scope, first_key) == ["方向提示甲", "关键观察乙", "解法框架丙"])
     runner.check("提示不串到别的题", store2.hints(scope, "another-key") is None)
     runner.check("当前题状态保留", store2.current(scope) == saved_current)
