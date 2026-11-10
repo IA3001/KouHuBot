@@ -460,20 +460,20 @@ class CodeforcesSource:
         return out
 
     def pick(self, tier: int, exclude: set[str] | None = None) -> dict | None:
-        """在指定档位里挑一道还没派过的题。"""
+        """指定档位按唯一题号等概率抽样；new 不传历史排除集。"""
         exclude = exclude or set()
         target = scoring.tier_of(tier)
-        pool = [p for p in self._catalog if p["tier"] == target and p["cf_key"] not in exclude]
-        if not pool:
-            return None
-        return pool[0] if len(pool) == 1 else pool[time.time_ns() % len(pool)]
+        import secrets
+        pool = list({p['cf_key']: p for p in self._catalog
+                     if p['tier'] == target and p['cf_key'] not in exclude}.values())
+        return secrets.choice(pool) if pool else None
 
     def pick_range(self, low: int, high: int, exclude: set[str] | None = None) -> dict | None:
         """按实际 CF rating 闭区间抽题，不扩展区间或按档位取整。"""
         import secrets
         excluded = exclude or set()
-        pool = [p for p in self._catalog if isinstance(p.get('rating'), int)
-                and low <= p['rating'] <= high and p['cf_key'] not in excluded]
+        pool = list({p['cf_key']: p for p in self._catalog if isinstance(p.get('rating'), int)
+                     and low <= p['rating'] <= high and p['cf_key'] not in excluded}.values())
         return secrets.choice(pool) if pool else None
 
     # -- 题面 ----------------------------------------------------------

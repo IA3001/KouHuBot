@@ -148,12 +148,13 @@ class FakeCfSource:
         import scoring
 
         exclude = exclude or set()
-        for p in self.problems.values():
-            if p["cf_key"] in exclude:
-                continue
-            if scoring.tier_of(p["rating"]) == tier:
-                return dict(p)
-        return None
+        pool = [p for p in self.problems.values() if p['cf_key'] not in exclude and scoring.tier_of(p['rating']) == tier]
+        if not pool:
+            return None
+        # 固定轮转供多题剧情回归使用；生产概率由真实题源测试覆盖。
+        index = getattr(self, '_pick_index', 0)
+        self._pick_index = index + 1
+        return dict(pool[index % len(pool)])
 
     def pick_range(self, low, high, exclude=None):
         return next((dict(p) for p in self.problems.values() if low <= p['rating'] <= high and p['cf_key'] not in (exclude or set())), None)
@@ -528,7 +529,7 @@ async def main() -> int:
     out = await runner.says(E("new", **bob), "cmd_new")
     runner.check("换题成功", len(image_path_of(out)) == 2, out)
     second_key = plugin._store.current(scope)["cf_key"]
-    runner.check("换了新题", second_key != first_key, f"{second_key} vs {first_key}")
+    runner.check("新一轮正常开题允许重复", bool(second_key) and plugin._store.current(scope)['status']=='open', f"{second_key} vs {first_key}")
 
     out = await runner.says(E("giveup", **bob), "cmd_giveup")
     runner.check("放弃成功", "已放弃" in out, out)
@@ -869,7 +870,7 @@ async def main() -> int:
     saved_used = plugin._store.used_keys(scope)
 
     previous_reviews, previous_total = plugin._store.review_history(scope, "1001")
-    first_entry = next(row for row in previous_reviews if row['cf_key'] == first_key)
+    first_entry = plugin._store.review_entry(scope,'1001',review_id)  # 原始轮次，重复抽题后不能用最新同题代替
     plugin._store.open_problem(scope, {"cf_key": first_key, "title": "Watermelon"}, "admin")
     calls = ctx.call_count
     out = await runner.says(E(f"sol {first_key}", **alice), "cmd_solution")
@@ -903,7 +904,11 @@ async def main() -> int:
             plugin._store._conn.execute('INSERT OR IGNORE INTO used_problems(scope_id,cf_key,at) VALUES(?,?,?)',(range_scope,key,time.time()))
     plugin._store._conn.commit()
     out = await runner.says(E(f'new {target_rating}-{target_rating}',**range_user),'cmd_new')
-    runner.check('指定区间耗尽不跨范围派题', '区间没有' in out and plugin._store.current(range_scope)['status']=='gave_up',out)
+    runner.check('做过区间全部题仍可重复抽取', plugin._store.current(range_scope)['status']=='open' and plugin._store.current(range_scope)['cf_key']==chosen['cf_key'],out)
+    plugin._store.close_problem(range_scope,'gave_up','1001')
+    empty_rating = next(r for r in range(800,3501) if all(p['rating']!=r for p in plugin._cf.problems.values()))
+    out = await runner.says(E(f'new [{empty_rating}-{empty_rating}]',**range_user),'cmd_new')
+    runner.check('真实空区间不跨范围派题', '区间没有' in out and plugin._store.current(range_scope)['status']=='gave_up',out)
 
     # ---------- 19. 数据持久化 ----------
     banner("19. 重开数据库，数据要还在")

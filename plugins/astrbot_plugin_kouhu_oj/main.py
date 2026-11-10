@@ -78,7 +78,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.13.0"
+PLUGIN_VERSION = "0.13.1"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -1230,16 +1230,15 @@ class KouHuOJ(Star):
                 yield event.plain_result("拉不到 Codeforces 的题库，稍后再试（看日志）")
                 return
 
-        used = self._store.used_keys(scope)
-        entry = self._cf.pick_range(*rating_range, exclude=used) if rating_range else self._cf.pick(tier, exclude=used)
+        entry = self._cf.pick_range(*rating_range) if rating_range else self._cf.pick(tier)
         if entry is None and rating_range:
-            yield event.plain_result(f'CF {rating_range[0]}–{rating_range[1]} 区间没有尚未派过的可用题，请换个区间。当前题目未改变。')
+            yield event.plain_result(f'CF {rating_range[0]}–{rating_range[1]} 区间没有可用题，请换个区间。当前题目未改变。')
             return
         if entry is None:
             # 这一档题派完了，往下找一档
             for delta in (-1, 1, -2, 2, -3, 3):
                 alt = scoring.shift_tier(tier, delta)
-                entry = self._cf.pick(alt, exclude=used)
+                entry = self._cf.pick(alt)
                 if entry:
                     logger.info(f"[KouHuOJ] {scope} 档位 {tier} 无题可派，改用 {alt}")
                     break
@@ -1247,7 +1246,7 @@ class KouHuOJ(Star):
             yield event.plain_result("题库里没有可派的题了，管理员可以调整档位（tier 数字）")
             return
 
-        yield event.plain_result("正在拉题、翻译、排版，稍等……")
+        yield event.plain_result("正在选题并准备题面（优先复用缓存），稍等……")
 
         try:
             problem = await self._cf.fetch(entry)
@@ -2117,7 +2116,7 @@ class KouHuOJ(Star):
             "sol [题号]": "已结束正题的模型解析，例如 sol 628B；不再使用提交记录号，非官方题解",
             "history [grm] [页码]": "本群自己的按题汇总历史；history [grm] problem 题号 只发题面与样例不切换当前判题；show 题号 [页码] 查看个人各次提交与判词",
             "ver [list|版本号]": "查看当前更新、历史摘要或指定版本记录",
-            "new [l-r]": "new 按群档位派题；new [1200-1600] 或 new 1200-1600 按实际CF rating闭区间随机抽取本群未出过的题，支持800–3500；不改变群档位，无题不扩范围，仍参与群解出率统计",
+            "new [l-r]": "new 按群档位派题；new [1200-1600] 或 new 1200-1600 按实际CF rating闭区间对所有唯一题号等概率随机抽样，允许重复且不受做题历史或缓存影响，支持800–3500；不改变群档位，无题不扩范围，仍参与群解出率统计",
             "cur": "重看当前题",
             "sub <思路>": "提交作答",
             "hint 1/2/3": "当前正题的三级提示：方向、关键观察、解法框架；模型生成，群内可见，不扣分",

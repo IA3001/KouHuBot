@@ -25,4 +25,26 @@ class RatingRangeTest(unittest.TestCase):
         for _ in range(30):
             self.assertIn(self.source.pick_range(1350,1550)['rating'],[1400,1500])
 
+    def test_unique_candidates_use_uniform_choice(self):
+        self.source._catalog.append(dict(self.source._catalog[0]))
+        for method,args,expected in ((self.source.pick_range,(1200,1600),5),(self.source.pick,(1200,),6)):
+            with patch('secrets.choice',side_effect=lambda pool:pool[-1]) as choice:
+                method(*args)
+                pool = choice.call_args.args[0]
+                self.assertEqual(len(pool),expected)
+                self.assertEqual(len({p['cf_key'] for p in pool}),expected)
+
+    def test_complete_cache_avoids_scraping(self):
+        import asyncio
+        from unittest.mock import Mock
+        source = self.source
+        cached = dict(cf_key='1',contest_id=1,idx='A',rating=1300,tier=1200,
+                      title='test',statement_en='Find $$$x$$$.',statement_cn='求 $$$x$$$。',examples='[]')
+        source._cache = Mock()
+        source._cache.get.return_value = cached
+        source._scrape_sync = Mock(side_effect=AssertionError('cache hit must not scrape'))
+        problem = asyncio.run(source.fetch(cached))
+        self.assertEqual(problem['statement_cn'],'求 $$$x$$$。')
+        source._scrape_sync.assert_not_called()
+
 if __name__=='__main__': unittest.main()
