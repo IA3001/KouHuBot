@@ -15,15 +15,14 @@
 
 services:
   astrbot:
-    # 官方 AstrBot 镜像 + 本插件的打包版，插件已在镜像里，
-    # 首次启动自动铺到 data/plugins/。想用原版自己装插件的话，
-    # 把这里换回 soulter/astrbot:latest 即可。
-    image: ${KOUHUBOT_IMAGE:-ia3000/kouhubot}:${KOUHUBOT_TAG:-latest}
+    # 纯运行环境；插件代码从仓库挂载，日常更新不拉取镜像。
+    image: ${KOUHUBOT_IMAGE:-ia3000/kouhubot}:${KOUHUBOT_TAG:-runtime-1}
     container_name: astrbot
     restart: unless-stopped
 
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      PYTHONDONTWRITEBYTECODE: "1"
       # 中国大陆网络环境如需加速依赖下载，可取消注释（换成你的代理）
       # HTTP_PROXY: http://192.168.1.10:7890
       # HTTPS_PROXY: http://192.168.1.10:7890
@@ -36,9 +35,14 @@ services:
       # 数据持久化：配置、插件、数据库、日志都在这里
       - ${DATA_DIR:-../data}:/AstrBot/data
 
-    # 升级镜像后，数据卷里还是旧版插件。设成 force 重启即可换成镜像自带版本。
-    # 一般不需要：entrypoint 会自动比对版本号决定是否同步
-    # KOUHU_PLUGIN_SYNC: force
+      - type: bind
+        source: ../plugins/astrbot_plugin_kouhu_oj
+        target: /AstrBot/data/plugins/astrbot_plugin_kouhu_oj
+        read_only: true
+        bind:
+          create_host_path: false
+
+    # 插件通过Git更新，数据独立保存；旧容器迁移使用update.sh。
 
     # ---- 2C2G 资源护栏：防止 AstrBot 吃满内存导致整机不可用 ----
     mem_limit: ${ASTRBOT_MEM_LIMIT:-900m}

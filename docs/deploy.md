@@ -219,7 +219,8 @@ docker compose logs -f astrbot | grep KouHuOJ
 ```bash
 docker compose logs -f astrbot          # 看日志
 docker compose restart astrbot          # 重启
-docker compose pull && docker compose up -d   # 升级
+bash ~/KouHuBot/update.sh                # 更新Git插件，不拉取镜像
+# 只有运行依赖变化、明确升级基础环境时才拉取新的runtime-N标签。
 docker stats                            # 实时资源占用
 ```
 

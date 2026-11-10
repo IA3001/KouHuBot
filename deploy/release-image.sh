@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 构建并推送多架构镜像到 Docker Hub。
 #
-#   ./deploy/release-image.sh              # 用 metadata.yaml 里的版本号
+#   RUNTIME_VERSION=runtime-1 ./deploy/release-image.sh  # 显式环境版本；不使用插件版本
 #   ./deploy/release-image.sh --no-push    # 只构建，不推送
 #
 # 需要先 docker login。
@@ -14,9 +14,8 @@ PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 PUSH=1
 [ "${1:-}" = "--no-push" ] && PUSH=0
 
-# 版本号以插件 metadata.yaml 为准，避免镜像 tag 和插件版本对不上
-VERSION="$(grep -m1 '^version:' plugins/astrbot_plugin_kouhu_oj/metadata.yaml | sed 's/^version:[[:space:]]*//; s/^v//')"
-[ -n "$VERSION" ] || { echo "读不到插件版本号" >&2; exit 1; }
+VERSION="${RUNTIME_VERSION:?请显式设置环境版本，例如RUNTIME_VERSION=runtime-1；插件修改不需要构建镜像}"
+[[ "$VERSION" =~ ^runtime-[1-9][0-9]*$ ]] || { echo '环境标签须为runtime-N' >&2; exit 1; }
 
 echo "镜像    : ${IMAGE}"
 echo "版本    : ${VERSION}"

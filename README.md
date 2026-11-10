@@ -407,55 +407,32 @@ cd .local/astrbot && ../venv/bin/python main.py
 
 已发布到 Docker Hub：**[ia3000/kouhubot](https://hub.docker.com/r/ia3000/kouhubot)**
 
-```bash
-docker pull ia3000/kouhubot:latest
-```
+环境镜像标签为 `ia3000/kouhubot:runtime-1`，只包含AstrBot、Python依赖、Chromium、字体与C++验证工具链，不内置插件。插件从Git仓库只读挂载，配置与数据库单独持久化。镜像依赖体积仍较大，但日常插件修复无需重新下载。
 
-| | |
-|---|---|
-| 基底 | `soulter/astrbot:v4.29.4`（官方镜像） |
-| 架构 | `linux/amd64`、`linux/arm64` |
-| 压缩体积 | 约 670 MB |
-| 内容 | AstrBot + 本插件，**不含任何密钥** |
-
-一条命令跑起来：
+首次安装须先克隆完整仓库，再运行：
 
 ```bash
-docker run -d --name kouhubot \
-  -p 6185:6185 \
-  -v ./data:/AstrBot/data \
-  -e TZ=Asia/Shanghai \
-  --restart unless-stopped \
-  ia3000/kouhubot:latest
+cd deploy
+cp .env.example .env
+docker compose up -d
 ```
 
-### 为什么要 entrypoint
+已有容器不需要为了迁移重新下载环境，用一键脚本保留当前本地镜像：
 
-AstrBot 的插件目录是 `data/plugins/`，而 `data/` 通常挂成数据卷。
-如果插件直接打进镜像的 `data/`，一挂卷就被盖住了。
-
-所以镜像把插件放在 `/opt/kouhu/`，由 entrypoint 在启动时复制到数据卷：
-
-```
-[kouhu] 插件已同步到 /AstrBot/data/plugins/astrbot_plugin_kouhu_oj（v0.5.0 → v0.5.1）
+```bash
+bash ~/KouHuBot/update.sh
 ```
 
-数据卷里已经有插件时不会盲目覆盖，而是**比对 `metadata.yaml` 里的版本号**：
-版本不一样就自动换成镜像自带的版本，版本一样就跳过。
-所以升级镜像不需要任何额外操作。
-
-以前只认「目录不存在」，结果升级镜像后插件还是旧的，群里表现是
-「新功能没有、老 bug 还在」，而日志一切正常——很难往这上面想。
-真遇到版本号没变但内容要覆盖的情况，再上 `-e KOUHU_PLUGIN_SYNC=force`。
+该脚本只获取Git增量、挂载插件并重启，禁止镜像拉取和构建。新环境入口仅检查插件文件是否可读，不再复制或覆盖源码。详见[挂载与更新说明](docs/plugin-mount.md)。基础环境只在依赖变化时单独发布，插件版本与环境版本互相独立。
 
 ### 自己构建发布
 
 ```bash
-./deploy/release-image.sh              # 构建 amd64 + arm64 并推送
-./deploy/release-image.sh --no-push    # 只构建
+RUNTIME_VERSION=runtime-1 ./deploy/release-image.sh           # 明确发布环境版本
+RUNTIME_VERSION=runtime-1 PLATFORMS=linux/amd64 ./deploy/release-image.sh --no-push
 ```
 
-版本号取自插件 `metadata.yaml`，会同时打 `<版本>` 和 `latest` 两个 tag。
+环境版本由RUNTIME_VERSION显式指定，与插件metadata无关；发布脚本仅在明确执行时构建推送环境标签及latest。日常update.sh不会调用它。
 
 ## 快速开始
 
@@ -506,16 +483,10 @@ WebUI →「模型提供商」→ 添加一个（DeepSeek / 硅基流动 / 通�
 想用原版 `soulter/astrbot` 镜像自己装：
 
 ```bash
-cp -r plugins/astrbot_plugin_kouhu_oj ../data/plugins/
-docker compose restart astrbot
+bash ~/KouHuBot/update.sh
 ```
 
-升级镜像后插件会自动同步（entrypoint 比对版本号），不需要额外操作：
-
-```bash
-docker compose pull
-docker compose up -d
-```
+插件更新只拉Git并重启，基础镜像不复制插件。仅运行依赖改变且明确需要升级环境时才拉取新环境标签，已有容器日常不需要docker compose pull。
 
 ### 6. 验收
 
