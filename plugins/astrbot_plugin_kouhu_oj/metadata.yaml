@@ -1,6 +1,6 @@
 name: astrbot_plugin_kouhu_oj
 desc: 群内 OJ —— new 从 Codeforces 派题（题面翻中文、公式渲染成图片）、sub 提交思路由大模型判题、giveup 放弃、rank 积分榜、grm 独立命名空间的 C++ 坑点题、ask 自由问答。
-version: v0.16.0
+version: v0.16.1
 author: KouHuBot
 repo: https://github.com/IA3001/KouHuBot
 display_name: 口胡 OJ

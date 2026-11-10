@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import html
 from pathlib import Path
 import re
+import sys
 import tempfile
 import threading
 from urllib.parse import unquote, urlsplit
@@ -265,6 +266,25 @@ class RenderError(RuntimeError):
     """A statement could not be rendered as one bounded image."""
 
 
+def _browser_executable(chromium) -> str | None:
+    """Find this Playwright revision in the default, venv-local or image install."""
+    expected = Path(chromium.executable_path)
+    if expected.is_file():
+        return str(expected)
+    # executable_path identifies the compatible revision; never pick an
+    # arbitrary installed browser or depend on the shell's working directory.
+    tail = expected.parts[-3:]
+    if not tail or not tail[0].startswith('chromium-'):
+        return None
+    roots = [Path(sys.prefix).parent / 'browsers', Path('/opt/kouhu/browsers')]
+    roots.extend(parent / '.local' / 'browsers' for parent in Path(__file__).resolve().parents)
+    for root in roots:
+        candidate = root.joinpath(*tail)
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def _render(problem: dict, out_dir: str | None, width: int, examples: bool) -> str:
     # The lock covers document creation, browser startup, screenshot and cleanup.
     with _RENDER_LOCK:
@@ -284,7 +304,9 @@ def _render(problem: dict, out_dir: str | None, width: int, examples: bool) -> s
             page_path = Path(temporary) / "statement.html"
             page_path.write_text(document, encoding="utf-8")
             with sync_playwright() as playwright:
-                browser = playwright.chromium.launch(headless=True, args=[
+                executable = _browser_executable(playwright.chromium)
+                launch_options = {'executable_path':executable} if executable else {}
+                browser = playwright.chromium.launch(headless=True, **launch_options, args=[
                     "--disable-dev-shm-usage", "--no-sandbox", "--renderer-process-limit=1",
                 ])
                 try:

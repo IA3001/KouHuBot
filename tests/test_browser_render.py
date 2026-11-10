@@ -15,6 +15,19 @@ sys.modules[_SPEC.name] = renderer
 _SPEC.loader.exec_module(renderer)
 
 
+class BrowserDiscoveryTests(unittest.TestCase):
+    def test_venv_local_matching_revision_without_environment(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            browser=root/'browsers/chromium-123/chrome-linux64/chrome'
+            browser.parent.mkdir(parents=True);browser.touch()
+            with patch.object(renderer.sys,'prefix',str(root/'venv')):
+                missing=SimpleNamespace(executable_path=str(root/'absent/chromium-123/chrome-linux64/chrome'))
+                self.assertEqual(renderer._browser_executable(missing),str(browser))
+                other=SimpleNamespace(executable_path=str(root/'absent/chromium-124/chrome-linux64/chrome'))
+                self.assertIsNone(renderer._browser_executable(other))
+
 class MathTokenizerTests(unittest.TestCase):
     def test_all_delimiters_and_pipes(self):
         source = r"A $$$|x| \le 3$$$ B $$a|b$$ $c$ \(d\) \[e\] end"
