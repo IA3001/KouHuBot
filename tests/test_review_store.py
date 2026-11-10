@@ -130,6 +130,89 @@ class ReviewStoreTests(unittest.TestCase):
         self.assertEqual(self.store.review_history("g", "u", page=3), ([], 7))
         self.assertEqual(len(self.store.review_history("g", "u", page=0, page_size=0)[0]), 1)
 
+    def test_problem_groups_rounds_and_keeps_latest_personal_metadata(self) -> None:
+        with patch.object(review_store.time, "time", return_value=120):
+            first = self.store.note_review("g", current(), "u", "first", "WA", "wrong", 2)
+        with patch.object(review_store.time, "time", return_value=210):
+            self.store.note_hint("g", current(200), "u", 2)
+        with patch.object(review_store.time, "time", return_value=220):
+            latest = self.store.note_review(
+                "g", current(200, title="Second round", status="ac"),
+                "u", "second", "AC", "correct", 10,
+            )
+        # A newer round with no personal submission still supplies current status.
+        self.store.ensure_round("g", current(300, title="Third round", status="open"))
+        self.store.ensure_round("other", current(400, status="hidden"))
+        rows, total = self.store.review_problems("g", "u")
+        self.assertEqual(total, 1)
+        row = rows[0]
+        self.assertEqual(row["id"], latest)
+        self.assertEqual((row["title"], row["opened_at"]), ("Second round", 200))
+        self.assertEqual(row["status"], "open")
+        self.assertEqual(row["submission_count"], 2)
+        self.assertEqual(row["verdicts"], ["AC", "WA"])
+        self.assertEqual(row["total_points"], 12)
+        self.assertEqual(row["hint_level"], 2)
+        self.assertIs(row["legacy_unknown"], False)
+        self.assertEqual(self.store.review_problem("g", "u", "4A"),
+                         self.store.review_entry("g", "u", latest))
+        entries, total = self.store.review_problem_entries("g", "u", "4A")
+        self.assertEqual(total, 2)
+        self.assertEqual([entry["id"] for entry in entries], [latest, first])
+
+    def test_problem_queries_are_personal_and_scope_isolated(self) -> None:
+        mine = self.store.note_review("g", current(), "u", "mine", "WA", "", 3)
+        self.store.note_review("g", current(), "other", "theirs", "AC", "", 50)
+        self.store.note_review("other", current(), "u", "elsewhere", "AC", "", 50)
+        self.store.note_review("g", current(cf_key="5A"), "other", "private", "AC", "")
+        rows, total = self.store.review_problems("g", "u")
+        self.assertEqual(total, 1)
+        self.assertEqual((rows[0]["id"], rows[0]["submission_count"],
+                          rows[0]["total_points"], rows[0]["verdicts"]),
+                         (mine, 1, 3, ["WA"]))
+        self.assertEqual(self.store.review_problem_entries("g", "u", "4A")[1], 1)
+        for scope, user, key in (("missing", "u", "4A"),
+                                 ("g", "missing", "4A"), ("g", "u", "5A")):
+            self.assertIsNone(self.store.review_problem(scope, user, key))
+            self.assertEqual(self.store.review_problem_entries(scope, user, key), ([], 0))
+        self.assertEqual(self.store.review_problems("missing", "u"), ([], 0))
+        self.assertIsNone(self.store.review_problem("g", "u", "4a"))
+
+    def test_problem_pagination_latest_selection_and_ties(self) -> None:
+        with patch.object(review_store.time, "time", return_value=500):
+            ids = [self.store.note_review("g", current(cf_key=f"{n}A"), "u", str(n), "WA", "")
+                   for n in range(1, 8)]
+            latest = self.store.note_review("g", current(200, cf_key="1A"), "u", "retry", "AC", "")
+        rows, total = self.store.review_problems("g", "u")
+        self.assertEqual(total, 7)
+        self.assertEqual([row["id"] for row in rows], [latest, *ids[:2:-1]])
+        self.assertEqual([row["id"] for row in self.store.review_problems("g", "u", page=2)[0]],
+                         ids[1:3][::-1])
+        self.assertEqual(self.store.review_problems("g", "u", page=3), ([], 7))
+        self.assertEqual(len(self.store.review_problems("g", "u", page=0, page_size=0)[0]), 1)
+        self.assertEqual(self.store.review_problem("g", "u", "1A")["id"], latest)
+        self.assertEqual([row["id"] for row in self.store.review_problem_entries(
+            "g", "u", "1A", page=2, page_size=1)[0]], [ids[0]])
+        self.assertEqual(self.store.review_problem_entries("g", "u", "1A", page=3, page_size=1), ([], 2))
+        self.assertEqual(self.store.review_problem_entries("g", "u", "1A", page=0, page_size=0)[0][0]["id"], latest)
+
+    def test_problem_legacy_flags_points_and_distinct_verdicts(self) -> None:
+        rid = self.store.ensure_round("g", current())
+        self.store._conn.execute(
+            """INSERT INTO review_entries
+                (round_id,user_id,submission,verdict,comment,points,hint_level,at)
+                VALUES (?, 'u', 'legacy', 'WA', '', 99, -1, 100)""", (rid,),
+        )
+        row = self.store.review_problems("g", "u")[0][0]
+        self.assertEqual((row["total_points"], row["hint_level"]), (0, -1))
+        self.assertIs(row["legacy_unknown"], True)
+        with patch.object(review_store.time, "time", return_value=120):
+            self.store.note_review("g", current(), "u", "retry", "WA", "", 3)
+        row = self.store.review_problems("g", "u")[0][0]
+        self.assertEqual((row["submission_count"], row["verdicts"]), (2, ["WA"]))
+        self.assertEqual((row["total_points"], row["hint_level"]), (3, 0))
+        self.assertIs(row["legacy_unknown"], True)
+
     def test_solutions_are_per_round_and_replaceable(self) -> None:
         first = self.store.ensure_round("g", current())
         second = self.store.ensure_round("g", current(200))

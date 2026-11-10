@@ -78,7 +78,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.11.0"
+PLUGIN_VERSION = "0.12.0"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -246,39 +246,68 @@ RE_SKIP = re.compile(r"^\s*/?\s*skip\s*$", re.I)
 RE_TIER = re.compile(r"^\s*/?\s*tier(?:\s+(\d+))?\s*$", re.I)
 RE_STATUS = re.compile(r"^\s*/?\s*status\s*$", re.I)
 
-HELP_TEXT = """口胡 OJ —— 群内做题，答对得分
+HELP_TEXT = """╭── 📚 口胡 OJ · 指令菜单 ──╮
+  群内练算法 · 思路判题 · 题后复盘
+╰──────────────────╯
 
-new           派一道新题（上一题答对或放弃后才能派）
-cur           重看当前题
-sub 思路       提交作答（写思路、伪代码、代码都行）
-hint 1/2/3    正题提示：方向 / 关键观察 / 解法框架（不扣分，群内可见）
-giveup        放弃这题（注意：会关掉全群这道题）
-rank          积分榜
-me            我的战绩
-ask 问题       自由问答：题库、运行情况，随便问
-ver           版本号和这一版改了什么
-ver list      历史版本列表
-ver 0.6.0     查看指定版本的更新日志
-sol [记录号]  已结束正题的模型解析
-history [页]  我的正题记录；history grm [页] 看坑点记录
-history show 记录号  回看自己的作答与判词
-report [grm] 描述  反馈当前题目的问题
-appeal [grm] 记录号 理由  复核自己的已结束题提交（不自动改分）
-tickets [grm]  查看自己的工单；tickets show 编号 看详情
-rules         计分、排名、升降档和提示规则
-about         自我介绍、当前功能和上手方式
-help          这条帮助
+🎯 正题练习
+━━━━━━━━━━━━━━━━
+› new · 抽一道新题
+› cur · 重看当前题面与样例
+› sub 思路 · 提交思路、伪代码或代码
+› hint 1 / 2 / 3 · 方向 / 观察 / 框架
+› giveup · 放弃全群当前正题
 
-坑点题是另一条独立的线（看代码找 bug），指令都挂在 grm 下面：
-grm new           抽一道坑点题（上一道答对或放弃后才能抽）
-grm new 二分       按分类抽（分类见 grm list）
-grm list          有哪些分类、各多少题
-grm cur           重看当前坑点题
-grm sub X         提交你的分析
-grm giveup        放弃，看答案
+🧩 C++ 坑点
+━━━━━━━━━━━━━━━━
+› grm new [分类] [难度] · 抽一道坑点题
+› grm list · 分类与可用题数
+› grm cur · 重看当前坑点题
+› grm sub 分析 · 提交分析
+› grm giveup · 放弃并查看答案
 
-正题：答对加分，答错不扣分，做完之前不告诉你题号和题目名字。
-坑点题：不计分，纯粹练手。"""
+📖 历史与复盘
+━━━━━━━━━━━━━━━━
+› history [页码] · 按题查看我的历史
+› history problem 628B · 回看历史题面
+› history show 628B [页码] · 该题作答与判词
+› sol 628B · 查看已结束题目的解析
+› sol · 当前已结束题目的解析
+› history grm · 坑点历史，支持 problem / show
+
+🏆 积分与规则
+━━━━━━━━━━━━━━━━
+› rank · 本群积分榜
+› me · 我的战绩与提示使用统计
+› rules · 计分、排名和升降档规则
+
+🛠 反馈与复核
+━━━━━━━━━━━━━━━━
+› report [grm] 描述 · 反馈当前题目
+› appeal [grm] 记录号 理由 · 复核一次判定
+› tickets [grm] [页码] · 我的工单
+› tickets [grm] show 编号 · 工单详情
+
+💬 帮助与更新
+━━━━━━━━━━━━━━━━
+› ask 问题 · 功能与运行情况问答
+› about · 功能介绍与上手方式
+› ver / ver list / ver 0.11.0 · 更新日志
+› help · 打开本菜单
+
+🔐 管理员
+━━━━━━━━━━━━━━━━
+› skip · 关闭当前正题
+› tier [档位] · 查看 / 调整群难度
+› status · 运行状态（所有人可查）
+› tickets [grm] pending [页码] · 待处理工单
+› tickets [grm] resolve/reject 编号 说明
+› tickets [grm] pause/unpause 编号 原因
+
+📌 正题答错不扣分，首个 AC 后全群该题结束。
+📌 两条练习线路独立；坑点不计分，提示群内可见。
+📌 历史回看只发题面，不切换当前判题。
+📌 模型判题与解析可能出错；复核不自动改分。"""
 
 ASK_SYSTEM_PROMPT = """你是 QQ 群「口胡 OJ」机器人自带的运维助手，用自然语言回答群友关于这个机器人的问题。
 
@@ -2069,8 +2098,8 @@ class KouHuOJ(Star):
             "report [grm] 描述": "反馈当前题目，按本群本线路建工单",
             "appeal [grm] 记录号 理由": "复核自己的已结束提交，不自动改分，每条记录只能申诉一次，失败后管理员处理",
             "tickets [grm]": "自己的工单；show 编号 查看详情；管理员用 pending [页码]、resolve/reject 编号 说明、pause/unpause 编号 原因",
-            "sol [记录号]": "已结束正题的模型解析，非官方题解",
-            "history [grm] [页码]": "本群自己的提交记录，详情用 history [grm] show 记录号",
+            "sol [题号]": "已结束正题的模型解析，例如 sol 628B；不再使用提交记录号，非官方题解",
+            "history [grm] [页码]": "本群自己的按题汇总历史；history [grm] problem 题号 只发题面与样例不切换当前判题；show 题号 [页码] 查看个人各次提交与申诉记录号",
             "ver [list|版本号]": "查看当前更新、历史摘要或指定版本记录",
             "new": "派一道新题",
             "cur": "重看当前题",
@@ -2431,6 +2460,63 @@ class KouHuOJ(Star):
         if grammar:
             scope += GRAMMAR_SUFFIX
             parts.pop(0)
+        prefix = 'history grm' if grammar else 'history'
+        if len(parts) >= 2 and parts[0].lower() in ('problem', 'show') and not parts[1].isdigit():
+            key = parts[1] if grammar else parts[1].upper().removeprefix('CF')
+            if grammar and not key.startswith(PITFALL_PREFIX):
+                key = PITFALL_PREFIX + key
+            entry = self._store.review_problem(scope, user, key)
+            if not entry:
+                yield event.plain_result('找不到你在本群的这道历史题')
+                return
+            if parts[0].lower() == 'problem':
+                if len(parts) != 2:
+                    yield event.plain_result(f'{prefix} problem 题号')
+                    return
+                if grammar:
+                    pitfall = self._pitfalls.get(key[len(PITFALL_PREFIX):]) if self._pitfalls else None
+                    if not pitfall:
+                        yield event.plain_result('该坑点已暂停或不在正式库，暂时无法回看题面')
+                        return
+                    problem = self._pitfall_to_problem(pitfall)
+                    path = render_problem(problem, out_dir=str(self._image_dir) if self._image_dir else None, width=int(self.config.get('image_width',900)))
+                    if path:
+                        yield event.image_result(path)
+                    else:
+                        yield event.plain_result(pitfall.get('question','') + '\n' + pitfall.get('buggy_code',''))
+                else:
+                    row = self._cache.get(key) if self._cache else None
+                    if not row:
+                        yield event.plain_result('历史题面缓存缺失，无法回看；当前题目未改变')
+                        return
+                    problem = CodeforcesSource._row_to_problem(row)
+                    try:
+                        outdir = str(self._image_dir) if self._image_dir else None
+                        width = int(self.config.get('image_width',900))
+                        paths = [render_cf_statement(problem,outdir,width), render_cf_examples(problem,outdir,width)]
+                        for path in paths:
+                            yield event.image_result(path)
+                    except Exception as exc:
+                        logger.warning(f'[KouHuOJ] 历史题面渲染失败：{exc}')
+                        yield event.plain_result(problem.get('statement_cn') or problem.get('statement_en') or '题面为空')
+                yield event.plain_result('📖 历史题面回看 · 当前判题未切换。sub 仍提交给正在进行的题。')
+                return
+            if self._review_hidden(scope,entry):
+                yield event.plain_result('这道题仍在进行，作答与判词在结束后可回看')
+                return
+            if len(parts)>3 or (len(parts)==3 and (not parts[2].isdigit() or len(parts[2])>6 or int(parts[2])<1)):
+                yield event.plain_result(f'{prefix} show 题号 [页码]')
+                return
+            page = int(parts[2]) if len(parts)==3 else 1
+            rows,total = self._store.review_problem_entries(scope,user,key,page)
+            pages=max(1,(total+2)//3)
+            if not rows:
+                yield event.plain_result(f'没有这一页，共 {pages} 页')
+                return
+            yield event.plain_result(f'📖 {key} · 我的作答 · {page}/{pages} 页')
+            for row in rows:
+                yield event.plain_result(f"提交 #{row['id']} · {row['verdict']}\n作答：\n{row['submission'][:2000]}\n判词：\n{row['comment'][:1200]}\n申诉：appeal{' grm' if grammar else ''} {row['id']} 理由")
+            return
         if len(parts) == 2 and parts[0].lower() == "show" and parts[1].isdigit() and len(parts[1]) <= 18:
             entry = self._store.review_entry(scope, user, int(parts[1]))
             if not entry:
@@ -2446,28 +2532,30 @@ class KouHuOJ(Star):
             )
             return
         if len(parts) > 1 or (parts and (not parts[0].isdigit() or int(parts[0]) < 1)):
-            yield event.plain_result("history [页码]\nhistory grm [页码]\nhistory show 记录号\nhistory grm show 记录号")
+            yield event.plain_result("history [grm] [页码]\nhistory [grm] problem 题号\nhistory [grm] show 题号 [页码]\nsol 题号，例如 sol 628B")
             return
         if parts and len(parts[0]) > 6:
             yield event.plain_result("页码过大，请从 history 1 开始查看")
             return
         page = int(parts[0]) if parts else 1
-        rows, total = self._store.review_history(scope, user, page)
+        rows, total = self._store.review_problems(scope, user, page)
         pages = max(1, (total + 4) // 5)
         if page > pages:
             yield event.plain_result(f"只有 {pages} 页，发 history{' grm' if grammar else ''} {pages}")
             return
-        lines = [f"我的{'坑点' if grammar else '正题'}记录 · {page}/{pages} 页 · {total} 次"]
+        lines = [f"我的{'坑点' if grammar else '正题'}记录 · {page}/{pages} 页 · {total} 题"]
         for row in rows:
             hidden = self._review_hidden(scope, row)
             identity = "进行中（结束后揭晓）" if hidden else row['cf_key']
             hints = "旧版提示记录未知" if row['hint_level'] < 0 else f"主动请求提示{row['hint_level']}级" if row['hint_level'] else "未主动请求提示"
             stamp = time.strftime("%m-%d %H:%M", time.localtime(row['at']))
             points = "得分旧版未保存" if row['hint_level'] < 0 else f"+{row['points']}分"
-            lines.append(f"#{row['id']} {stamp} {identity} · {row['verdict']} · {points} · {hints}")
+            points = '含旧版未知得分' if row['legacy_unknown'] else f"+{row['total_points']}分"
+            verdicts = ' / '.join(row['verdicts'])
+            lines.append(f"📌 {identity} · {row['submission_count']}次记录 · {verdicts}\n   {stamp} · {points} · {hints}")
         if not rows:
             lines.append("还没有记录，提交或放弃后会记录。旧版未保存的内容无法恢复。")
-        lines.append(f"详情：history{' grm' if grammar else ''} show 记录号\n提示群内公开，未主动请求不代表独立完成。")
+        lines.append(f"题面：{prefix} problem 题号\n作答：{prefix} show 题号\n" + ("" if grammar else "解析：sol 题号\n") + "提示群内公开，未主动请求不代表独立完成。")
         yield event.plain_result("\n".join(lines))
 
     @filter.regex(RE_SOL)
@@ -2480,10 +2568,11 @@ class KouHuOJ(Star):
         match = RE_SOL.match(event.message_str or "")
         arg = (match.group(1) or "").strip() if match else ""
         if arg:
-            if not arg.isdigit() or len(arg) > 18:
-                yield event.plain_result("sol 查看当前已结束正题解析；sol 记录号 查看自己历史记录对应的解析")
+            key = arg.upper().removeprefix('CF')
+            if not re.fullmatch(r'\d{1,8}[A-Z]\d?', key):
+                yield event.plain_result("sol 题号 查看历史解析，例如 sol 628B；数字不再表示提交记录号。sol 查看当前已结束正题解析。")
                 return
-            entry = self._store.review_entry(scope, str(event.get_sender_id()), int(arg))
+            entry = self._store.review_problem(scope, str(event.get_sender_id()), key)
             if not entry:
                 yield event.plain_result("找不到你在本群的这条正题记录")
                 return

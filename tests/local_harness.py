@@ -492,10 +492,24 @@ async def main() -> int:
     calls = ctx.call_count
     out = await runner.says(E("sol", **alice), "cmd_solution")
     runner.check("题后解析明确模型来源", "非官方" in out and "关键观察" in out, out)
-    out = await runner.says(E(f"sol {review_id}", **alice), "cmd_solution")
+    out = await runner.says(E(f"sol {first_key}", **alice), "cmd_solution")
     runner.check("历史解析复用缓存", "关键观察" in out and ctx.call_count == calls + 1, out)
-    out = await runner.says(E(f"sol {review_id}", **bob), "cmd_solution")
+    out = await runner.says(E(f"sol {first_key}", **bob), "cmd_solution")
     runner.check("历史解析不允许越权记录号", "找不到" in out, out)
+
+    banner("7c. 按题复盘入口与菜单")
+    grouped, total_problems = plugin._store.review_problems(scope, '1001')
+    runner.check('同题WA和AC合并为一题', total_problems == 1 and grouped[0]['submission_count'] == 2, str(grouped))
+    saved_slot = plugin._store.current(scope)
+    out = await runner.says(E(f'history problem {first_key}', **alice), 'cmd_history')
+    runner.check('历史题面和样例都能回看', len(image_path_of(out)) == 2 and '未切换' in out, out)
+    runner.check('回看历史不切换判题槽位', plugin._store.current(scope) == saved_slot)
+    out = await runner.says(E(f'history show {first_key}', **alice), 'cmd_history')
+    runner.check('按题查看各次作答及申诉号', 'WA' in out and 'AC' in out and 'appeal' in out, out)
+    out = await runner.says(E('sol 5', **alice), 'cmd_solution')
+    runner.check('旧sol数字入口明确迁移指引', '不再表示提交记录号' in out and '628B' in out, out)
+    out = await runner.says(E('help', **alice), 'cmd_help')
+    runner.check('菜单分类和统一装饰', all(x in out for x in ('🎯 正题练习','🧩 C++ 坑点','📖 历史与复盘','🏆 积分与规则','🛠 反馈与复核','💬 帮助与更新','🔐 管理员','› history problem 628B')), out)
 
     banner("7c. 工单、申诉与管理员操作")
     admin = {**alice, "role": "admin"}
@@ -901,7 +915,7 @@ async def main() -> int:
     first_entry = next(row for row in previous_reviews if row['cf_key'] == first_key)
     plugin._store.open_problem(scope, {"cf_key": first_key, "title": "Watermelon"}, "admin")
     calls = ctx.call_count
-    out = await runner.says(E(f"sol {first_entry['id']}", **alice), "cmd_solution")
+    out = await runner.says(E(f"sol {first_key}", **alice), "cmd_solution")
     runner.check("同题重新开放不漏历史解析", "还没结束" in out and ctx.call_count == calls, out)
     out = await runner.says(E(f"history show {first_entry['id']}", **alice), "cmd_history")
     runner.check("重新开放不回放历史作答", "结束后" in out, out)
