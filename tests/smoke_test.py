@@ -297,7 +297,7 @@ def test_pitfalls(tmp: Path) -> None:
     pf = importlib.import_module("sources.pitfalls")
     src = pf.PitfallSource()
 
-    check("题库非空", src.count() >= 60, f"实际 {src.count()} 条")
+    check("正式库仅含已验证且未暂停条目", src.count() > 0 and all(i.get('verified') and i.get('review', {}).get('status') not in {'pending','paused','rejected'} for i in src._load()), f"实际 {src.count()} 条")
 
     cats = src.categories()
     check("分类数 >= 12", len(cats) >= 12, str(cats))
@@ -318,8 +318,8 @@ def test_pitfalls(tmp: Path) -> None:
 
     # 按分类 + 难度抽，抽到的必须真符合
     for _ in range(20):
-        item = src.random_pitfall(category="二分", level=1)
-        if item["category"] != "二分" or int(item["level"]) != 1:
+        item = src.random_pitfall(category="浮点数", level=1)
+        if item["category"] != "浮点数" or int(item["level"]) != 1:
             check("按分类难度抽题", False, str(item))
             break
     else:
@@ -440,7 +440,7 @@ def test_pitfall_no_repeat(tmp: Path) -> None:
     pf = importlib.import_module("sources.pitfalls")
     src = pf.PitfallSource()
 
-    for cat in ["二分", "位运算", "输入输出"]:
+    for cat in ["浮点数", "位运算", "输入输出"]:
         total = src.count(category=cat)
         if total == 0:
             check(f"{cat} 有题", False, "0 条")
@@ -608,7 +608,7 @@ def test_verified_flag() -> None:
     check("每条都有 verified 字段", not missing, str(missing[:5]))
 
     proven = [i for i in items if i.get("verified")]
-    check("至少 45 条机器证实", len(proven) >= 45, f"{len(proven)} 条")
+    check("正式条目全部有行为验证标记", len(proven) == len(items) and bool(proven), f"{len(proven)} 条")
 
     # 证实的条目必须真带 case，否则这个标记就是空的
     fake = [i["id"] for i in proven if not i.get("case")]
@@ -710,7 +710,7 @@ def test_package_import(tmp: Path) -> None:
         eq("包加载下 normalize_tex 生效", cf.normalize_tex(r"a \le b"), r"a \leq b")
 
         main_mod = importlib.import_module("data.plugins.astrbot_plugin_kouhu_oj.main")
-        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.9.0")
+        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.10.0")
         cmds = [n for n in dir(main_mod.KouHuOJ) if n.startswith("cmd_")]
         check(f"指令齐全（{len(cmds)} 个）", len(cmds) >= 12, str(sorted(cmds)))
     finally:

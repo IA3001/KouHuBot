@@ -1,0 +1,674 @@
+[
+  {
+    "id": "getchar-newline",
+    "category": "输入输出",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "scanf-c-space",
+    "category": "输入输出",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "long-long-mod",
+    "category": "整数与溢出",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "memset-wrong",
+    "category": "数组与内存",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "assign-vs-equal",
+    "category": "运算符",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "float-compare",
+    "category": "数学",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "graph-index-offset",
+    "category": "图论",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "multi-edge-overwrites-adj-matrix",
+    "category": "图论",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "set-of-pointers-compares-address",
+    "category": "STL",
+    "level": 3,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "negative-shift-right-floor",
+    "category": "位运算",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "one-shl-31-sign-bit",
+    "category": "位运算",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "file",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "bitand-vs-logical-and",
+    "category": "位运算",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "precedence-and-equals",
+    "category": "位运算",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "xor-swap-same-slot",
+    "category": "位运算",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "popcount-truncates-longlong",
+    "category": "位运算",
+    "level": 3,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "file",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "fenwick_zero_based_range_right_endpoint",
+    "category": "树状数组与线段树",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "fenwick_update_loop_stops_before_n",
+    "category": "树状数组与线段树",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "fenwick_linear_build_propagates_raw_value",
+    "category": "树状数组与线段树",
+    "level": 3,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "fenwick_range_add_sum_second_tree_coefficient",
+    "category": "树状数组与线段树",
+    "level": 3,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "iterative_segtree_half_open_range",
+    "category": "树状数组与线段树",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "iterative_segtree_build_top_down",
+    "category": "树状数组与线段树",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "point_assignment_written_as_range_add",
+    "category": "树状数组与线段树",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "percent-to-int-truncate",
+    "category": "浮点数",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "setprecision-without-fixed",
+    "category": "浮点数",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "accumulate-int-init",
+    "category": "浮点数",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "double-eq-vs-sum",
+    "category": "浮点数",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "int-div-lose-fraction",
+    "category": "浮点数",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "float-accum-error",
+    "category": "浮点数",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "binary-search-eps-too-large",
+    "category": "浮点数",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "variance-cancellation",
+    "category": "浮点数",
+    "level": 3,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "printf-half-even-rounding",
+    "category": "浮点数",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "table-zero-means-empty",
+    "category": "哈希",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "file",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "substring-hash-negative-mod",
+    "category": "哈希",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "unordered-set-prime-multiple-keys",
+    "category": "哈希",
+    "level": 3,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "pbds_join_overlap_join_error",
+    "category": "pb_ds",
+    "level": 3,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "pbds_order_of_key_strict_less",
+    "category": "pb_ds",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "pbds_tree_set_semantics_dedup",
+    "category": "pb_ds",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "pbds_split_le_boundary",
+    "category": "pb_ds",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "discrete-sort-without-unique",
+    "category": "离散化",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "discrete-lower-bound-plus-one",
+    "category": "离散化",
+    "level": 2,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "discrete-unique-before-sort",
+    "category": "离散化",
+    "level": 1,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  },
+  {
+    "id": "discrete-gap-on-compressed-ranks",
+    "category": "离散化",
+    "level": 3,
+    "passed": [
+      "L1-fix编译",
+      "L1-buggy编译",
+      "L3-fix行为",
+      "L3-buggy行为"
+    ],
+    "failed": [],
+    "skipped": [],
+    "where": "main",
+    "verification": "counterexample",
+    "limitations": "只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。"
+  }
+]

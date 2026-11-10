@@ -592,7 +592,7 @@ async def main() -> int:
     runner.check("没结束不能换坑点题", "还没结束" in out, out)
     runner.check("拒绝时没出图", len(image_path_of(out)) == 0, out)
 
-    out = await runner.says(E("grm new 二分 1", **alice), "cmd_pitfall")
+    out = await runner.says(E("grm new 浮点数 1", **alice), "cmd_pitfall")
     runner.check("带分类也不能顶掉未结束的题", "还没结束" in out, out)
 
     before = plugin._store.current(scope + mod.GRAMMAR_SUFFIX)
@@ -650,10 +650,10 @@ async def main() -> int:
     runner.check("正题历史不混坑点", "GIVEUP" not in out or "pitfall:" not in out, out)
     out = await runner.says(E("grm list", **alice), "cmd_pitfall")
     runner.check("grammar list 出分类", "按分类" in out, out)
-    runner.check("list 里有二分", "二分" in out, out)
+    runner.check("list 里有浮点数", "浮点数" in out, out)
 
-    out = await runner.says(E("grm new 二分 1", **alice), "cmd_pitfall")
-    runner.check("能按分类难度抽", "二分" in out and "难度 1/3" in out, out)
+    out = await runner.says(E("grm new 浮点数 1", **alice), "cmd_pitfall")
+    runner.check("能按分类难度抽", "浮点数" in out and "难度 1/3" in out, out)
 
     # 两条线同时开着时，提示要明确告诉群友用哪个指令交
     out = await runner.says(E("cur", **alice), "cmd_problem")
@@ -672,8 +672,8 @@ async def main() -> int:
     out = await runner.says(E("grm giveup", **alice), "cmd_pitfall")
     runner.check("没题可放弃时有提示", "没有正在做" in out, out)
 
-    out = await runner.says(E("grm new 二分 1", **alice), "cmd_pitfall")
-    runner.check("结束后能抽下一道", "二分" in out, out)
+    out = await runner.says(E("grm new 浮点数 1", **alice), "cmd_pitfall")
+    runner.check("结束后能抽下一道", "浮点数" in out, out)
     runner.check("新题也出图", len(image_path_of(out)) == 1, out)
 
     banner("12b. 自我介绍与功能事实")

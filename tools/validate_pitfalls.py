@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""坑点题库验证器 —— 每条题必须「能被证明是错的」才能进库。
+"""坑点题库验证器 —— 编译、反例与 sanitizer 证据分开报告。
 
 为什么需要这个：
     坑点题的 `answer` 是直接给群友看的，判题也是拿它比对。一条错题比没有题
@@ -158,7 +158,9 @@ def _matches(actual: tuple[int, str, str], expect: dict) -> bool:
     if kind == "timeout":
         return code == -9 or "TIMEOUT" in err
     if kind == "stdout":
-        return value.strip() in out
+        return code == 0 and value.strip() == out.strip()
+    if kind == "stdout_line":
+        return code == 0 and value.strip() in [line.strip() for line in out.splitlines()]
     if kind == "stderr":
         return value in err
     if kind == "ub":
@@ -248,7 +250,7 @@ def validate_item(item: dict, tmp: Path) -> dict:
                 ok("L4-buggy命中UB")
             else:
                 bad("L4-buggy命中UB", f"sanitizer 没报错，code={code_bs}")
-            if _matches((code_fs, out_fs, err_fs), {"kind": "ub"}):
+            if code_fs != 0 or _matches((code_fs, out_fs, err_fs), {"kind": "ub"}):
                 bad("L4-fix干净", f"fix 也触发了 sanitizer：{err_fs[:200]}")
             else:
                 ok("L4-fix干净")
@@ -278,6 +280,7 @@ def guess_case(item: dict) -> dict | None:
 # ----------------------------------------------------------------------
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--bank", type=Path, default=BANK, help="正式或候选题库路径")
     ap.add_argument("--only", help="只验证某一类")
     ap.add_argument("--strict", action="store_true", help="有未验证/失败条目就非零退出")
     ap.add_argument("--fix-cases", action="store_true", help="给简单条目自动补 case 并写回")
@@ -291,7 +294,7 @@ def main() -> int:
         print(f"找不到编译器 {CXX}，验证器需要 g++", file=sys.stderr)
         return 2
 
-    all_items = json.loads(BANK.read_text(encoding="utf-8"))
+    all_items = json.loads(args.bank.read_text(encoding="utf-8"))
     items = list(all_items)
     if args.only:
         items = [i for i in items if i.get("category") == args.only]
@@ -308,7 +311,7 @@ def main() -> int:
             if case:
                 item["case"] = case
                 added += 1
-        BANK.write_text(json.dumps(all_items, ensure_ascii=False, indent=2) + "\n",
+        args.bank.write_text(json.dumps(all_items, ensure_ascii=False, indent=2) + "\n",
                         encoding="utf-8")
         print(f"自动补了 {added} 条 case（保守推断，需要人工复核）")
         return 0
@@ -321,8 +324,13 @@ def main() -> int:
 
     n_pass = sum(1 for r in results if not r["failed"])
     n_fail = len(results) - n_pass
-    n_unverified = sum(1 for r in results if r.get("needs_prelude")
-                       or any("没有 case" in s for s in r["skipped"]))
+    for result in results:
+        passed = result['passed']
+        behavioral = (("L3-fix行为" in passed and "L3-buggy行为" in passed)
+                      or ("L4-buggy命中UB" in passed and "L4-fix干净" in passed))
+        result['verification'] = 'counterexample' if behavioral and not result['failed'] else 'unverified'
+        result['limitations'] = '只验证给定反例；编译和警告不是行为证明，sanitizer未报错不证明不存在UB。'
+    n_unverified = sum(r['verification'] == 'unverified' for r in results)
 
     if args.mark:
         # 把「机器证实过」和「只是还没补骨架」分开记。
@@ -336,14 +344,11 @@ def main() -> int:
                 continue
             # 「能编译」不等于「证实了有 bug」。只有跑过行为检查
             # （L3 输出对得上、或 L4 sanitizer 命中）才算真的证实。
-            behavioral = any(
-                x.startswith("L3") or x.startswith("L4") for x in r["passed"]
-            )
-            want = (not r["failed"]) and behavioral
+            want = r['verification'] == 'counterexample'
             if item.get("verified") != want:
                 item["verified"] = want
                 changed += 1
-        BANK.write_text(json.dumps(all_items, ensure_ascii=False, indent=2) + "\n",
+        args.bank.write_text(json.dumps(all_items, ensure_ascii=False, indent=2) + "\n",
                         encoding="utf-8")
         n_true = sum(1 for i in all_items if i.get("verified"))
         print(f"已写回 verified 字段（改动 {changed} 条）："

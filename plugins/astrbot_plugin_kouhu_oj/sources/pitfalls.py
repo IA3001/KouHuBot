@@ -30,7 +30,8 @@ class PitfallSource:
                 raw = json.loads(self._path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 raw = []
-            self._items = [item for item in raw if item.get("id") and item.get("buggy_code")]
+            self._items = [item for item in raw if item.get("id") and item.get("buggy_code")
+                           and item.get("review", {}).get("status") not in {"pending", "rejected", "paused"}]
         return self._items
 
     def count(self) -> int:
