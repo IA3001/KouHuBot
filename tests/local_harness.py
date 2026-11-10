@@ -590,7 +590,7 @@ async def main() -> int:
     # 别断言具体内容——版本一升，这一版的日志就换了，断言会跟着失效。
     # 判据应该是「真的贴出了日志正文」：有标题行、有列表项。
     runner.check("贴出了日志正文", f"## {mod.PLUGIN_VERSION}" in out and "- " in out, out)
-    runner.check("不是空壳回复", len(out) > 120, f"只有 {len(out)} 字")
+    runner.check("包含当前版日志正文", mod._changelog_section(mod._load_changelog(), mod.PLUGIN_VERSION) in out, out)
     runner.check("没走大模型（省 token）", ctx.call_count == before_calls,
                  f"多调了 {ctx.call_count - before_calls} 次模型")
     runner.check("没出现「没有相关信息」", "没有" not in out[:40], out[:80])
@@ -624,6 +624,8 @@ async def main() -> int:
         runner.check(f"{q} 路由匹配", bool(mod.RE_VER.fullmatch(q)))
         out = await runner.says(E(q, **alice), "cmd_version")
         runner.check(f"{q} 列出历史", "0.5.0" in out and "0.6.0" in out, out)
+        runner.check(f"{q} 每版都有摘要", all(" · " in line for line in out.splitlines() if re.match(r"^\d+\.\d+\.\d+", line)), out)
+        runner.check(f"{q} 展示实际变化", "64 → 103" in out and "grm / sub / cur" in out and "Codeforces" in out, out)
     for q in ("ver 0.6.0", "/ver v0.6.0", "更新日志 0.6.0"):
         runner.check(f"{q} 路由匹配", bool(mod.RE_VER.fullmatch(q)))
         out = await runner.says(E(q, **alice), "cmd_version")

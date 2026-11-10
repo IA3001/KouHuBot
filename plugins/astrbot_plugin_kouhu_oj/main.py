@@ -72,7 +72,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.6.3"
+PLUGIN_VERSION = "0.6.4"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -148,6 +148,17 @@ def _changelog_section(text: str, version: str) -> str:
     )
     m = pattern.search(text)
     return m.group(0).strip() if m else ""
+
+
+def _changelog_summary(text: str, version: str) -> str:
+    """优先读人工摘要；旧日志没有摘要时，取第一段作为概览。"""
+    section = _changelog_section(text, version)
+    summary = re.search(r"^摘要：(.+)$", section, re.M)
+    if summary:
+        return summary.group(1).strip()
+    paragraphs = re.split(r"\n\s*\n", section)
+    first = next((p for p in paragraphs[1:] if p.strip() and p.strip() != "---"), "暂无摘要")
+    return re.sub(r"[*`#]", "", " ".join(first.split()))[:100]
 
 VERDICT_AC = "AC"
 VERDICT_WA = "WA"
@@ -2026,7 +2037,10 @@ class KouHuOJ(Star):
         if arg.lower() in ("list", "history", "历史", "列表"):
             yield event.plain_result(
                 f"{head}\n\n有更新记录的版本：\n"
-                + "\n".join(versions)
+                + "\n".join(
+                    f"{version} · " + _changelog_summary(changelog, version)
+                    for version in versions
+                )
                 + "\n\n用 ver 版本号 查看详细更新，例如 ver 0.6.0"
             )
             return
