@@ -41,12 +41,15 @@
 
 | 指令 | 作用 |
 |---|---|
-| `grammar` | 抽一道坑点题 |
-| `grammar 分类 [难度]` | 按分类抽，如 `grammar 二分` / `grammar 二分 1` |
+| `grammar new` | 抽一道坑点题（上一道答对或放弃后才能抽） |
+| `grammar new 分类 [难度]` | 按分类抽，如 `grammar new 二分` / `grammar new 二分 1` |
 | `grammar list` | 看有哪些分类、各多少题 |
 | `grammar problem` | 重看当前坑点题 |
 | `grammar submit <分析>` | 提交你的分析 |
 | `grammar giveup` | 放弃，看答案 |
+
+坑点题和正题**规矩完全一样**：一道没结束就不能抽下一道。
+不能 `grammar new` 一路刷到一道自己会做的——那样「找 bug」就变成了「挑简单的」。
 
 管理员另有 `skip`（强制跳过当前题）、`tier <数字>`（改群难度档）、`status`（运维信息）。
 

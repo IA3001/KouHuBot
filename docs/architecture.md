@@ -87,9 +87,13 @@ event.message_str
    > 测试里直接断言 prompt 含正题题面、不含坑点题代码。
 
 所以改成命名空间隔离：`grammar` 后面的第一个词是**子命令**，
-`new`（默认）/ `problem` / `submit` / `giveup` / `list`。
-不是已知子命令时，再尝试当成分类（`grammar 二分` 比 `grammar new 二分` 顺手），
-分类也匹配不上就打印用法——这样 `grammar submitt` 这种手滑不会静默变成抽题。
+`new` / `problem` / `submit` / `giveup` / `list`。不是已知子命令就打印用法。
+
+**`grammar` 空参不抽题**，必须显式 `grammar new`。这样「抽新题」和「查看」两类动作
+在字面上就分开了，不会出现「想重看却抽了新题」。
+
+**抽题门槛和正题一致**：上一道必须已经 AC 或放弃。之前是「抽题时直接把老题顶掉」，
+等于可以无限换题——一路 `grammar new` 刷到一道自己会的，找 bug 就失去了意义。
 
 ## 3. 状态模型
 

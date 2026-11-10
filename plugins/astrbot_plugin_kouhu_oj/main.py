@@ -71,7 +71,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.5.2"
+PLUGIN_VERSION = "0.5.3"
 SCHEMA_VERSION = 5
 
 VERDICT_AC = "AC"
@@ -155,7 +155,9 @@ ask 问题       自由问答：题库、运行情况，随便问
 help          这条帮助
 
 坑点题是另一条独立的线（看代码找 bug），指令都挂在 grammar 下面：
-grammar           抽一道坑点题
+grammar new       抽一道坑点题（上一道答对或放弃后才能抽）
+grammar new 二分   按分类抽（分类见 grammar list）
+grammar list      有哪些分类、各多少题
 grammar problem   重看当前坑点题
 grammar submit X  提交你的分析
 grammar giveup    放弃，看答案
@@ -1417,8 +1419,8 @@ class KouHuOJ(Star):
         sub = (parts[0].lower() if parts else "")
         rest = (parts[1].strip() if len(parts) > 1 else "")
 
-        if sub in ("", "new", "抽", "抽题"):
-            # grammar new [分类] [难度]  或  grammar [分类]
+        if sub == "new":
+            # grammar new [分类] [难度]
             async for r in self._grammar_new(event, rest or ""):
                 yield r
             return
@@ -1438,17 +1440,10 @@ class KouHuOJ(Star):
                 yield r
             return
 
-        # 不是已知子命令，就当成分类来抽题：`grammar 二分` 比 `grammar new 二分` 顺手。
-        # 但得先确认它真是分类，否则 `grammar submitt` 这种手滑会静默变成抽题。
-        if arg and self._pitfalls.resolve_category(arg.split()[0]):
-            async for r in self._grammar_new(event, arg):
-                yield r
-            return
-
         yield event.plain_result(
-            "grammar 后面只能跟这些：\n"
-            "grammar                    抽一道新的坑点题\n"
-            "grammar 分类 [难度]         按分类抽，如 grammar 二分 / grammar 二分 1\n"
+            "grammar 后面要跟子命令：\n"
+            "grammar new                抽一道新的坑点题（上一道答对或放弃后才能抽）\n"
+            "grammar new 分类 [难度]     按分类抽，如 grammar new 二分 / grammar new 二分 1\n"
             "grammar list               看有哪些分类和难度\n"
             "grammar problem            重看当前这道\n"
             "grammar submit 分析         提交你的分析\n"
@@ -1460,7 +1455,18 @@ class KouHuOJ(Star):
         scope = self._scope_of(event) + GRAMMAR_SUFFIX
         sender_id, _ = self._sender(event)
 
+        # 和正题一个规矩：上一道必须已经 AC 或放弃，才能抽下一道。
+        # 之前是「抽题时直接把老题顶掉」，等于可以无限换题——
+        # 一路 grammar new 刷到一道自己会的，找 bug 就失去了意义。
         current = self._store.current(scope)
+        if current and current.get("status") == STATUS_OPEN:
+            yield event.plain_result(
+                "这道坑点题还没结束。\n"
+                "先发 grammar submit 你的分析，或者 grammar giveup 看答案。\n"
+                "两道都做完才能抽下一道。"
+            )
+            return
+
         exclude: tuple[str, ...] = ()
         if current and str(current.get("cf_key", "")).startswith(PITFALL_PREFIX):
             exclude = (str(current["cf_key"])[len(PITFALL_PREFIX):],)

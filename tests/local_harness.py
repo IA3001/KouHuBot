@@ -480,10 +480,26 @@ async def main() -> int:
     # ---------- 12b. 坑点题：独立命名空间 ----------
     banner("12b. grammar 是独立命名空间，不和正题抢 submit")
     out = await runner.says(E("grammar", **alice), "cmd_pitfall")
+    runner.check("grammar 空参不抽题，只列用法", "grammar new" in out, out)
+    runner.check("空参没出图", len(image_path_of(out)) == 0, out)
+    runner.check("空参没开新题", plugin._store.current(scope + mod.GRAMMAR_SUFFIX) is None)
+
+    out = await runner.says(E("grammar new", **alice), "cmd_pitfall")
     runner.check("抽到坑点题", "找 bug" in out, out)
     runner.check("出了坑点题图", len(image_path_of(out)) == 1, out)
     runner.check("不显示坑点标题", "忘了取地址" not in out and "没关同步" not in out, out)
     runner.check("显示了分类和难度", "难度" in out and "/3" in out, out)
+
+    # ---- 和正题一个规矩：没结束不能抽下一道 ----
+    out = await runner.says(E("grammar new", **alice), "cmd_pitfall")
+    runner.check("没结束不能换坑点题", "还没结束" in out, out)
+    runner.check("拒绝时没出图", len(image_path_of(out)) == 0, out)
+
+    out = await runner.says(E("grammar new 二分 1", **alice), "cmd_pitfall")
+    runner.check("带分类也不能顶掉未结束的题", "还没结束" in out, out)
+
+    before = plugin._store.current(scope + mod.GRAMMAR_SUFFIX)
+    runner.check("当前坑点题没被换掉", before is not None and before["status"] == "open")
 
     # ---- 关键回归：两条线同时开着时，submit 绝不能串到另一条线 ----
     # 判据不能看回复措辞（判错也会「看起来正常」），必须看**送进模型的题面是什么**。
@@ -543,13 +559,21 @@ async def main() -> int:
     runner.check("正题提示别和坑点题混", "grammar submit" in out, out)
 
     out = await runner.says(E("grammar 二分", **alice), "cmd_pitfall")
-    runner.check("直接写分类也能抽", "二分" in out, out)
-
-    out = await runner.says(E("grammar 不存在的分类", **alice), "cmd_pitfall")
-    runner.check("非法分类列用法", "grammar submit" in out, out)
+    runner.check("直接写分类不再抽题，只列用法", "grammar new" in out, out)
+    runner.check("也没出图", len(image_path_of(out)) == 0, out)
 
     out = await runner.says(E("grammar 乱写参数", **alice), "cmd_pitfall")
-    runner.check("未知子命令列用法", "grammar submit" in out, out)
+    runner.check("未知子命令列用法", "grammar new" in out, out)
+
+    # 放弃之后才能抽下一道
+    out = await runner.says(E("grammar giveup", **alice), "cmd_pitfall")
+    runner.check("放弃当前坑点题", "这道坑点" in out, out)
+    out = await runner.says(E("grammar giveup", **alice), "cmd_pitfall")
+    runner.check("没题可放弃时有提示", "没有正在做" in out, out)
+
+    out = await runner.says(E("grammar new 二分 1", **alice), "cmd_pitfall")
+    runner.check("结束后能抽下一道", "二分" in out, out)
+    runner.check("新题也出图", len(image_path_of(out)) == 1, out)
 
     # ---------- 13. 档位升降 ----------
     banner("13. 档位：派满 20 道、解出 50% → 升一档")
