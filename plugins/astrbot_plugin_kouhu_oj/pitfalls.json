@@ -8,7 +8,8 @@
     "buggy_code": "int n;\nscanf(\"%d\", n);\nprintf(\"%d\\n\", n);",
     "answer": "scanf 的 %d 需要的是变量的地址，应该写 &n。直接传 n 会把它的值当成地址去写，属于未定义行为，轻则输出乱码重则崩溃。记得开 -Wall，编译器会报 warning。",
     "fix": "scanf(\"%d\", &n);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "scanf-format-mismatch",
@@ -19,7 +20,8 @@
     "buggy_code": "long long n;\nscanf(\"%d\", &n);\nprintf(\"%lld\\n\", n);",
     "answer": "long long 必须用 %lld（Windows 老编译器用 %I64d，但 Linux 下 %I64d 会出错）。用 %d 只写入了低 4 字节，高 4 字节是垃圾值。",
     "fix": "scanf(\"%lld\", &n);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "sync-with-stdio",
@@ -30,7 +32,8 @@
     "buggy_code": "ios::sync_with_stdio(false);\nint n;\nscanf(\"%d\", &n);\ncout << n << \"\\n\";",
     "answer": "sync_with_stdio(false) 之后 cin/cout 和 C 的 stdio 各自独立缓冲，混用会导致输出顺序错乱。要么全用 C 风格，要么全用 iostream。",
     "fix": "// 二选一，不要混用\nios::sync_with_stdio(false);\ncin.tie(nullptr);\nint n; cin >> n; cout << n << \"\\n\";",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "cin-constant",
@@ -41,7 +44,8 @@
     "buggy_code": "int n;\ncin >> n;\nfor (int i = 0; i < n; ++i) {\n    int x; cin >> x;\n    // ...\n}",
     "answer": "默认 cin 和 stdio 同步，每次读入都要加锁，常数能差好几倍。加两行解绑即可，绝大多数情况够用。",
     "fix": "ios::sync_with_stdio(false);\ncin.tie(nullptr);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "getchar-newline",
@@ -52,7 +56,20 @@
     "buggy_code": "int n;\nscanf(\"%d\", &n);\nchar c = getchar();  // 期望读到下一个字符",
     "answer": "scanf 读完整数后，输入缓冲区里还留着行末的 \\n，getchar 会先读到它。要么在 %d 后面加一个空格跳过空白，要么循环读到非空白为止。",
     "fix": "scanf(\"%d \", &n);      // 注意 %d 后面的空格\nchar c = getchar();",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "case": {
+      "prelude": "static char _in[] = \"42\\na\\n\";\nstatic int _in_ok = (stdin = fmemopen(_in, sizeof(_in) - 1, \"r\"), stdin != nullptr);\nint n = 0;",
+      "run": "    printf(\"[%d]\\n\", (int)c);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "[10]"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "[97]"
+      }
+    },
+    "verified": true
   },
   {
     "id": "scanf-c-space",
@@ -63,7 +80,20 @@
     "buggy_code": "char c;\nscanf(\"%c\", &c);",
     "answer": "%c 不会跳过前导空白。前面加一个空格表示「跳过所有空白字符再读」。",
     "fix": "scanf(\" %c\", &c);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "case": {
+      "prelude": "static char _in[] = \"\\nX\\n\";\nstatic int _in_ok = (stdin = fmemopen(_in, sizeof(_in) - 1, \"r\"), stdin != nullptr);\nchar c = 0;",
+      "run": "    printf(\"[%d]\\n\", (int)c);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "[10]"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "[88]"
+      }
+    },
+    "verified": true
   },
   {
     "id": "freopen-append",
@@ -74,7 +104,8 @@
     "buggy_code": "freopen(\"out.txt\", \"a\", stdout);",
     "answer": "第二个参数是打开模式，\"a\" 是追加。要每次覆盖应该用 \"w\"。",
     "fix": "freopen(\"out.txt\", \"w\", stdout);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "debug-output",
@@ -85,7 +116,8 @@
     "buggy_code": "for (int i = 0; i < n; ++i) {\n    cerr << \"i = \" << i << \"\\n\";\n    // 主逻辑\n}",
     "answer": "调试输出会混进标准输出导致 WA。用 cerr 输出到 stderr 相对安全，但最好还是交之前清干净，或者用 #ifdef LOCAL 包起来。",
     "fix": "#ifdef LOCAL\n    cerr << \"i = \" << i << \"\\n\";\n#endif",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "int-overflow",
@@ -96,7 +128,8 @@
     "buggy_code": "int n = 100000;\nint sum = 0;\nfor (int i = 1; i <= n; ++i) sum += i;",
     "answer": "1 到 1e5 的和约 5e9，超过 int 上限 2.1e9，溢出后回绕成负数。累加和、乘积这类一定要开 long long。",
     "fix": "long long sum = 0;",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "literal-overflow",
@@ -107,7 +140,8 @@
     "buggy_code": "int x = 1 << 31;",
     "answer": "1 << 31 在 int 范围内已经溢出，属于未定义行为。要用 1LL 让它按 long long 运算。",
     "fix": "long long x = 1LL << 31;",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "unsigned-hash",
@@ -118,7 +152,20 @@
     "buggy_code": "int h = x % MOD;\nif (h < 0) h += MOD;\n// 但某处写成了\nint h2 = (x * 131) % MOD;",
     "answer": "x 为负数时 % 的结果仍为负，直接当下标就越界。要么先转 unsigned，要么统一加 MOD 再取模。",
     "fix": "int h = (int)((unsigned)(x * 131) % MOD);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "case": {
+      "prelude": "const int MOD = 1000000007;\nint x = -5;\nint h = 0;\nint h2 = 0;",
+      "run": "    printf(\"h2 = %d, h = %d\\n\", h2, h);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "h2 = -655"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "h = 294966613"
+      }
+    },
+    "verified": true
   },
   {
     "id": "size-t-underflow",
@@ -129,7 +176,8 @@
     "buggy_code": "vector<int> v;\nfor (size_t i = 0; i < v.size() - 1; ++i) { }",
     "answer": "size() 返回无符号数，空 vector 时 0 - 1 回绕成极大值，循环条件永远成立。要么用 int 接，要么先判空。",
     "fix": "if (v.size() >= 1)\n    for (size_t i = 0; i + 1 < v.size(); ++i) { }",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "long-long-mod",
@@ -140,7 +188,20 @@
     "buggy_code": "const int MOD = 1e9 + 7;\nint a = 1e9, b = 1e9;\nint c = a * b % MOD;",
     "answer": "a * b 先按 int 算，1e18 早就溢出了，取模得到的自然是垃圾。乘法取模必须先把操作数转成 long long。",
     "fix": "int c = (long long)a * b % MOD;",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "case": {
+      "prelude": "const int MOD = 1000000007;\nint a = 1000000000;\nint b = 1000000000;",
+      "run": "    printf(\"c = %d\\n\", c);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "c = -486618617"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "c = 49"
+      }
+    },
+    "verified": true
   },
   {
     "id": "memset-wrong",
@@ -151,7 +212,20 @@
     "buggy_code": "int a[100];\nmemset(a, 1, sizeof(a));",
     "answer": "memset 是按字节填充的。int 是 4 字节，填 1 得到的是 0x01010101 = 16843009。只有全 0 和全 -1（0xFF）能用 memset。",
     "fix": "fill(a, a + 100, 1);   // 或者 std::fill_n",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "case": {
+      "prelude": "int a[100];",
+      "run": "    printf(\"a[0] = [%d]\\n\", a[0]);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "a[0] = [16843009]"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "a[0] = [1]"
+      }
+    },
+    "verified": true
   },
   {
     "id": "array-not-cleared",
@@ -162,7 +236,8 @@
     "buggy_code": "int vis[N];\nwhile (scanf(\"%d\", &n) != EOF) {\n    // 统计这一组的情况\n}",
     "answer": "上一组的数据还留在数组里，这一组会读到脏数据。多组数据记得每组开头清空，或者用时间戳代替清零。",
     "fix": "while (scanf(\"%d\", &n) != EOF) {\n    memset(vis, 0, sizeof(vis));\n}",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "out-of-bound",
@@ -173,7 +248,8 @@
     "buggy_code": "int a[1005];\nfor (int i = 1; i <= n; ++i) a[i] = i;  // n 可能等于 1005",
     "answer": "边界差一（off-by-one）是最高频的越界原因。数组开 1005 而循环到 1005 就越界了。习惯上把数组开大 5~10 个元素当缓冲。",
     "fix": "int a[1010];\nfor (int i = 1; i <= n; ++i) a[i] = i;",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "local-uninitialized",
@@ -184,7 +260,8 @@
     "buggy_code": "int solve(int n) {\n    int sum;\n    for (int i = 0; i < n; ++i) sum += i;\n    return sum;\n}",
     "answer": "局部变量在栈上是垃圾值，不初始化就是未定义行为。全局变量才会自动清零，别把这个习惯带到局部变量上。",
     "fix": "int sum = 0;",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "global-local-shadow",
@@ -195,7 +272,8 @@
     "buggy_code": "int n, a[1005];\nint main() {\n    int n;\n    scanf(\"%d\", &n);\n    for (int i = 0; i < n; i++) a[i] = i;\n    // 这里打印 a 的前几项\n}",
     "answer": "同名局部变量会遮蔽全局变量，函数里操作的其实是局部那个。开 -Wshadow 能直接查出来。",
     "fix": "int n, a[1005];\nint main() {\n    scanf(\"%d\", &n);   // 直接用全局 n\n}",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "sort-comparator",
@@ -206,7 +284,8 @@
     "buggy_code": "sort(v.begin(), v.end(), [](int a, int b) {\n    return a <= b;\n});",
     "answer": "std::sort 要求比较器满足严格弱序：cmp(a, a) 必须为 false。用 <= 会让相等元素互相「小于」，sort 内部可能越界。",
     "fix": "sort(v.begin(), v.end(), [](int a, int b) {\n    return a < b;\n});",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "vector-iterator-insert",
@@ -217,7 +296,8 @@
     "buggy_code": "vector<int> v = {1, 2, 3};\nfor (auto it = v.begin(); it != v.end(); ++it) {\n    if (*it == 2) v.push_back(4);\n}",
     "answer": "push_back 可能触发扩容，重新分配内存后所有迭代器（包括 it 和 end()）全部失效，继续 ++it 就是访问已释放内存。要插入就先记下待插入内容，遍历完再插。",
     "fix": "vector<int> extra;\nfor (int x : v) if (x == 2) extra.push_back(4);\nv.insert(v.end(), extra.begin(), extra.end());",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "vector-erase-loop",
@@ -228,7 +308,8 @@
     "buggy_code": "for (auto it = v.begin(); it != v.end(); ++it) {\n    if (*it % 2 == 0) v.erase(it);\n}",
     "answer": "erase 会让被删位置及其后的迭代器失效，之后再 ++it 就是野指针。用 erase 的返回值接住下一个有效位置，并且不要再 ++。",
     "fix": "for (auto it = v.begin(); it != v.end(); ) {\n    if (*it % 2 == 0) it = v.erase(it);\n    else ++it;\n}",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "map-operator-insert",
@@ -239,7 +320,8 @@
     "buggy_code": "map<int, int> cnt;\nif (cnt[100] > 0) { /* ... */ }",
     "answer": "operator[] 在 key 不存在时会先插入一个默认值（0）再返回引用。想单纯查询要用 find 或 count，不然 map 会被撑大。",
     "fix": "if (cnt.find(100) != cnt.end() && cnt[100] > 0) { }",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "priority-queue-default",
@@ -250,7 +332,8 @@
     "buggy_code": "priority_queue<int> pq;",
     "answer": "priority_queue 默认用 less<int>，是大根堆。小根堆要显式传 greater，或者存负数。",
     "fix": "priority_queue<int, vector<int>, greater<int>> pq;",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "string-plus-char",
@@ -261,7 +344,8 @@
     "buggy_code": "string s;\nfor (char c : t) {\n    s = s + c;\n}",
     "answer": "s = s + c 每次都会新建一个字符串并复制整个内容，总复杂度 O(n^2)。用 += 是在原串上追加，均摊 O(1)。",
     "fix": "string s;\nfor (char c : t) s += c;",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "string-literal-modify",
@@ -272,7 +356,8 @@
     "buggy_code": "char *s = \"hello\";\ns[0] = 'H';",
     "answer": "字符串字面量存在只读段，修改它是未定义行为（通常直接段错误）。要改就用数组拷贝一份。",
     "fix": "char s[] = \"hello\";\ns[0] = 'H';",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "macro-no-paren",
@@ -283,7 +368,8 @@
     "buggy_code": "#define SQ(x) x * x\nint y = SQ(1 + 2);   // 期望 9，实际 5",
     "answer": "宏是纯文本替换，SQ(1 + 2) 展开成 1 + 2 * 1 + 2 = 5。宏参数和整个表达式都要加括号。能用 constexpr 函数就别用宏。",
     "fix": "#define SQ(x) ((x) * (x))",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "macro-min-max",
@@ -294,7 +380,8 @@
     "buggy_code": "#define MAX(a, b) ((a) > (b) ? (a) : (b))\nint m = MAX(f(), g());",
     "answer": "宏展开后 a 和 b 各出现两次，f() 和 g() 都被调用了两次，多了一次副作用。用 std::max，或者先存到临时变量。",
     "fix": "int m = std::max(f(), g());",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "operator-precedence",
@@ -305,7 +392,8 @@
     "buggy_code": "cout << (1 << 1 + 1);",
     "answer": "加法优先级高于左移，1 + 1 先算，变成 1 << 2 = 4。涉及位运算时一律加括号，别靠记忆。",
     "fix": "cout << ((1 << 1) + 1);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "bit-and-compare",
@@ -316,7 +404,8 @@
     "buggy_code": "if (n & 1 == 0) { /* 偶数 */ }",
     "answer": "== 的优先级高于 &，实际是 n & (1 == 0)，也就是 n & 1 恒为非 0 的布尔值转换。位运算外面必须加括号。",
     "fix": "if ((n & 1) == 0) { /* 偶数 */ }",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "assign-vs-equal",
@@ -327,7 +416,20 @@
     "buggy_code": "int n = rand() % 10;\nif (n = 1) printf(\"Yes\");\nelse printf(\"No\");",
     "answer": "= 是赋值，表达式结果就是赋的值（非 0 即真），所以永远走 Yes。开 -Wall 编译器会警告。",
     "fix": "if (n == 1) printf(\"Yes\");",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "case": {
+      "prelude": "// 固定随机种子：让片段里的 rand() 可复现\nstatic int _rw_seed = (srand(12345), 0);\n// fix 片段只读 n（自己不再取值），给一个与 1 不同的确定值\nint n = rand() % 10;",
+      "run": "    printf(\"[after] n=%d\\n\", n);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "Yes[after] n=1"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "[after] n=9"
+      }
+    },
+    "verified": true
   },
   {
     "id": "divide-zero",
@@ -338,7 +440,8 @@
     "buggy_code": "int inv = power(a, MOD - 2);   // a 可能是 0 的倍数",
     "answer": "除以 0 是未定义行为；求逆元时若 a ≡ 0 (mod MOD) 也不存在逆元。取模运算前要先判断模数关系。",
     "fix": "if (a % MOD == 0) { /* 特判 */ }\nelse inv = power(a, MOD - 2);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "float-compare",
@@ -349,7 +452,20 @@
     "buggy_code": "double a = 0.1 + 0.2;\nif (a == 0.3) printf(\"equal\");",
     "answer": "0.1 和 0.2 都无法用二进制精确表示，相加得到 0.30000000000000004。浮点数比较要用误差范围。",
     "fix": "if (fabs(a - 0.3) < 1e-9) printf(\"equal\");",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "case": {
+      "prelude": "// 0.1 + 0.2 在 double 里是 0.30000000000000004，不等于 0.3\ndouble a = 0.1 + 0.2;",
+      "run": "    printf(\"[checked] a = %.17g\\n\", a);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "[checked] a = 0.30000000000000004"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "equal[checked] a = 0.30000000000000004"
+      }
+    },
+    "verified": true
   },
   {
     "id": "float-output",
@@ -360,7 +476,8 @@
     "buggy_code": "printf(\"%f\\n\", ans);",
     "answer": "%f 默认只保留 6 位小数，精度不够。按题目要求设置精度，一般用 %.10f 或 %.15f。",
     "fix": "printf(\"%.10f\\n\", ans);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "bfs-no-visited",
@@ -371,7 +488,8 @@
     "buggy_code": "while (!q.empty()) {\n    int u = q.front(); q.pop();\n    for (int v : adj[u]) q.push(v);\n}",
     "answer": "同一个点会被反复入队，队列指数级膨胀。入队时就标记访问，而不是出队时。",
     "fix": "vis[1] = true; q.push(1);\nwhile (!q.empty()) {\n    int u = q.front(); q.pop();\n    for (int v : adj[u])\n        if (!vis[v]) { vis[v] = true; q.push(v); }\n}",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "graph-index-offset",
@@ -382,7 +500,20 @@
     "buggy_code": "int u, v;\ncin >> u >> v;\nadj[u].push_back(v);   // 题目编号从 1 开始，数组从 0 开始",
     "answer": "题目给的编号从 1 开始而数组从 0 开始，要么读入时统一 -1，要么数组开大一位。两种风格选一种，全题统一。",
     "fix": "adj[u - 1].push_back(v - 1);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "case": {
+      "prelude": "// 题目节点编号 1..N，邻接表按 0 下标开\nstatic const int N = 3;\nvector<int> adj[N + 1];\n// 等价于从 stdin 读到一条边 \"1 2\"（不依赖外部喂输入）\nstatic istringstream _rw_in(\"1 2\\n\");\n#define cin _rw_in\n// fix 片段直接用 u/v 做 -1（自己不再读入），给同一组确定的边\nint u = 1, v = 2;",
+      "run": "    // 从编号 1（0 下标 0）出发 BFS，数能到几个点，并看两个桶里的边数\n    vector<int> seen(N + 1, 0), q{0};\n    seen[0] = 1;\n    for (size_t h = 0; h < q.size(); h++)\n        for (int to : adj[q[h]])\n            if (!seen[to]) { seen[to] = 1; q.push_back(to); }\n    printf(\"reach=%d adj0=%d adj1=%d\\n\",\n           (int)q.size(), (int)adj[0].size(), (int)adj[1].size());",
+      "buggy": {
+        "kind": "stdout",
+        "value": "reach=1 adj0=0 adj1=1"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "reach=2 adj0=1 adj1=0"
+      }
+    },
+    "verified": true
   },
   {
     "id": "dsu-merge-root",
@@ -393,7 +524,8 @@
     "buggy_code": "void merge(int a, int b) {\n    fa[a] = b;\n}",
     "answer": "合并的必须是两个集合的根，直接挂会把 a 的整棵子树挂到 b 下面，破坏原有的父子关系。",
     "fix": "void merge(int a, int b) {\n    fa[find(a)] = find(b);\n}",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "recursion-no-base",
@@ -404,7 +536,8 @@
     "buggy_code": "void solve(int l, int r) {\n    int mid = (l + r) / 2;\n    solve(l, mid);\n    solve(mid + 1, r);\n}",
     "answer": "缺少终止条件：l >= r 时应当直接返回。任何递归都必须先写边界判断，否则无限深入。",
     "fix": "void solve(int l, int r) {\n    if (l >= r) return;\n    int mid = (l + r) / 2;\n    solve(l, mid); solve(mid + 1, r);\n}",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "stack-overflow",
@@ -415,7 +548,8 @@
     "buggy_code": "int dfs(int u) {\n    int res = 0;\n    for (int v : adj[u]) res += dfs(v);\n    return res;\n}",
     "answer": "链状图递归深度可达 n，本地栈默认 8MB 左右，Windows 下更容易炸。能改迭代就改迭代，或者手动开大栈。",
     "fix": "// 改成显式栈的迭代写法，或用拓扑序倒推",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "binary-search-mid",
@@ -426,7 +560,8 @@
     "buggy_code": "int l = 0, r = n - 1;\nwhile (l < r) {\n    int mid = (l + r) / 2;\n    if (check(mid)) l = mid;\n    else r = mid - 1;\n}",
     "answer": "l = mid 而 mid 取下整时，l 和 r 相邻会原地打转。要么中点改成 (l + r + 1) / 2 配合 l = mid，要么统一用左闭右开区间。",
     "fix": "int l = 0, r = n - 1;\nwhile (l < r) {\n    int mid = (l + r + 1) / 2;\n    if (check(mid)) l = mid;\n    else r = mid - 1;\n}",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "constant-mod",
@@ -437,7 +572,8 @@
     "buggy_code": "int f(int x) {\n    return x * 131 % 1000000007;\n}",
     "answer": "字面量每次都要重新参与运算，且编译器无法把它当编译期常量优化。定义成 const/constexpr 能让除法取模走乘法优化。",
     "fix": "constexpr int MOD = 1000000007;\nint f(int x) { return x * 131 % MOD; }",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "cmp-multikey-order-reversed",
@@ -448,7 +584,8 @@
     "buggy_code": "struct Node { int score, id; };\nbool cmp(const Node &a, const Node &b) {\n    if (a.score != b.score) return a.score > b.score;\n    return a.id > b.id;          // 并列时应按学号升序\n}\nint main() {\n    vector<Node> v = {{90, 3}, {90, 1}, {80, 2}};\n    sort(v.begin(), v.end(), cmp);\n    for (auto &x : v) cout << x.score << \" \" << x.id << \"\\n\";\n}",
     "answer": "两个关键字的升降方向必须各自独立确定。第一关键字用了 `>`（降序），并列时第二关键字也照抄了 `>`，就变成同分按学号降序，与「学号升序」的要求正好相反。比较器本身仍是严格弱序，程序不会崩，只是同分者的相对顺序被排颠倒了。",
     "fix": "return a.id < b.id;   // 并列时改为升序",
-    "source": "https://oi-wiki.org/basic/sort/"
+    "source": "https://oi-wiki.org/basic/sort/",
+    "verified": false
   },
   {
     "id": "sort-pair-default-lexicographic",
@@ -459,7 +596,20 @@
     "buggy_code": "vector<pair<int, int>> v = {{3, 9}, {1, 5}, {3, 2}, {2, 7}};\nsort(v.begin(), v.end());\nfor (auto &p : v) cout << p.first << \" \" << p.second << \"\\n\";",
     "answer": "`std::pair` 的 `operator<` 是字典序：先比 `first`，相等时再比 `second`。所以 `sort(v.begin(), v.end())` 并不是「只按第一个值排序」，第一个值相同的元素会被第二个值重新排一遍，输出成 (1 5)(2 7)(3 2)(3 9)，而不是原来 (3,9) 在 (3,2) 前面的相对次序。",
     "fix": "sort(v.begin(), v.end(), [](const pair<int, int> &a, const pair<int, int> &b) { return a.first < b.first; });   // 需要保留并列次序时用 stable_sort",
-    "source": "https://en.cppreference.com/w/cpp/utility/pair/operator_cmp"
+    "source": "https://en.cppreference.com/w/cpp/utility/pair/operator_cmp",
+    "case": {
+      "prelude": "vector<pair<int, int>> v = {{3, 9}, {1, 5}, {3, 2}, {2, 7}};",
+      "run": "    for (auto &p : v) printf(\"%d %d\\n\", p.first, p.second);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "1 5\n2 7\n3 2\n3 9"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "1 5\n2 7\n3 9\n3 2"
+      }
+    },
+    "verified": true
   },
   {
     "id": "sort-unstable-tie-order",
@@ -470,7 +620,8 @@
     "buggy_code": "struct P { int id, score; };\nbool cmp(const P &a, const P &b) { return a.score > b.score; }\nint main() {\n    vector<P> v;\n    for (int i = 0; i < 20; i++) v.push_back({i, i % 2 ? 95 : 90});\n    sort(v.begin(), v.end(), cmp);\n    for (auto &p : v) cout << p.id << \" \";\n    cout << \"\\n\";\n}",
     "answer": "`std::sort` 不保证等价元素（这里分数相同）保持原有相对顺序，它内部用快排/堆排一类的算法会打乱并列项。题目要求同分按输入顺序输出时，这个顺序就是答案的一部分，必须用稳定排序。抽成 20 个元素后可以看到同分组内的下标顺序已经完全乱掉。",
     "fix": "stable_sort(v.begin(), v.end(), cmp);",
-    "source": "https://en.cppreference.com/w/cpp/algorithm/stable_sort"
+    "source": "https://en.cppreference.com/w/cpp/algorithm/stable_sort",
+    "verified": false
   },
   {
     "id": "cmp-not-strict-weak-order",
@@ -481,7 +632,8 @@
     "buggy_code": "struct P { double x; };\nbool cmp(const P &a, const P &b) {\n    return a.x - b.x < 1e-9;   // 想表达「a 不大于 b」\n}\nint main() {\n    vector<P> v = {{1.0}, {1.0000000005}, {0.9}, {1.2}, {1.0000000002}};\n    sort(v.begin(), v.end(), cmp);\n    for (auto &p : v) cout << p.x << \"\\n\";\n}",
     "answer": "比较器必须满足严格弱序：`cmp(a, a)` 为假，且 `cmp(a, b)` 与 `cmp(b, a)` 不能同时为真。这里拿「差值小于 eps」当判据，近似相等的两个元素会互相判为「小于」，两个方向都为真。`std::sort` 依赖这一性质做分治和哨兵，前提被破坏后内部游标可能越界，属于未定义行为，表现就是时对时错、换编译器或换机器后随机崩溃。",
     "fix": "return a.x < b.x;   // 若需按 eps 分组，先量化：long long ia = llround(a.x / 1e-9), ib = llround(b.x / 1e-9); return ia < ib;",
-    "source": "https://en.cppreference.com/w/cpp/algorithm/sort"
+    "source": "https://en.cppreference.com/w/cpp/algorithm/sort",
+    "verified": false
   },
   {
     "id": "binary-search-l-mid-no-shrink",
@@ -492,7 +644,8 @@
     "buggy_code": "int lowerBound(int a[], int n, int x) {   // 第一个 >= x 的下标\n    int l = 0, r = n - 1;\n    while (l <= r) {\n        int mid = (l + r) / 2;\n        if (a[mid] < x) l = mid;\n        else r = mid;\n    }\n    return l;\n}",
     "answer": "闭区间写法里 `l`、`r` 每一步都必须跨过 `mid`（`l = mid + 1`、`r = mid - 1`），否则区间可能原地不动。当 `r == l + 1` 且 `a[mid] < x` 时 `mid` 就等于 `l`，执行 `l = mid` 后状态完全没变，循环永不退出，表现为小数据同样死循环、直接 TLE 而不是 WA。",
     "fix": "if (a[mid] < x) l = mid + 1;\nelse r = mid - 1;\nreturn l;   // 闭区间写法，返回的是第一个 >= x 的位置",
-    "source": "https://oi-wiki.org/basic/binary/"
+    "source": "https://oi-wiki.org/basic/binary/",
+    "verified": false
   },
   {
     "id": "binary-search-mid-add-overflow",
@@ -503,7 +656,8 @@
     "buggy_code": "int main() {\n    int n; cin >> n;\n    int l = 0, r = 2000000000, ans = 0;\n    while (l <= r) {\n        int mid = (l + r) / 2;\n        if (1LL * mid * mid <= n) ans = mid, l = mid + 1;\n        else r = mid - 1;\n    }\n    cout << ans << \"\\n\";\n}",
     "answer": "`l`、`r` 都是 `int`，答案范围到 2e9 时 `l + r` 可以接近 4e9，加法先溢出成负数，`mid` 变成负值，`mid * mid <= n` 恒为真，于是 `ans` 被写成一串负数。有符号整型溢出本身还是未定义行为，优化级别不同结果还会变。",
     "fix": "int mid = l + (r - l) / 2;   // 或把 l、r 声明成 long long",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "lower-bound-on-unsorted-array",
@@ -514,7 +668,8 @@
     "buggy_code": "int main() {\n    int n, q;\n    cin >> n >> q;\n    vector<int> a(n);\n    for (int i = 0; i < n; i++) cin >> a[i];\n    while (q--) {\n        int x; cin >> x;\n        int p = lower_bound(a.begin(), a.end(), x) - a.begin();\n        cout << (p < n ? a[p] : -1) << \"\\n\";\n    }\n}",
     "answer": "`lower_bound` 是对「按 `<` 排好序」的区间做 O(log n) 探测，它只沿着二分路径走，压根不检查整个数组。区间无序时每条探测路径都是随机落点，返回位置可能不满足条件，也可能随 x 的不同碰巧对一次，看起来就是「时对时错」。输入没有排序这一步，算法本身的前提就不成立。",
     "fix": "sort(a.begin(), a.end());\nint p = lower_bound(a.begin(), a.end(), x) - a.begin();   // 无序且只需一次查询时改为线性扫描",
-    "source": "https://en.cppreference.com/w/cpp/algorithm/lower_bound"
+    "source": "https://en.cppreference.com/w/cpp/algorithm/lower_bound",
+    "verified": false
   },
   {
     "id": "binary-search-float-iterations-too-few",
@@ -525,7 +680,8 @@
     "buggy_code": "double l = 0, r = 1e9;\nfor (int it = 0; it < 20; it++) {\n    double mid = (l + r) / 2;\n    if (mid * mid * mid <= n) l = mid;\n    else r = mid;\n}\nprintf(\"%.6f\\n\", l);",
     "answer": "每次迭代只把区间折半，20 次后区间长度约 1e9 / 2^20 ≈ 953，比要求的 1e-6 差了九个数量级，输出自然整体偏移。实数二分不能按「次数拍脑袋」，要么按值域算够次数（1e9 缩到 1e-7 需要约 60 次，通常取 100 次保险），要么直接写 `while (r - l > 1e-7)` 并在最后多留两位。",
     "fix": "for (int it = 0; it < 100; it++) { /* ... */ }   // 或 while (r - l > 1e-7)",
-    "source": "https://oi-wiki.org/basic/binary/"
+    "source": "https://oi-wiki.org/basic/binary/",
+    "verified": false
   },
   {
     "id": "strlen-in-loop-condition",
@@ -536,7 +692,8 @@
     "buggy_code": "char s[100005];\nint main() {\n    scanf(\"%s\", s);\n    int cnt = 0;\n    for (int i = 0; strlen(s + i) >= 2; i++)\n        if (s[i] == s[i + 1]) cnt++;\n    printf(\"%d\\n\", cnt);\n    return 0;\n}",
     "answer": "strlen(s + i) 每轮都要从 s+i 一个字符一个字符地扫到结尾，单次就是 O(n)；循环 n 轮累计约 n²/2 次读取，十万长度已经到 5e9 量级，所以必然超时。字符串长度在循环中不变，应该只求一次。",
     "fix": "int n = strlen(s);\nfor (int i = 0; i + 1 < n; i++)\n    if (s[i] == s[i + 1]) cnt++;",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "vector-copy-in-loop",
@@ -547,7 +704,8 @@
     "buggy_code": "int main() {\n    int n;\n    scanf(\"%d\", &n);\n    vector<int> a, b;\n    for (int i = 0; i < n; i++) {\n        b = a;\n        b.push_back(i);\n        a = b;\n    }\n    printf(\"%d\\n\", (int)a.size());\n    return 0;\n}",
     "answer": "b = a 和 a = b 每次都要把已有的全部元素复制一遍，第 i 轮搬 i 个元素，n 轮累计约 n² 个；再加上 push_back 扩容时整块搬一次，十万规模就是 1e10 级别的拷贝量。直接在原容器上追加即可，必要时先 reserve 把扩容也省掉。",
     "fix": "vector<int> a;\na.reserve(n);\nfor (int i = 0; i < n; i++) a.push_back(i);",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "map-as-array-counter",
@@ -558,7 +716,8 @@
     "buggy_code": "map<int, int> cnt;\nint main() {\n    int n, q, x;\n    scanf(\"%d %d\", &n, &q);\n    for (int i = 0; i < n; i++) { scanf(\"%d\", &x); cnt[x]++; }\n    while (q--) {\n        scanf(\"%d\", &x);\n        map<int, int>::iterator it = cnt.find(x);\n        printf(\"%d\\n\", it == cnt.end() ? 0 : it->second);\n    }\n    return 0;\n}",
     "answer": "map 每次插入和查询都要在红黑树上走 O(log n) 层比较，而且每个键都要单独 new 一个节点，常数是数组下标访问的几十倍；2e6 次操作在 1e6 规模下极易超时，内存占用也远大于数组。值域只有 1e6 时直接开桶数组计数即可，值域很大就先离散化再用 vector。",
     "fix": "int cnt[1000005];\nfor (int i = 0; i < n; i++) { scanf(\"%d\", &x); cnt[x]++; }\n// 查询\nprintf(\"%d\\n\", cnt[x]);",
-    "source": "https://en.cppreference.com/w/cpp/container/map"
+    "source": "https://en.cppreference.com/w/cpp/container/map",
+    "verified": false
   },
   {
     "id": "memset-full-maxn-per-test",
@@ -569,7 +728,8 @@
     "buggy_code": "const int MAXN = 1000005;\nint a[MAXN];\nint main() {\n    int T; scanf(\"%d\", &T);\n    while (T--) {\n        int n; scanf(\"%d\", &n);\n        memset(a, 0, sizeof(a));\n        for (int i = 1; i <= n; i++) scanf(\"%d\", &a[i]);\n        long long s = 0;\n        for (int i = 1; i <= n; i++) s += a[i];\n        printf(\"%lld\\n\", s);\n    }\n    return 0;\n}",
     "answer": "每组数据都把长度 1e6 的数组从头重写一遍，单组就是 1e6 次写内存；T = 1e5 时总写量约 1e11，和数据本身规模完全无关，所以哪怕每组的 n 只有 1 也会超时。只重置本组真正用到的那 n 个位置（或者用版本号/时间戳标记）即可。",
     "fix": "memset(a, 0, sizeof(int) * (n + 1));",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "recursion-base-extra-layer",
@@ -580,7 +740,8 @@
     "buggy_code": "int lc[100005], rc[100005], n;\nint dep(int u, int d) {\n    if (u == 0) return d;\n    d++;\n    int a = dep(lc[u], d), b = dep(rc[u], d);\n    return a > b ? a : b;\n}\nint main() {\n    scanf(\"%d\", &n);\n    for (int i = 1; i <= n; i++) scanf(\"%d %d\", &lc[i], &rc[i]);\n    printf(\"%d\\n\", dep(1, 1));\n    return 0;\n}",
     "answer": "参数 d 表示「当前节点所在层」，但递归走到空儿子时把 d 直接当答案返回了，而空儿子本身并不占一层，于是每条路径都多出 1 层。单个节点时 dep(1,1) 会一路走到 dep(0,2) 返回 2，正是这个原因。",
     "fix": "if (u == 0) return d - 1;",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "memo-zero-as-unvisited",
@@ -591,7 +752,8 @@
     "buggy_code": "int n, memo[35][35];\nbool bad[35][35];\nint walk(int x, int y) {\n    if (x > n || y > n || bad[x][y]) return 0;\n    if (x == n && y == n) return 1;\n    if (memo[x][y]) return memo[x][y];\n    return memo[x][y] = walk(x + 1, y) + walk(x, y + 1);\n}\nint main() {\n    scanf(\"%d\", &n);\n    printf(\"%d\\n\", walk(1, 1));\n}",
     "answer": "memo 用 0 表示「这个状态还没算过」，但方案数本身完全可能是 0（终点被挡住时），这些状态永远不会被缓存，于是每次再走到都要把整棵子树重新展开一遍，复杂度退化回指数级。应该用一个不可能出现的结果（比如 -1）当「未访问」标记。",
     "fix": "memset(memo, -1, sizeof(memo));\n// 判断改为\nif (memo[x][y] != -1) return memo[x][y];",
-    "source": "https://oi-wiki.org/dp/memo/"
+    "source": "https://oi-wiki.org/dp/memo/",
+    "verified": false
   },
   {
     "id": "recursion-pass-vector-by-value",
@@ -602,7 +764,8 @@
     "buggy_code": "vector<int> a;\nlong long solve(vector<int> v, int l, int r) {\n    if (l == r) return v[l];\n    int mid = (l + r) >> 1;\n    return solve(v, l, mid) + solve(v, mid + 1, r);\n}\nint main() {\n    int n;\n    scanf(\"%d\", &n);\n    for (int i = 0; i < n; i++) { int x; scanf(\"%d\", &x); a.push_back(x); }\n    printf(\"%lld\\n\", solve(a, 0, n - 1));\n}",
     "answer": "参数 v 是按值传递的，每层调用都会把整个 vector 复制一份新内存，而分治一共约有 2n 次调用，累计拷贝 O(n²) 个元素（十万规模约 2e10 次），还额外吃掉大量堆内存。改成常引用且不再需要副本时问题立刻消失。",
     "fix": "long long solve(const vector<int>& v, int l, int r) { /* ... */ }",
-    "source": "https://oi-wiki.org/contest/common-mistakes/"
+    "source": "https://oi-wiki.org/contest/common-mistakes/",
+    "verified": false
   },
   {
     "id": "macro-multi-statement-no-do-while",
@@ -613,7 +776,8 @@
     "buggy_code": "#define INC2(a, b) a++; b++;\nint main() {\n    int x = 1, y = 2;\n    if (x > 10) INC2(x, y);\n    printf(\"%d %d\\n\", x, y);\n    return 0;\n}",
     "answer": "宏只是纯文本替换，展开后是 if (x > 10) x++; y++; 于是 if 只控制了第一条语句，第二条无条件执行，y 被多加了 1。多条语句的宏必须用 do { ... } while (0) 包成一个整体，展开后仍然只是一条语句。",
     "fix": "#define INC2(a, b) do { (a)++; (b)++; } while (0)",
-    "source": "https://gcc.gnu.org/onlinedocs/cpp/Macro-Pitfalls.html"
+    "source": "https://gcc.gnu.org/onlinedocs/cpp/Macro-Pitfalls.html",
+    "verified": false
   },
   {
     "id": "define-int-long-long-io",
@@ -624,7 +788,8 @@
     "buggy_code": "#define int long long\nint n, a[200005];\nsigned main() {\n    scanf(\"%d\", &n);\n    for (int i = 0; i < n; i++) scanf(\"%d\", &a[i]);\n    int sum = 0;\n    for (int i = 0; i < n; i++) sum += a[i];\n    printf(\"%d\\n\", sum);\n    return 0;\n}",
     "answer": "这个宏把所有 int 变成 8 字节，但 printf/scanf 的 %d 依然只按 4 字节处理：输出时只打印 long long 的低 32 位，大数就被截断成负数或乱码；读入时也只写低 4 字节。除此之外它还会让数组内存翻倍、和 abs/INT_MAX 等按 int 写的接口不匹配。",
     "fix": "printf(\"%lld\\n\", sum);   // 或者干脆别用这个宏，改用 typedef long long ll;",
-    "source": "https://gcc.gnu.org/onlinedocs/cpp/Macro-Pitfalls.html"
+    "source": "https://gcc.gnu.org/onlinedocs/cpp/Macro-Pitfalls.html",
+    "verified": false
   },
   {
     "id": "cin-extract-stops-at-space",
@@ -635,7 +800,8 @@
     "buggy_code": "string line;\ncin >> line;\ncout << \"[\" << line << \"]\" << endl;",
     "answer": "cin >> 的提取规则是以空白字符（空格、制表符、换行）为分隔，读到第一个空格就停止，所以整行只拿到了第一个单词，剩下的内容还留在输入缓冲区里。要读整行必须用 getline，它才把换行之前的全部字符（含空格）收进来。",
     "fix": "string line;\ngetline(cin, line);\ncout << \"[\" << line << \"]\" << endl;",
-    "source": "https://en.cppreference.com/w/cpp/string/basic_string/getline"
+    "source": "https://en.cppreference.com/w/cpp/string/basic_string/getline",
+    "verified": false
   },
   {
     "id": "find-npos-used-as-index",
@@ -646,7 +812,8 @@
     "buggy_code": "string s;\ncin >> s;\nsize_t p = s.find(\"abc\");\nfor (size_t i = p; i < p + 3; i++)\n    cout << s[i];\ncout << endl;",
     "answer": "find 找不到目标时返回 string::npos，它是 size_t 的最大值（约 1.8e19），并不是一个合法下标。这里没判断就直接把它当起点：一方面 s[p] 越界访问会 RE，另一方面 p + 3 会无符号回绕，循环条件反而可能成立。正确做法是把返回值与 string::npos 比较后再使用。",
     "fix": "size_t p = s.find(\"abc\");\nif (p != string::npos) cout << s.substr(p, 3) << endl;",
-    "source": "https://en.cppreference.com/w/cpp/string/basic_string/npos"
+    "source": "https://en.cppreference.com/w/cpp/string/basic_string/npos",
+    "verified": false
   },
   {
     "id": "char-signed-byte-compare",
@@ -657,7 +824,8 @@
     "buggy_code": "string s = \"\\xC4\\xE3\\xBA\\xC3\";   // 你好（GBK 编码）\nint cnt = 0;\nfor (int i = 0; i < (int)s.size(); i++)\n    if (s[i] == 0xC4) cnt++;\ncout << cnt << endl;",
     "answer": "在绝大多数平台上 char 是有符号的，0xC4 这个字节存进 char 后实际是 -60；与整型常量 0xC4（即 196）比较时 char 会被整型提升为 -60，于是永远不等于 196，计数恒为 0。处理原始字节时要显式转成 unsigned char 再比较，否则所有高位为 1 的字节都会判错。",
     "fix": "if ((unsigned char)s[i] == 0xC4) cnt++;",
-    "source": "https://en.cppreference.com/w/cpp/language/types"
+    "source": "https://en.cppreference.com/w/cpp/language/types",
+    "verified": false
   },
   {
     "id": "multi-edge-overwrites-adj-matrix",
@@ -668,7 +836,20 @@
     "buggy_code": "int w[N][N], n, m;\nfor (int i = 0; i < m; i++) {\n    int u, v, c;\n    scanf(\"%d%d%d\", &u, &v, &c);\n    w[u][v] = w[v][u] = c;\n}\nfor (int k = 1; k <= n; k++)\n    for (int i = 1; i <= n; i++)\n        for (int j = 1; j <= n; j++)\n            w[i][j] = min(w[i][j], w[i][k] + w[k][j]);",
     "answer": "赋值语句会把之前那条边的权值丢掉，最终留下的只是最后读入的那条边。若后读入的边权更大，矩阵里存的就是一条更差的边，后续 Floyd/Dijkstra 自然算出偏大的最短路。建图时对同一对点之间应取 min（自环则可以跳过），最短路计数问题里更要单独累加重数而不能去重。",
     "fix": "w[u][v] = min(w[u][v], c);\nw[v][u] = min(w[v][u], c);",
-    "source": "https://oi-wiki.org/graph/shortest-path/"
+    "source": "https://oi-wiki.org/graph/shortest-path/",
+    "case": {
+      "prelude": "const int N = 5;\nconst int INF = 1000000;\n// 片段第 1 行自己写着 `int w[N][N], n, m;`（局部），而且从不读入 n / m。\n// 局部声明会遮蔽同名全局变量，所以这里把 n / m 这两个名字映射成取值函数，\n// 让片段里那条声明退化成两条本地函数声明，从而把 n = 3、m = 7 真正喂给片段。\nint n_init() { return 3; }\nint m_init() { return 7; }\n#define n n_init()\n#define m m_init()\n// 3 个点、7 条边，其中 1-2 之间有两条重边（先 1 后 50），全部 9 个矩阵元素都被写入\nstatic char _in[] = \"1 1 0\\n2 2 0\\n3 3 0\\n1 2 1\\n1 2 50\\n2 3 1\\n1 3 1000\\n\";\nstatic int _in_ok = (stdin = fmemopen(_in, sizeof(_in) - 1, \"r\"), stdin != nullptr);\nint w[N][N];\n// 只出现一次的边：直接赋值本来就对，留给 fix 片段处理的只有那条重边（u,v,c）\nint u = 1, v = 2, c = 1;\nstatic int _prep() {\n    for (int i = 0; i < N; i++) for (int j = 0; j < N; j++) w[i][j] = INF;\n    for (int i = 1; i <= 3; i++) w[i][i] = 0;\n    w[2][3] = w[3][2] = 1;\n    w[1][3] = w[3][1] = 1000;\n    return 0;\n}\nstatic int _prep_done = _prep();\n",
+      "run": "    for (int k = 1; k <= n; k++)\n        for (int i = 1; i <= n; i++)\n            for (int j = 1; j <= n; j++)\n                w[i][j] = min(w[i][j], w[i][k] + w[k][j]);\n    printf(\"d12 = %d d13 = %d d23 = %d\\n\", w[1][2], w[1][3], w[2][3]);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "d12 = 50 d13 = 51 d23 = 1"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "d12 = 1 d13 = 2 d23 = 1"
+      }
+    },
+    "verified": true
   },
   {
     "id": "undirected-graph-single-direction",
@@ -679,7 +860,8 @@
     "buggy_code": "const int N = 100005;\nvector<int> g[N];\nint n, m;\nint dfs(int u, vector<bool>& vis) {\n    vis[u] = true;\n    int cnt = 1;\n    for (int v : g[u])\n        if (!vis[v]) cnt += dfs(v, vis);\n    return cnt;\n}\nfor (int i = 0; i < m; i++) {\n    int u, v; cin >> u >> v;\n    g[u].push_back(v);\n}",
     "answer": "无向边在邻接表里必须存两条：g[u] 加 v 的同时 g[v] 也要加 u。只加一条等于把图当成有向图，沿着「逆着边」的方向就搜不过去，于是从起点可达的点数偏小，连通块个数偏大。这类 bug 在有些数据上完全正确，只有边方向和起点不配合时才暴露。",
     "fix": "g[u].push_back(v);\ng[v].push_back(u);",
-    "source": "https://oi-wiki.org/graph/concept/"
+    "source": "https://oi-wiki.org/graph/concept/",
+    "verified": false
   },
   {
     "id": "unordered-map-hash-collision",
@@ -690,7 +872,8 @@
     "buggy_code": "int n;\ncin >> n;\nunordered_map<long long, int> cnt;\nfor (int i = 0; i < n; i++) {\n    long long x;\n    cin >> x;\n    cnt[x]++;\n}\nint best = 0;\nfor (auto &p : cnt) best = max(best, p.second);\ncout << best << endl;",
     "answer": "unordered_map 的期望 O(1) 依赖哈希值均匀分布，而标准库的 std::hash 是确定性的。出题人只要按模数、2 的幂等规律构造键值，就能让大量元素落进同一个桶，单次插入退化成 O(桶长)，总复杂度变成 O(n^2) 而 TLE。解决办法是换 map（O(n log n) 稳定），或给 unordered_map 加随机化的自定义哈希并 reserve 足够的桶。",
     "fix": "struct H { size_t operator()(long long x) const {\n    static const uint64_t r = chrono::steady_clock::now().time_since_epoch().count();\n    x ^= r; x ^= x >> 33; x *= 0xff51afd7ed558ccdULL; return x ^ (x >> 29);\n} };\nunordered_map<long long, int, H> cnt;",
-    "source": "https://codeforces.com/blog/entry/62393"
+    "source": "https://codeforces.com/blog/entry/62393",
+    "verified": false
   },
   {
     "id": "set-of-pointers-compares-address",
@@ -701,6 +884,955 @@
     "buggy_code": "struct Node { int x; };\nset<Node*> st;\nfor (int i = 0; i < n; i++) {\n    int v;\n    cin >> v;\n    st.insert(new Node{v});\n}\nNode q{1};\ncout << st.count(&q) << endl;",
     "answer": "set<Node*> 的默认比较器是 less<Node*>，它对指针做的是内置的地址大小比较，与所指对象的 x 毫无关系。于是每个 new 出来的地址都不同，同值对象被当成互不相同的元素全部插入，查找时拿一个栈上对象的地址也必然找不到。要么存对象并给出按字段比较的仿函数，要么存指针但显式传一个比较内容的 Cmp。",
     "fix": "struct Cmp { bool operator()(const Node* a, const Node* b) const { return a->x < b->x; } };\nset<Node*, Cmp> st;",
-    "source": "https://en.cppreference.com/w/cpp/container/set"
+    "source": "https://en.cppreference.com/w/cpp/container/set",
+    "case": {
+      "prelude": "// 全局 Node：fix 片段直接复用它。\n// buggy 片段在 main 里另声明了一个同名局部类，会遮蔽这里，片段内以局部类为准。\nstruct Node { int x; };\n\n// 片段用 cin 读入 n 个值，把 cin 接到内存串上（默认 sync_with_stdio 下 rdbuf 可直接换）\nstatic std::string _in_data = \"1 2 1 2\";\nstatic std::istringstream _in_stream(_in_data);\nstatic int _in_ready = (std::cin.rdbuf(_in_stream.rdbuf()), 1);\n\nint n = 4;",
+      "run": "    // 驱动：拿一个同类型的空 set，插入同一批值（1 出现两次），再用栈上对象查一次。\n    // decltype(st)() 让同一段驱动对 set<Node*> 和 set<Node*, Cmp> 都成立。\n    auto st2 = decltype(st)();\n    int vals[4] = {1, 2, 1, 2};\n    for (int i = 0; i < 4; i++) st2.insert(new Node{vals[i]});\n    Node key{1};\n    printf(\"size=%d count=%d\\n\", (int)st2.size(), (int)st2.count(&key));",
+      "buggy": {
+        "kind": "stdout",
+        "value": "size=4 count=0"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "size=2 count=1"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "shift-vs-div-negative",
+    "category": "位运算",
+    "level": 3,
+    "title": "负数右移当作除以二",
+    "question": "下面这段代码求 l 与 r 的中点，l 可能是负数。这道题里 l=-3、r=0，按说方括号区间中点应该在 -1 附近，但算出来的 mid 落在了区间外面，后面拿它当下标就崩了。为什么？",
+    "buggy_code": "int mid = (l + r) >> 1;",
+    "answer": "右移对负数是向下取整，除法是向零取整。(l+r) = -3 时，-3 >> 1 得 -2，而 -3 / 2 得 -1，差了 1。mid 落到区间外，a[mid] 就越界了。另外 l+r 本身在 l、r 都很大时会溢出 int，真实比赛里更稳的写法是 l + (r - l) / 2，那一层是另一个坑。",
+    "fix": "int mid = (l + r) / 2;",
+    "source": "https://oi-wiki.org/math/bit/",
+    "case": {
+      "prelude": "int l = -3, r = 0;\nlong long a[100];",
+      "run": "printf(\"%d\", mid);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "-2"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "-1"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "negative-shift-right-floor",
+    "category": "位运算",
+    "level": 2,
+    "title": "负数右移是向下取整：-7 >> 1 == -4，而 -7 / 2 == -3",
+    "question": "数组 a = {-7, -3, 5, 9}，题目要求把每个元素除以 2（商向零取整）后累加，标程输出 2，这份代码输出 0。把数据全换成正数时又完全正确。",
+    "buggy_code": "// 题目要求：把每个数除以 2（向零取整）后累加\nint s = 0;\nfor (int i = 0; i < n; i++) s += a[i] >> 1;",
+    "answer": "C++ 里 / 是向 0 取整（truncation），而 int 的 >> 是算术右移，等价于向下取整（floor）。对非负数两者一致，对负数就差 1：-7 / 2 = -3，但 -7 >> 1 = -4；-3 / 2 = -1，而 -3 >> 1 = -2。本题两个负数各多减了 1，累加结果从 2 变成 0。只要除数取 2 的幂且可能有负数，就不要用移位代替除法；确实想要 floor 语义时才用 >>，并清楚它和 / 在负数上不同。",
+    "fix": "// 题目要求：把每个数除以 2（向零取整）后累加\nint s = 0;\nfor (int i = 0; i < n; i++) s += a[i] / 2;",
+    "source": "https://oi-wiki.org/math/bit/#移位",
+    "case": {
+      "prelude": "int a[4] = {-7, -3, 5, 9};\nint n = 4;",
+      "run": "    printf(\"half_sum = %d\\n\", s);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "half_sum = 0"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "half_sum = 2"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "one-shl-31-sign-bit",
+    "category": "位运算",
+    "level": 2,
+    "title": "1 << 31 落在 int 的符号位上，结果是 -2147483648",
+    "question": "n = 31 时求 2^n 的 01 串个数，打印出来是 -2147483648；n = 30 时结果又是对的。接收结果的变量本身就是 long long。",
+    "buggy_code": "// 求长度为 n 的 01 串个数，即 2^n\nlong long total = 1 << n;",
+    "answer": "1 是 int 字面量，所以 1 << n 全程在 32 位 int 里算：n = 31 时结果正好落进符号位，得到 INT_MIN = -2147483648，之后再赋给 long long 只是符号扩展，负数被原样搬过去，右边的 long long 救不了它——移位结果的类型只由左操作数决定。写成 1LL << n 才是 64 位运算；n 可能达到 62、63 时更要小心 1LL << 63 也已经是负数。",
+    "fix": "// 求长度为 n 的 01 串个数，即 2^n\nlong long total = 1LL << n;",
+    "source": "https://oi-wiki.org/math/bit/#位操作的应用",
+    "case": {
+      "prelude": "int n = 31;",
+      "run": "    printf(\"total = %lld\\n\", total);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "total = -2147483648"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "total = 2147483648"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "bitand-vs-logical-and",
+    "category": "位运算",
+    "level": 1,
+    "title": "用 & 代替 &&：2 & 1 == 0，两个都非零也被判成假",
+    "question": "flagsA = 2、flagsB = 1，两个都不是 0，但『两个标志都非零』的判断返回 0；把 flagsB 换成 2 之后它又变成 1 了。",
+    "buggy_code": "// 两个标志都非零时记为 true\nbool both_nonzero = false;\nif (flagsA & flagsB) both_nonzero = true;",
+    "answer": "& 是逐位与，不是逻辑与：2 是 10、1 是 01，没有任何一位同时为 1，所以 2 & 1 == 0，if 判成假。也就是说 a & b 非零只说明 a、b 有公共的 1 位，『两个都非零』完全是另一回事。判断条件要用 &&；& 只在做位掩码测试时用，例如 if (flags & MASK) 判断某一位是否打开。同样别把 | 当 ||、把 ^ 当『不等』的布尔值直接进 if。",
+    "fix": "// 两个标志都非零时记为 true\nbool both_nonzero = false;\nif (flagsA && flagsB) both_nonzero = true;",
+    "source": "https://oi-wiki.org/math/bit/#位运算",
+    "case": {
+      "prelude": "int flagsA = 2;   // 二进制 10\nint flagsB = 1;   // 二进制 01",
+      "run": "    printf(\"both_nonzero = %d\\n\", (int)both_nonzero);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "both_nonzero = 0"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "both_nonzero = 1"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "precedence-and-equals",
+    "category": "位运算",
+    "level": 2,
+    "title": "== 的优先级高于 &：x & 1 == 0 实际是 x & (1 == 0)，恒为 0",
+    "question": "数组 {4, 7, 10, 13} 里有 2 个偶数，统计函数返回 0。条件看起来完全正常，编译只给了一条警告。",
+    "buggy_code": "// 统计数组中偶数的个数\nint c = 0;\nfor (int i = 0; i < m; i++)\n    if (arr[i] & 1 == 0) c++;",
+    "answer": "相等/关系运算符的优先级高于位运算，所以 arr[i] & 1 == 0 被解析成 arr[i] & (1 == 0)，也就是 arr[i] & 0，恒等于 0，if 永远不成立，计数器停在 0。把整个位运算加括号写成 (arr[i] & 1) == 0 即可。同族陷阱还有 x & mask != 0、a | b == c、1 << k - 1（等于 1 << (k-1)）、flag == 1 & 2 等。编译器会报 -Wparentheses 警告，别把警告关掉。",
+    "fix": "// 统计数组中偶数的个数\nint c = 0;\nfor (int i = 0; i < m; i++)\n    if ((arr[i] & 1) == 0) c++;",
+    "source": "https://oi-wiki.org/math/bit/#操作一个数的二进制位",
+    "case": {
+      "prelude": "int arr[4] = {4, 7, 10, 13};\nint m = 4;",
+      "run": "    printf(\"count_even = %d\\n\", c);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "count_even = 0"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "count_even = 2"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "complement-is-not-negation",
+    "category": "位运算",
+    "level": 2,
+    "title": "~x 等于 -x-1，不是 -x：取反和取负差一个 1",
+    "question": "x = 6，代码想得到与它相加为 0 的那个数，但打印 x + opposite 的结果是 -1 而不是 0。把 x 换成 -1 时反而对得上。",
+    "buggy_code": "// 返回一个整数 y，使得 x + y == 0\nint y = ~x;",
+    "answer": "补码下按位取反满足恒等式 ~x == -x - 1（等价地 ~x + 1 == -x）：x 与 ~x 每一位都相反，两数相加全是 1，而全 1 就是 -1。所以 6 + ~6 = 6 + (-7) = -1，永远差 1；x = -1 时 ~(-1) = 0 才碰巧相等。取负请直接写 -x（或确实需要位技巧时写 ~x + 1）；~ 的正确用途是掩码取反，比如 x & ~mask 清掉 mask 覆盖的位。",
+    "fix": "// 返回一个整数 y，使得 x + y == 0\nint y = ~x + 1;",
+    "source": "https://oi-wiki.org/math/bit/#整数与位序列",
+    "case": {
+      "prelude": "int x = 6;",
+      "run": "    printf(\"x + opposite = %d\\n\", x + y);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "x + opposite = -1"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "x + opposite = 0"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "xor-swap-same-slot",
+    "category": "位运算",
+    "level": 2,
+    "title": "异或交换同一个变量会把它清零：a ^= a 之后 a 为 0",
+    "question": "把已经有序的 {1, 2, 3, 4} 交给这段选择排序，排完数组变成 {0, 0, 0, 0}；换成真正乱序的数据反而能得到正确结果。",
+    "buggy_code": "// 选择排序，把 v 升序排好\nfor (int i = 0; i < n; i++) {\n    int k = i;\n    for (int j = i + 1; j < n; j++)\n        if (v[j] < v[k]) k = j;\n    xor_swap(v[i], v[k]);\n}",
+    "answer": "异或交换的前提是两个引用指向不同的对象。传入同一个元素时 a 和 b 是同一个变量，三步退化成 a ^= a（立刻清零）、a ^= 0、a ^= 0，原来的值彻底丢掉。选择排序每轮都交换 v[i] 与 v[k]，输入已经有序时每轮都满足 k == i，等于每个位置都和自己交换一次，整个数组被清成 0。修法：交换前判 if (i != k)，或者干脆用 std::swap（对自交换安全）。另外 a ^= b ^= a ^= b 这类嵌套写法在 C++17 之前还是未定义行为。",
+    "fix": "// 选择排序，把 v 升序排好\nfor (int i = 0; i < n; i++) {\n    int k = i;\n    for (int j = i + 1; j < n; j++)\n        if (v[j] < v[k]) k = j;\n    if (i != k) xor_swap(v[i], v[k]);\n}",
+    "source": "https://oi-wiki.org/math/bit/#交换两个数",
+    "case": {
+      "prelude": "int v[4] = {1, 2, 3, 4};\nint n = 4;\nvoid xor_swap(int &a, int &b) {\n    a ^= b;\n    b ^= a;\n    a ^= b;\n}",
+      "run": "    for (int i = 0; i < n; i++) printf(\"%d \", v[i]);\n    printf(\"\\n\");",
+      "buggy": {
+        "kind": "stdout",
+        "value": "0 0 0 0"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "1 2 3 4"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "popcount-truncates-longlong",
+    "category": "位运算",
+    "level": 3,
+    "title": "__builtin_popcount 只接受 unsigned int，long long 的高位被悄悄截掉",
+    "question": "s = (1LL<<40) | (1LL<<3) | 1，二进制里明明有 3 个 1，函数却说 2；换成 9 这种小数字时又能数对。s 本身是 long long，编译也没有任何报错。",
+    "buggy_code": "// 数一数 s 的二进制表示里有几个 1\nint cnt = __builtin_popcount(s);",
+    "answer": "__builtin_popcount 的形参类型是 unsigned int（32 位），传 long long 时会先隐式截断，只保留低 32 位：s 的低 32 位是 (1<<3)|1 = 9，数出 2 个 1，第 40 位被整段扔掉。这种错既不报错也不警告（只有 -Wconversion 能提示），只在数据超过 32 位时才暴露。位数相关的内建函数要和位宽配套：long long 用 __builtin_popcountll / clzll / ctzll / ffsll（返回值仍是 int），或者用 std::bitset<64>(x).count()。",
+    "fix": "// 数一数 s 的二进制表示里有几个 1\nint cnt = __builtin_popcountll(s);",
+    "source": "https://oi-wiki.org/math/bit/#gcc-内建函数",
+    "case": {
+      "prelude": "long long s = (1LL << 40) | (1LL << 3) | 1;",
+      "run": "    printf(\"popcount = %d\\n\", cnt);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "popcount = 2"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "popcount = 3"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "pow2-test-accepts-zero",
+    "category": "位运算",
+    "level": 2,
+    "title": "(x & (x-1)) == 0 对 x == 0 也成立，而 0 不是 2 的幂",
+    "question": "在 [0, 8] 里统计 2 的正整数次幂，正确答案是 1、2、4、8 共 4 个，函数返回 5。区间里只有一个数被多算了。",
+    "buggy_code": "// 统计 [lo, hi] 中有多少个数是 2 的正整数次幂\nint c = 0;\nfor (int x = lo; x <= hi; x++)\n    if ((x & (x - 1)) == 0) c++;",
+    "answer": "x & (x - 1) 的作用是抹掉最低位的那个 1，只有 x 恰好含一个 1 时才得到 0。但 0 的二进制全为 0，没有 1 可抹，0 & -1 仍然等于 0，于是 0 被当成 2 的幂混进计数。负数在补码下也会踩到：INT_MIN & (INT_MIN - 1) 同样是 0，可它不是 2 的正整数次幂。所以判定必须写成 x > 0 && (x & (x - 1)) == 0。所有『只有一个 1』式的位技巧（lowbit、popcount == 1、求最高位）都要单独考虑 0。",
+    "fix": "// 统计 [lo, hi] 中有多少个数是 2 的正整数次幂\nint c = 0;\nfor (int x = lo; x <= hi; x++)\n    if (x > 0 && (x & (x - 1)) == 0) c++;",
+    "source": "https://oi-wiki.org/math/bit/#操作一个数的二进制位",
+    "case": {
+      "prelude": "int lo = 0, hi = 8;",
+      "run": "    printf(\"count_pow2 = %d\\n\", c);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "count_pow2 = 5"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "count_pow2 = 4"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "fenwick_zero_based_range_right_endpoint",
+    "category": "树状数组与线段树",
+    "level": 2,
+    "title": "0 基下标换成 1 基时只换了左端点，右端点忘了加一",
+    "question": "数组是 0 基下标，入树时下标都加了一。查 [3,5] 的区间和输出 6（应为 15），查 a[5] 得 5（应为 9）。",
+    "buggy_code": "  n = 8;\n  int arr[8] = {3, 1, 4, 1, 5, 9, 2, 6};\n  for (int i = 0; i < n; i++) add(i + 1, arr[i]);   // 统一存到 1 基的位置上\n  int l = 3, r = 5;                                 // 题目给的是 0 基下标\n  int s1 = prefix(r) - prefix(l);                   // 想要 a[3] + a[4] + a[5]\n  int s2 = prefix(r) - prefix(r - 1);               // 想要 a[5]",
+    "answer": "树状数组的结点下标是 1 基的，a[i] 落在 c[i+1] 上，所以「a[l] 到 a[r] 的和」在 1 基前缀和里是 prefix(r+1) − prefix(l)：右端点要加一，左端点不加。这里两端都按 0 基写成 prefix(r) − prefix(l)，等于只加了 a[l..r-1]，每个这样的查询都漏掉右端点那一个元素；查单个 a[r] 时 prefix(r) − prefix(r−1) 拿到的是 a[r−1]，查到的值整体往左错一位。",
+    "fix": "  n = 8;\n  int arr[8] = {3, 1, 4, 1, 5, 9, 2, 6};\n  for (int i = 0; i < n; i++) add(i + 1, arr[i]);\n  int l = 3, r = 5;                                 // 0 基的 [l, r] 就是 1 基的 [l+1, r+1]\n  int s1 = prefix(r + 1) - prefix(l);\n  int s2 = prefix(r + 1) - prefix(r);",
+    "source": "https://oi-wiki.org/ds/fenwick/#区间查询",
+    "case": {
+      "prelude": "int n;\nint c[1024];\n\nvoid add(int x, int v) {                 // x 是 1 基下标\n  for (int i = x; i <= n; i += i & -i) c[i] += v;\n}\n\nint prefix(int x) {                      // a[0] + ... + a[x-1]\n  int s = 0;\n  for (int i = x; i > 0; i -= i & -i) s += c[i];\n  return s;\n}\n",
+      "run": "    printf(\"sum[3..5] = %d\\n\", s1);\n    printf(\"a[5] = %d\\n\", s2);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "sum[3..5] = 6"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "sum[3..5] = 15"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "fenwick_update_loop_stops_before_n",
+    "category": "树状数组与线段树",
+    "level": 1,
+    "title": "建树时更新循环的上界写成 j < n，最后一个位置永远没被加上",
+    "question": "8 个元素逐个入树，查前 4 个、前 7 个的和都对，查前 8 个（全部元素）却输出 0。",
+    "buggy_code": "  n = 8;\n  int arr[8] = {3, 1, 4, 1, 5, 9, 2, 6};\n  for (int i = 1; i <= n; i++) {\n    for (int j = i; j < n; j += j & -j) c[j] += arr[i - 1];\n  }\n  int p4 = prefix(4);\n  int p8 = prefix(8);",
+    "answer": "树状数组的下标是 1..n，单点插入沿 j += lowbit(j) 往上跳时上界必须是 j <= n，因为 c[n] 本身就是一个要维护的结点。写成 j < n 就把 j == n 这一步砍掉了，c[n] 从头到尾没被加过；而任何「前缀一直加到 n」的查询链上最后一步正是 c[n]，于是读到 0。前面几项之所以正常，是因为那些查询链没有经过 c[n]。",
+    "fix": "  n = 8;\n  int arr[8] = {3, 1, 4, 1, 5, 9, 2, 6};\n  for (int i = 1; i <= n; i++) {\n    for (int j = i; j <= n; j += j & -j) c[j] += arr[i - 1];\n  }\n  int p4 = prefix(4);\n  int p8 = prefix(8);",
+    "source": "https://oi-wiki.org/ds/fenwick/#单点修改",
+    "case": {
+      "prelude": "int n;\nint c[1024];\n\nint prefix(int x) {                      // a[0] + ... + a[x-1]\n  int s = 0;\n  for (int i = x; i > 0; i -= i & -i) s += c[i];\n  return s;\n}\n",
+      "run": "    printf(\"prefix(4) = %d\\n\", p4);\n    printf(\"prefix(8) = %d\\n\", p8);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "prefix(8) = 0"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "prefix(8) = 31"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "fenwick_linear_build_propagates_raw_value",
+    "category": "树状数组与线段树",
+    "level": 3,
+    "title": "O(n) 建树时往父亲累加的是原始元素，而不是已经合并好的 c[i]",
+    "question": "O(n) 建树之后前缀和普遍偏小：prefix(4) 少 1，prefix(8) 少 11，越靠后差得越多。",
+    "buggy_code": "  n = 8;\n  int arr[8] = {1, 2, 3, 4, 5, 6, 7, 8};\n  for (int i = 1; i <= n; i++) c[i] = arr[i - 1];\n  for (int i = 1; i <= n; i++) {\n    int j = i + (i & -i);              // i 在树上的父亲\n    if (j <= n) c[j] += arr[i - 1];\n  }\n  int p4 = prefix(4);\n  int p8 = prefix(8);",
+    "answer": "O(n) 建树只要一趟的原因是按 i 从小到大扫时 c[i] 已经是 a[i−lowbit(i)+1..i] 的子树和，把它整个加到 c[i+lowbit(i)] 上就等于把子树和往上传一层。这里加的是 a[i] 这个叶子的值，父亲只攒到「每个儿子自己的那一个元素」，孙辈的贡献一层都没传上去，所以低层的 c 是对的、越高层少得越多，而 prefix 正好是把这些 c 拼起来，于是前缀和偏小。正确写法是 c[j] += c[i]。",
+    "fix": "  n = 8;\n  int arr[8] = {1, 2, 3, 4, 5, 6, 7, 8};\n  for (int i = 1; i <= n; i++) c[i] = arr[i - 1];\n  for (int i = 1; i <= n; i++) {\n    int j = i + (i & -i);              // i 在树上的父亲\n    if (j <= n) c[j] += c[i];\n  }\n  int p4 = prefix(4);\n  int p8 = prefix(8);",
+    "source": "https://oi-wiki.org/ds/fenwick/#tricks",
+    "case": {
+      "prelude": "int n;\nint c[1024];\n\nint prefix(int x) {                      // a[0] + ... + a[x-1]\n  int s = 0;\n  for (int i = x; i > 0; i -= i & -i) s += c[i];\n  return s;\n}\n",
+      "run": "    printf(\"prefix(4) = %d\\n\", p4);\n    printf(\"prefix(8) = %d\\n\", p8);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "prefix(8) = 25"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "prefix(8) = 36"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "fenwick_range_add_sum_second_tree_coefficient",
+    "category": "树状数组与线段树",
+    "level": 3,
+    "title": "区间加区间和里第二个树状数组的系数整体差了一位",
+    "question": "两个树状数组做「区间加、前缀和」，两次区间加后前缀和普遍偏小，可加到 n 时又是对的。",
+    "buggy_code": "  n = 6;\n  add(t1, 2, 3);      add(t1, 5, -3);          // 区间 [2,4] 加 3\n  add(t2, 2, 3 * 2);  add(t2, 5, -3 * 5);\n  add(t1, 1, 5);      add(t1, 3, -5);          // 区间 [1,2] 加 5\n  add(t2, 1, 5 * 1);  add(t2, 3, -5 * 3);\n  int s2 = sum(t1, 2) * 2 - sum(t2, 2);\n  int s4 = sum(t1, 4) * 4 - sum(t2, 4);\n  int s6 = sum(t1, 6) * 6 - sum(t2, 6);",
+    "answer": "前缀和展开是 Σd[i]·(x−i+1) = x·Σd[i] − Σd[i]·(i−1)，所以第二个树状数组里必须存 d[i]·(i−1)：左端点加 v·(l−1)，r+1 处加 −v·r。这份代码写成了 v·l 和 −v·(r+1)，等于把公式里的 (i−1) 换成了 i，每次查询都少掉 Σd[i] 这一项，也就是少算了「此刻仍然生效的那部分加量」，所以前缀普遍偏小；x = n 时后半段插进去的负项把 Σd[i] 抵消成 0，错误自己消失，才显得正常。",
+    "fix": "  n = 6;\n  add(t1, 2, 3);              add(t1, 5, -3);          // 区间 [2,4] 加 3\n  add(t2, 2, 3 * (2 - 1));    add(t2, 5, -3 * 4);\n  add(t1, 1, 5);              add(t1, 3, -5);          // 区间 [1,2] 加 5\n  add(t2, 1, 5 * (1 - 1));    add(t2, 3, -5 * 2);\n  int s2 = sum(t1, 2) * 2 - sum(t2, 2);\n  int s4 = sum(t1, 4) * 4 - sum(t2, 4);\n  int s6 = sum(t1, 6) * 6 - sum(t2, 6);",
+    "source": "https://oi-wiki.org/ds/fenwick/#区间加区间和",
+    "case": {
+      "prelude": "int n;\nint t1[1024], t2[1024];\n\nvoid add(int *t, int x, int v) {\n  for (int i = x; i <= n; i += i & -i) t[i] += v;\n}\n\nint sum(int *t, int x) {\n  int s = 0;\n  for (int i = x; i > 0; i -= i & -i) s += t[i];\n  return s;\n}",
+      "run": "    printf(\"prefix(2) = %d\\n\", s2);\n    printf(\"prefix(4) = %d\\n\", s4);\n    printf(\"prefix(6) = %d\\n\", s6);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "prefix(2) = 5"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "prefix(2) = 13"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "iterative_segtree_half_open_range",
+    "category": "树状数组与线段树",
+    "level": 2,
+    "title": "2n 迭代线段树是左闭右开的，右端点传成了闭区间",
+    "question": "迭代写法，a[i] = i+1。想查 a[2..5]（应为 18）输出 12，查 a[0..7] 也少一截。",
+    "buggy_code": "  n = 8;\n  for (int i = 0; i < n; i++) t[n + i] = i + 1;      // a[i] = i + 1\n  build();\n  int l = 2, r = 5;                                  // 想要 a[2] + ... + a[5]\n  int s = rangeSum(l, r);\n  int all = rangeSum(0, 7);",
+    "answer": "叶结点从 t[n] 开始的这种迭代写法，循环是 while (l < r)，天然对应左闭右开区间 [l, r)，右端点那个位置不算在内。把闭区间的右端点 r 直接传进去就等于永远少统计 a[r]，而且数组最后一个元素永远取不到（查 [0,7] 实际只到 a[6]）。闭区间要写成 rangeSum(l, r + 1)，或者查整段时直接传 n。",
+    "fix": "  n = 8;\n  for (int i = 0; i < n; i++) t[n + i] = i + 1;      // a[i] = i + 1\n  build();\n  int l = 2, r = 5;                                  // 闭区间 [2,5] 对应半开 [2,6)\n  int s = rangeSum(l, r + 1);\n  int all = rangeSum(0, n);",
+    "source": "https://oi-wiki.org/ds/seg/#非递归实现",
+    "case": {
+      "prelude": "const int MAXN = 16;\nint n;\nint t[2 * MAXN];\n\nvoid build() {\n  for (int i = n - 1; i > 0; i--) t[i] = t[i << 1] + t[i << 1 | 1];\n}\n\nint rangeSum(int l, int r) {                       // 求 a[l] + ... + a[r-1]\n  int s = 0;\n  for (l += n, r += n; l < r; l >>= 1, r >>= 1) {\n    if (l & 1) s += t[l++];\n    if (r & 1) s += t[--r];\n  }\n  return s;\n}\n",
+      "run": "    printf(\"sum[2..5] = %d\\n\", s);\n    printf(\"sum[0..7] = %d\\n\", all);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "sum[2..5] = 12"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "sum[2..5] = 18"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "iterative_segtree_build_top_down",
+    "category": "树状数组与线段树",
+    "level": 2,
+    "title": "迭代线段树建树方向写反，自上而下合并时孩子还没算好",
+    "question": "叶结点填好、建树那行循环跑完，查 a[0..3] 得 0，a[4..5] 却对，整段和也是 0。",
+    "buggy_code": "  n = 8;\n  for (int i = 0; i < n; i++) t[n + i] = i + 1;      // 叶结点 a[i] = i + 1\n  for (int i = 1; i < n; i++) t[i] = t[i << 1] + t[i << 1 | 1];\n  int s1 = rangeSum(0, 4);\n  int s2 = rangeSum(4, 6);\n  int s3 = rangeSum(0, 8);",
+    "answer": "2n 迭代线段树的结点编号是「孩子编号比父亲大」，t[i] 由 t[2i]、t[2i+1] 合并而来，所以必须让 i 从 n−1 递减到 1，自底向上，保证算父亲时两个儿子已经就绪。写成从 1 递增就是自顶向下，先算的父亲读到的是还没填过的 0，于是所有内部结点都成了 0；查询只要分解到叶层相邻的结点还是对的，一旦用到中间层结点（比如 t[2]、t[3]、根 t[1]）就会读到 0。",
+    "fix": "  n = 8;\n  for (int i = 0; i < n; i++) t[n + i] = i + 1;      // 叶结点 a[i] = i + 1\n  for (int i = n - 1; i > 0; i--) t[i] = t[i << 1] + t[i << 1 | 1];\n  int s1 = rangeSum(0, 4);\n  int s2 = rangeSum(4, 6);\n  int s3 = rangeSum(0, 8);",
+    "source": "https://oi-wiki.org/ds/seg/#非递归实现",
+    "case": {
+      "prelude": "const int MAXN = 16;\nint n;\nint t[2 * MAXN];\n\nint rangeSum(int l, int r) {                       // 求 a[l] + ... + a[r-1]\n  int s = 0;\n  for (l += n, r += n; l < r; l >>= 1, r >>= 1) {\n    if (l & 1) s += t[l++];\n    if (r & 1) s += t[--r];\n  }\n  return s;\n}\n",
+      "run": "    printf(\"sum[0..3] = %d\\n\", s1);\n    printf(\"sum[4..5] = %d\\n\", s2);\n    printf(\"sum[0..7] = %d\\n\", s3);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "sum[0..3] = 0"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "sum[0..3] = 10"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "point_assignment_written_as_range_add",
+    "category": "树状数组与线段树",
+    "level": 1,
+    "title": "把「单点赋值」当成了「单点区间加」",
+    "question": "题目要把第 3 个元素改成 10（原值 3）。跑完 a[3] = 13，整段和也比手算大 10。",
+    "buggy_code": "  int n = 5;\n  for (int i = 1; i <= n; i++) a[i] = i;             // 1 2 3 4 5\n  build(1, 1, n);\n  rangeAdd(1, 1, n, 3, 3, 10);                       // 第 3 个元素要变成 10\n  int x = rangeSum(1, 1, n, 3, 3);\n  int tot = rangeSum(1, 1, n, 1, n);",
+    "answer": "这棵线段树只有「区间加」这一种修改，rangeAdd(p, p, v) 的语义是「a[p] 加上 v」，不是「a[p] 变成 v」。要赋值得先拿到当前值再改差值：rangeAdd(p, p, v − 当前值)，并且自己维护的 a[] 也要同步。特别注意树上可能挂着懒标记，此刻的「当前值」不等于最初读进来的 a[p]，所以要么先查一次，要么另外写一个带赋值标记的单点修改。",
+    "fix": "  int n = 5;\n  for (int i = 1; i <= n; i++) a[i] = i;             // 1 2 3 4 5\n  build(1, 1, n);\n  int old = rangeSum(1, 1, n, 3, 3);                 // 先取当前值（含懒标记带来的影响）\n  rangeAdd(1, 1, n, 3, 3, 10 - old);                 // 改成差值\n  int x = rangeSum(1, 1, n, 3, 3);\n  int tot = rangeSum(1, 1, n, 1, n);",
+    "source": "https://oi-wiki.org/ds/seg/#区间修改与懒惰标记",
+    "case": {
+      "prelude": "const int MAXN = 16;\nint a[MAXN], tree[MAXN * 4], tag[MAXN * 4];\n\nvoid build(int o, int l, int r) {\n  if (l == r) { tree[o] = a[l]; return; }\n  int mid = (l + r) / 2;\n  build(o * 2, l, mid);\n  build(o * 2 + 1, mid + 1, r);\n  tree[o] = tree[o * 2] + tree[o * 2 + 1];\n}\n\nvoid apply(int o, int l, int r, int v) {\n  tree[o] += v * (r - l + 1);\n  tag[o] += v;\n}\n\nvoid pushdown(int o, int l, int r) {\n  if (tag[o] == 0) return;\n  int mid = (l + r) / 2;\n  apply(o * 2, l, mid, tag[o]);\n  apply(o * 2 + 1, mid + 1, r, tag[o]);\n  tag[o] = 0;\n}\n\nvoid rangeAdd(int o, int l, int r, int ql, int qr, int v) {\n  if (ql <= l && r <= qr) { apply(o, l, r, v); return; }\n  pushdown(o, l, r);\n  int mid = (l + r) / 2;\n  if (ql <= mid) rangeAdd(o * 2, l, mid, ql, qr, v);\n  if (qr > mid) rangeAdd(o * 2 + 1, mid + 1, r, ql, qr, v);\n  tree[o] = tree[o * 2] + tree[o * 2 + 1];\n}\n\nint rangeSum(int o, int l, int r, int ql, int qr) {\n  if (ql <= l && r <= qr) return tree[o];\n  pushdown(o, l, r);\n  int mid = (l + r) / 2, s = 0;\n  if (ql <= mid) s += rangeSum(o * 2, l, mid, ql, qr);\n  if (qr > mid) s += rangeSum(o * 2 + 1, mid + 1, r, ql, qr);\n  return s;\n}\n",
+      "run": "    printf(\"a[3] = %d\\n\", x);\n    printf(\"total = %d\\n\", tot);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "total = 25"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "total = 22"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "percent-to-int-truncate",
+    "category": "浮点数",
+    "level": 2,
+    "title": "把 0.29 元换算成分：(int)(x * 100) 得到 28，因为 0.29*100 其实是 28.999999999999996",
+    "question": "程序读入价格 0.29（元），按「元 × 100 = 分」折算成整数分，期望输出 29，实际打印的是 cents=28。换 0.27、0.31、1.29 又都完全正确，只有个别价格会少 1 分。乘法和取整都没有手写错，为什么结果会差 1？",
+    "buggy_code": "    int cents = (int)(price * 100);\n    printf(\"cents=%d\\n\", cents);",
+    "answer": "0.29 在二进制浮点里没有精确表示：double 存的是最接近 0.29 的可表示值 0.28999999999999998…，乘以 100 之后得到 28.999999999999996 而不是 29。强制转换 `(int)` 是向零截断（丢掉小数部分），于是 28.999999999999996 → 28，凭空少了 1 分。这类错误只在「十进制有限小数恰好被存小」的输入上出现，所以 0.27、0.31 看起来都对，非常容易漏测；一旦分数会参与若干次运算或求和，误差还可能累积成明显的偏差。正确做法是不要直接截断：先四舍五入到最近的整数再转类型，即 `lround` / `llround`（或 `(int)(x * 100 + 0.5)`，仅限非负数），同时心里清楚这只是在「误差小于 0.5」的前提下成立。若题目对分值要求绝对精确（例如金额结算），根本不该用 double 做这件事，应当把输入当字符串、按十进制整数解析（读成 0.29 → 29 分），从源头避开二进制浮点。",
+    "fix": "    int cents = (int)lround(price * 100);  // 先四舍五入，再转成整数\n    printf(\"cents=%d\\n\", cents);",
+    "source": "https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html",
+    "case": {
+      "prelude": "double price = 0.29;",
+      "run": "",
+      "buggy": {
+        "kind": "stdout",
+        "value": "cents=28"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "cents=29"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "setprecision-without-fixed",
+    "category": "浮点数",
+    "level": 1,
+    "title": "setprecision(6) 没加 fixed：它管的是有效数字位数，输出成了 1.23457e+06",
+    "question": "答案算出 1234567.891，为了满足「绝对误差不超过 1e-6」的输出要求，代码写了 `cout << setprecision(6) << ans`，结果屏幕上只有 1.23457e+06，小数部分整段消失了；换成小一点的答案（比如 3.14159265）时输出却看着还行。写错了哪一步？怎样才是真正的「保留 6 位小数」？",
+    "buggy_code": "    cout << setprecision(6) << ans << \"\\n\";",
+    "answer": "`std::setprecision(n)` 单独使用时设置的是**有效数字**位数（significant digits），不是小数点后的位数；而且默认的 floatfield 会在定点与科学计数法之间挑一个「看起来更短」的写法。答案 1234567.891 有 7 位整数部分，只留 6 位有效数字就只能写成 1.23457e+06，小数位全部被砍掉，还变成了科学计数法——判题机按实数读入时精度完全不够，甚至可能直接读失败。要让它表示「小数点后 n 位」，必须再设置 `std::fixed`（等价于 `printf(\"%.6f\")`）。另外这是**粘性**设置，一旦 `cout << fixed`，后面所有浮点输出都受影响，所以要么全局设置一次，要么在需要处用 `cout << fixed << setprecision(6) << ans << defaultfloat` 复原。顺带一提：题目要求误差 1e-6 时通常要多打几位（如 10 位），只用 6 位小数在极端数据上仍可能被判错。",
+    "fix": "    cout << fixed << setprecision(6) << ans << \"\\n\";",
+    "source": "https://en.cppreference.com/w/cpp/io/manip/setprecision",
+    "case": {
+      "prelude": "double ans = 1234567.891;",
+      "run": "",
+      "buggy": {
+        "kind": "stdout",
+        "value": "1.23457e+06"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "1234567.891000"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "accumulate-int-init",
+    "category": "浮点数",
+    "level": 2,
+    "title": "accumulate 的初值写成 0（int）：1.5+2.5+3.5 累加成 6，平均值 2.5 变成 2.0",
+    "question": "三个 double 求平均值，程序输出 avg=2.0000，而数学上应该是 2.5000。容器里确实是 1.5、2.5、3.5，除法也写了 `/(double)v.size()`；把同样的代码改成对 int 容器求和就一切正常。误差不是「最后截断一次」那么简单——把元素换成 1.5、2.5、3.5 时总和是 6，换成 0.4、0.4、0.4 时总和又是 0。问题出在哪里？",
+    "buggy_code": "    int s = accumulate(v.begin(), v.end(), 0);\n    printf(\"avg=%.4f\\n\", s / (double)v.size());",
+    "answer": "`std::accumulate(first, last, init)` 的累加器类型就是初值的类型 T，返回值也是 T：函数内部等价于 `acc = acc + *it`，每一步都按 T 运算并转换回 T。初值写成 `0`（int），acc 就是 int，于是每次 `acc + 1.5` 之后都要转回 int 丢掉小数：0+1.5→1，1+2.5→3，3+3.5→6。截断发生在**每一次加法**上，误差不是加完再截一次，而是逐次累积（0.4+0.4+0.4 会得到 0），所以结果既不是 7 也不是 7.5。修复只要把初值写成 `0.0`（或 `0.0L`），让 T 变成 double/long double；也可以用 `inner_product`、`reduce` 或手写循环。通用心法：模板函数的类型由你传入的初值决定，`accumulate(v.begin(), v.end(), 0)` 在 double/long long 容器上都是经典坑。",
+    "fix": "    double s = accumulate(v.begin(), v.end(), 0.0);  // 初值决定累加器类型\n    printf(\"avg=%.4f\\n\", s / (double)v.size());",
+    "source": "https://en.cppreference.com/w/cpp/algorithm/accumulate",
+    "case": {
+      "prelude": "vector<double> v{1.5, 2.5, 3.5};",
+      "run": "",
+      "buggy": {
+        "kind": "stdout",
+        "value": "avg=2.0000"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "avg=2.5000"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "acos-domain-nan",
+    "category": "浮点数",
+    "level": 3,
+    "title": "acos 的参数被舍入成 1.0000000000000002：同向向量算出角度 nan",
+    "question": "用余弦定理 dot/(|a||b|) 再 acos 求两向量夹角，向量 (8,5) 和 (8,5) 完全同向，期望 0 度，程序却打印 angle=nan。坐标换成 (3,4) 和 (3,4) 又能正常输出 0.000000，(1,2) 和 (1,2) 则输出 0.000001。公式是标准写法，为什么某些坐标会直接崩成 nan，而且没有任何报错？",
+    "buggy_code": "    double dot = ax * bx + ay * by;\n    double n1 = sqrt(ax * ax + ay * ay);\n    double n2 = sqrt(bx * bx + by * by);\n    double deg = acos(dot / (n1 * n2)) * 180.0 / PI;\n    printf(\"angle=%.6f\\n\", deg);",
+    "answer": "dot/(n1*n2) 在数学上一定落在 [-1,1]，但浮点计算做不到：sqrt 各舍入一次、乘积再舍入一次、除法再舍入一次，同向时结果可能变成 1.0000000000000002（比 1 大一个 ulp）。`acos` 的定义域是 [-1,1]，参数越界时它不抛异常，而是返回 NaN 并置 domain error；NaN 参与任何比较都是 false（`x > 1`、`isnan` 才是唯一可靠检测），于是程序安静地把 nan 打印出来，判题机按实数读入就会 RE/WA。注意这个越界与坐标大小、数值好坏无关，纯属巧合——(3,4) 恰好舍入到 1，(8,5) 舍入到 1.0000000000000002，所以「本地测过没问题」。修复有两层：最小改动是把参数 clamp 到 [-1,1]（`max(-1.0, min(1.0, cs))`）；更稳的是根本不用 acos，改用 `atan2(fabs(cross), dot)`——它只依赖点积的符号和叉积的大小，不涉及反三角的定义域边界，共线、零向量、超大坐标都更安全。同理，`asin`、`sqrt(负数)`（如海伦公式在退化三角形上算出 -1e-17）也会静默产生 NaN，凡是往 sqrt/asin/acos 里送浮点结果的地方都要先夹紧。",
+    "fix": "    double dot = ax * bx + ay * by;\n    double n1 = sqrt(ax * ax + ay * ay);\n    double n2 = sqrt(bx * bx + by * by);\n    double cs = max(-1.0, min(1.0, dot / (n1 * n2)));  // 夹紧到 acos 的定义域\n    double deg = acos(cs) * 180.0 / PI;\n    printf(\"angle=%.6f\\n\", deg);",
+    "source": "https://en.cppreference.com/w/cpp/numeric/math/acos",
+    "case": {
+      "prelude": "const double PI = acos(-1.0);\ndouble ax = 8, ay = 5, bx = 8, by = 5;",
+      "run": "",
+      "buggy": {
+        "kind": "stdout",
+        "value": "nan"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "angle=0.000000"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "double-eq-vs-sum",
+    "category": "浮点数",
+    "level": 1,
+    "title": "用 == 比较累加出来的 double：0.1 加 10 次不等于 1.0",
+    "question": "程序把 0.1 累加 10 次，然后判断 s == 1.0 是否成立。数学上 10 × 0.1 就是 1，循环本身也没有写错，但屏幕上打印的是 `NO sum=0.99999999999999989`。为什么这个等式会不成立？如何表达「s 和 1.0 相等」才是对的？",
+    "buggy_code": "    double s = 0;\n    for (int i = 0; i < N; ++i) s += 0.1;\n    if (s == 1.0)\n        printf(\"YES\\n\");\n    else\n        printf(\"NO sum=%.17g\\n\", s);",
+    "answer": "`0.1` 在二进制浮点里不是精确值：0.1 = 0.0001100110011…(二进制循环)，double 只有 53 位有效位，只能存成最接近的可表示值（约 0.1000000000000000055511151231257827）。每加一次都再舍入一次，累加过程中还会不断丢掉低位，于是 10 次之后得到的是 0.99999999999999988897769753748…，而不是 1。它和 1.0 相差约 1.1e-16，所以 `s == 1.0` 为假。要点是：浮点数是实数的近似表示，`==` 要求逐位相同，任何一次舍入都会让它失败；对浮点数做相等判断必须带容差，即 |s - 1.0| < eps，或者干脆避免用浮点比较，改成整数/有理数运算。",
+    "fix": "    double s = 0;\n    for (int i = 0; i < N; ++i) s += 0.1;\n    if (fabs(s - 1.0) < 1e-9)  // 带容差比较\n        printf(\"YES\\n\");\n    else\n        printf(\"NO sum=%.17g\\n\", s);",
+    "source": "https://oi-wiki.org/lang/var/",
+    "case": {
+      "prelude": "const int N = 10;",
+      "run": "",
+      "buggy": {
+        "kind": "stdout",
+        "value": "NO sum=0.99999999999999989"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "YES"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "int-div-lose-fraction",
+    "category": "浮点数",
+    "level": 1,
+    "title": "整数除以整数先截断再赋给 double：(7+8)/2 得到 7.0",
+    "question": "求两个整数 a=7、b=8 的平均值，结果用 double 保存并打印一位小数。程序输出 `7.0`，可期望值是 `7.5`。avg 声明的类型明明是 double，为什么小数部分还是丢了？",
+    "buggy_code": "    double avg = (a + b) / 2;\n    printf(\"%.1f\\n\", avg);",
+    "answer": "C++ 的除法只看两个操作数本身的类型，与结果赋给谁无关。`a + b` 是 int，字面量 `2` 也是 int，所以 `(a + b) / 2` 执行的是整数除法：15 / 2 = 7，余数 1 被直接丢弃（向零截断），得到 int 值 7，之后才隐式转换成 double 存入 avg，于是 avg 是 7.0。要保留小数，必须让除法在浮点域里发生：把除数写成 `2.0`，或把分子转成 double（`(a + b) / 2.0`、`1.0 * (a + b) / 2`）。同样的坑还有算比例 `cnt / n`、算平均值 `sum / n`、算斜率等。",
+    "fix": "    double avg = (a + b) / 2.0;  // 除数是浮点，触发浮点除法\n    printf(\"%.1f\\n\", avg);",
+    "source": "https://oi-wiki.org/lang/op/",
+    "case": {
+      "prelude": "int a = 7, b = 8;",
+      "run": "",
+      "buggy": {
+        "kind": "stdout",
+        "value": "7.0"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "7.5"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "float-accum-error",
+    "category": "浮点数",
+    "level": 2,
+    "title": "用 float 做 10 万次累加，误差涨到 0.04",
+    "question": "把 0.001 累加 100000 次，正确结果是 100。程序打印出 `99.9567`，少了 0.0433。单次加法的舍入误差只有 1e-8 量级，怎么会累积成这么大的偏差？",
+    "buggy_code": "    float s = 0;\n    for (int i = 0; i < N; ++i) s += (float)STEP;\n    printf(\"%.4f\\n\", s);",
+    "answer": "float 只有 24 位有效位（约 7 位十进制），0.001f 本身就已经有约 1e-10 的表示误差；更关键的是每次执行 `s += 0.001f` 都要把和重新舍入到 24 位：当 s 长到 100 附近时，float 在该量级上的间隔（ULP）约为 7.6e-6，于是每一次加法都可能引入最多半个 ULP 的误差。10 万次这样的误差虽然量级上相互抵消，但实际是随机游走式地累积，最终偏了 0.04，是单次 ULP 的几千倍。这是「累加误差」：误差随加数个数增长，而 float 的精度不足以扛住 1e5 次累加。改用 double（53 位有效位）后同一量级的误差降到 1e-10 以下。经验做法：累加、求和、统计一律用 double（甚至 long double），float 只用于确实需要省内存的大数组存储；对精度敏感的求和还可以用 Kahan 求和补偿。",
+    "fix": "    double s = 0;\n    for (int i = 0; i < N; ++i) s += STEP;\n    printf(\"%.4f\\n\", s);",
+    "source": "https://oi-wiki.org/misc/kahan-summation/",
+    "case": {
+      "prelude": "const int N = 100000;\nconst double STEP = 0.001;",
+      "run": "",
+      "buggy": {
+        "kind": "stdout",
+        "value": "99.9567"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "100.0000"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "binary-search-eps-too-large",
+    "category": "浮点数",
+    "level": 2,
+    "title": "实数二分的 eps 取成 1e-2，答案只对到小数点后两位",
+    "question": "用实数二分求最小的 x 使 x*x >= 2，真值是 1.41421356…。程序输出 `1.421875`，和真值差了约 0.008，而题目要求误差不超过 1e-6。检查下来每轮区间确实在折半，返回值也确实是区间端点，打印时还特意用了 %.6f 保留六位小数。到底是哪一步让结果停在了这个精度上？",
+    "buggy_code": "    const double eps = 1e-2;\n    double l = 1.0, r = 2.0;\n    while (r - l > eps) {\n        double mid = (l + r) / 2;\n        if (check(mid))\n            r = mid;\n        else\n            l = mid;\n    }\n    printf(\"%.6f\\n\", r);",
+    "answer": "`while (r - l > eps)` 结束时只能保证答案落在长度不超过 eps 的区间里，即返回值与真值的误差 ≤ eps。这里 eps = 1e-2，所以结果只保证到小数点后两位，打印成 %.6f 只是一串虚假的有效数字（1.421875 与 1.414214 相差 0.0076）。注意这个误差不是「算错」而是「提前停手」：区间长度已经 ≤ 1e-2，循环就退出了，剩下 1e-2 的精度永远不会再被消掉。eps 应该比题目要求的精度再小两三个数量级（要求 1e-6 就取 1e-8 ~ 1e-9），或者干脆用固定迭代次数（如 100 次），既避免 eps 过大导致精度不足，也避免 eps 过小导致死循环。",
+    "fix": "    const double eps = 1e-9;  // 比要求精度 1e-6 小三个数量级\n    double l = 1.0, r = 2.0;\n    while (r - l > eps) {\n        double mid = (l + r) / 2;\n        if (check(mid))\n            r = mid;\n        else\n            l = mid;\n    }\n    printf(\"%.6f\\n\", r);",
+    "source": "https://oi-wiki.org/basic/binary/",
+    "case": {
+      "prelude": "// 单调函数：求最小的 x 使得 x*x >= 2\nbool check(double x) { return x * x >= 2.0; }",
+      "run": "",
+      "buggy": {
+        "kind": "stdout",
+        "value": "1.421875"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "1.414214"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "variance-cancellation",
+    "category": "浮点数",
+    "level": 3,
+    "title": "用 E(x²)−(Ex)² 算大方差数据，减出负数",
+    "question": "4 个 1e12 量级的坐标，两两相差 1，方差显然是 1.25。程序按 var = E(x²) − (E x)² 计算（这个恒等式在数学上完全正确），打印出来却是 `-134217728.000000` —— 一个负的方差，而且错得离谱。数据没有超出 double 的范围，公式也没有写错。",
+    "buggy_code": "    double s1 = 0, s2 = 0;\n    for (int i = 0; i < n; ++i) {\n        s1 += a[i];\n        s2 += a[i] * a[i];\n    }\n    double mean = s1 / n;\n    double var = s2 / n - mean * mean;\n    printf(\"%.6f\\n\", var);",
+    "answer": "这是灾难性抵消（catastrophic cancellation）。x ≈ 1e12，x² ≈ 1e24，`s2` 约 4e24；double 在 4e24 处的间隔（ULP）是 4e24 × 2^-52 ≈ 8.9e8，也就是说 s2 的每一次累加和最终存储都只能精确到 ~1e9，除以 n 后方差里就带着 ~2e8 的绝对误差。而真正的方差只有 1.25，于是 `s2/n` 和 `mean*mean`（两个约 1e24 的数）相减时，前面那些高位完全相同、被抵消掉，只剩下各自的舍入噪声，结果可以是负数，也可以像 1e9 数据那样恰好为 0。误差不是「变小」，而是被放大到了与真值无关的量级。正确做法是两遍算法：先求均值，再累加 (a[i] − mean)²，这样每个差都是小量，不会出现大数相减。等价地也可以先做平移（减去一个接近均值的常数）再套公式。",
+    "fix": "    double mean = 0;\n    for (int i = 0; i < n; ++i) mean += a[i];\n    mean /= n;\n    double var = 0;\n    for (int i = 0; i < n; ++i) var += (a[i] - mean) * (a[i] - mean);\n    var /= n;\n    printf(\"%.6f\\n\", var);",
+    "source": "https://oi-wiki.org/math/probability/exp-var/",
+    "case": {
+      "prelude": "const int n = 4;\ndouble a[n] = {1e12, 1e12 + 1, 1e12 + 2, 1e12 + 3};",
+      "run": "",
+      "buggy": {
+        "kind": "stdout",
+        "value": "-134217728"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "1.250000"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "printf-half-even-rounding",
+    "category": "浮点数",
+    "level": 2,
+    "title": "printf(\"%.0f\") 不是四舍五入：2.5 输出 2",
+    "question": "平均分恰好是 2.5，题目要求四舍五入到整数后输出，程序用 printf(\"%.0f\", score) 打印，屏幕上却是 `2`；同一份代码在 3.5 时会打印 4，在 1.5 时会打印 2。看上去「有时候舍有时候入」，但 2.5 明明该进位成 3。",
+    "buggy_code": "    printf(\"%.0f\\n\", score);",
+    "answer": "printf 把浮点数转成十进制数字串时执行的是「按当前舍入模式正确舍入」而不是我们习惯的四舍五入；默认舍入模式是 FE_TONEAREST，即「就近舍入，恰好落在两个候选值正中间时取偶」（round-half-to-even，也叫银行家舍入）。2.5 正好在两个整数中点，取偶得 2；1.5 取偶得 2；3.5 取偶得 4；所以只有当小数部分不是恰好 0.5 时，结果才和四舍五入一致。所以凡是「恰好 .5 要进位」的用例都会错。正确做法是显式做四舍五入：`printf(\"%.0f\", floor(x + 0.5))`（x ≥ 0 时），或者干脆避免浮点：把分数用整数存成「百分数」或「两倍值」，`(2 * sum + n) / (2 * n)` 全整数完成，输出时再手动插入小数点。同理，保留 k 位小数时也不能依赖 printf 处理 .5 边界。",
+    "fix": "    printf(\"%.0f\\n\", floor(score + 0.5));  // 显式四舍五入",
+    "source": "https://en.cppreference.com/w/cpp/io/c/fprintf",
+    "case": {
+      "prelude": "double score = 2.5;",
+      "run": "",
+      "buggy": {
+        "kind": "stdout",
+        "value": "2"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "3"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "char-mapped-to-zero",
+    "category": "哈希",
+    "level": 1,
+    "title": "字符映射成 c - 'a' 时 'a' 的值是 0，于是 hash(\"a\") == hash(\"aa\")，前导 a 全被吃掉",
+    "question": "判断两个字符串是否相同，用的是多项式哈希。输入 \"a\" 和 \"aa\" 时期望判定为不同，程序却打印 same: 1——两个串的哈希值都是 0。把这两个串换成 \"b\" 和 \"bb\" 又恢复正常。乘法和取模都没有写错，为什么偏偏整串都是 a 的时候会撞？",
+    "buggy_code": "auto get_hash = [](const string& s) {   // 把串映射成 [0, MOD) 内的整数\n    long long h = 0;\n    for (char c : s) h = (h * BASE + (c - 'a')) % MOD;\n    return h;\n};",
+    "answer": "多项式哈希把字符串看成一个 BASE 进制数，第 i 位的贡献是「该位字符值 × BASE 的幂」。这里把 'a'..'z' 映射成 0..25，'a' 恰好是 0，而 0 在进制表示里等价于「这一位不存在」：hash(\"a\") = 0，hash(\"aa\") = 0*233 + 0 = 0，任意 \"aaa…\" 都等于 0。更一般地，在任意串前面补多少个 'a' 哈希都不变，长度信息被彻底抹掉——这已经不是「小概率碰撞」，而是确定性的、可以批量构造的碰撞（同一个哈希值对应无穷多个串）。根因是字符→整数的映射不单射：哈希函数要求每个字符的贡献至少是 1，并且 BASE 必须大于最大字符值。本题 BASE = 233 > 26，问题只出在 0 上。改法是把映射改成 c - 'a' + 1（值域 1..26）；若字符集更大（大小写+数字）就加到 1..62，同时把 BASE 提到大于 62（131、233 均可）。另外注意 char 可能是带符号的，遇到非 ASCII 字节要先转 (unsigned char)，否则 c - 'a' 会是负数。",
+    "fix": "auto get_hash = [](const string& s) {   // 把串映射成 [0, MOD) 内的整数\n    long long h = 0;\n    for (char c : s) h = (h * BASE + (c - 'a' + 1)) % MOD;\n    return h;\n};",
+    "source": "https://oi-wiki.org/string/hash/",
+    "case": {
+      "prelude": "const int MOD = 1000000007;\nconst int BASE = 233;\nstring A = \"a\";\nstring B = \"aa\";",
+      "run": "    printf(\"hash(\\\"%s\\\") = %lld\\n\", A.c_str(), get_hash(A));\n    printf(\"hash(\\\"%s\\\") = %lld\\n\", B.c_str(), get_hash(B));\n    printf(\"same: %d\\n\", (int)(get_hash(A) == get_hash(B)));",
+      "buggy": {
+        "kind": "stdout",
+        "value": "same: 1"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "same: 0"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "table-zero-means-empty",
+    "category": "哈希",
+    "level": 2,
+    "title": "用 0 当「空槽」标记：键 0 插进线性探测表以后永远查不到，还会把探测链截断",
+    "question": "手写了一张线性探测的哈希表（TBL = 17），依次插入 0 和 5，然后查询。查询 5 正常得到 1，查询 0 却得到 0；插入时没有任何报错，表也没满。把 0 换成 17 或者 -3 又都能查到。为什么偏偏键 0 会失踪？",
+    "buggy_code": "auto insert_key = [](int x) {\n    int i = pos(x);\n    while (slot[i] != 0 && slot[i] != x) i = (i + 1) % TBL;\n    slot[i] = x;\n};\nauto contains = [](int x) {\n    int i = pos(x);\n    while (slot[i] != 0) {\n        if (slot[i] == x) return true;\n        i = (i + 1) % TBL;\n    }\n    return false;\n};",
+    "answer": "槽数组默认全 0，代码又用 slot[i] == 0 表示「这个位置还空着」，于是「空」和「键 0」共用了同一个表示，两种语义冲突。insert_key(0)：pos(0) = 0，循环条件 slot[0] != 0 一开始就为假，直接把 0 写回 slot[0]，等于什么都没插。contains(0)：while (slot[i] != 0) 一开始就为假，立刻 return false。所以键 0 永远查不到；更糟的是这个歧义会扩散——之后任何探测链经过 slot[0] 都会把它当成空位，在那里写入新键或提前结束查找，造成重复键、覆盖和「查询明明插过却查不到」。正解是把「槽是否被占用」和「槽里存了什么值」分开：另开一个 used[] 位图（或用 last[] 时间戳数组，省掉每次的清空），或用键域外的哨兵值（如 INT_MIN，前提是数据范围排除它），或把槽写成 std::optional<int> / pair<bool,int>。这也是键可能是 0 的离散化题必须留意的点。",
+    "fix": "bool used[TBL] = {};\nauto insert_key = [&](int x) {\n    int i = pos(x);\n    while (used[i] && slot[i] != x) i = (i + 1) % TBL;\n    used[i] = true;\n    slot[i] = x;\n};\nauto contains = [&](int x) {\n    int i = pos(x);\n    while (used[i]) {\n        if (slot[i] == x) return true;\n        i = (i + 1) % TBL;\n    }\n    return false;\n};",
+    "source": "https://oi-wiki.org/ds/hash/",
+    "case": {
+      "prelude": "const int TBL = 17;\nint slot[TBL];\nint pos(int x) { return ((x % TBL) + TBL) % TBL; }",
+      "run": "    insert_key(0);\n    insert_key(5);\n    printf(\"contains(0) = %d\\n\", (int)contains(0));\n    printf(\"contains(5) = %d\\n\", (int)contains(5));",
+      "buggy": {
+        "kind": "stdout",
+        "value": "contains(0) = 0"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "contains(0) = 1"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "substring-hash-negative-mod",
+    "category": "哈希",
+    "level": 2,
+    "title": "子串哈希 pre[r] - pre[l-1]*pow 差为负：同一个 \"hello\" 算出 856916412 和 -143083595",
+    "question": "S = \"hellohellohello\"，用前缀哈希求 S[1..5] 与 S[11..15] 的哈希值。两段子串都是 \"hello\"，期望 equal: 1，实际却打印 equal: 0，而且第二段的哈希值是负数。取模一次都没漏写，为什么同一个子串会算出两个不同的哈希？",
+    "buggy_code": "int n = (int)S.size();\nvector<long long> h(n + 1, 0), pw(n + 1, 1);\nfor (int i = 1; i <= n; i++) {\n    h[i] = (h[i - 1] * BASE + (unsigned char)S[i - 1]) % MOD;\n    pw[i] = pw[i - 1] * BASE % MOD;\n}\nauto sub_hash = [&](int l, int r) {\n    return (int)((h[r] - h[l - 1] * pw[r - l + 1] % MOD) % MOD);\n};\nint x = sub_hash(1, 5), y = sub_hash(11, 15);",
+    "answer": "公式 f(l..r) = h[r] - h[l-1] * BASE^(r-l+1) 在数学上讨论的是模 MOD 的剩余类，但 C++ 里 % 对负数的结果是负的：h[r] - h[l-1]*pw[...] 可能落在 (-MOD, 0)，再 % MOD 仍然是这个负数。于是哈希值的取值范围变成 (-MOD, MOD)，而不是 [0, MOD)。同一个子串 \"hello\" 出现在前缀较小的地方时差为正（856916412），出现在靠后的位置时 h[r] 不够减、差为负（-143083595），比较自然失败。这类错误只在「子串靠前」的数据上不出现，所以小样例常常测不出来；一旦拿这个值当下标还会数组越界/UB。正解是把它拉回非负：(x % MOD + MOD) % MOD，或者写 (h[r] - h[l-1] * pw[r-l+1] % MOD + MOD) % MOD（差大于 -MOD，加一次 MOD 就够，不必担心溢出——前提是乘的时候用 long long）。如果图省事用 unsigned long long 自然溢出，确实不会出现负值，但那条路会引入「自然溢出被卡」的问题，重要题目还是双哈希更稳。",
+    "fix": "int n = (int)S.size();\nvector<long long> h(n + 1, 0), pw(n + 1, 1);\nfor (int i = 1; i <= n; i++) {\n    h[i] = (h[i - 1] * BASE + (unsigned char)S[i - 1]) % MOD;\n    pw[i] = pw[i - 1] * BASE % MOD;\n}\nauto sub_hash = [&](int l, int r) {\n    return (int)((h[r] - h[l - 1] * pw[r - l + 1] % MOD + MOD) % MOD);\n};\nint x = sub_hash(1, 5), y = sub_hash(11, 15);",
+    "source": "https://oi-wiki.org/string/hash/#多次询问子串哈希",
+    "case": {
+      "prelude": "const int MOD = 1000000007;\nconst int BASE = 131;\nstring S = \"hellohellohello\";",
+      "run": "    printf(\"S[1..5]   = \\\"%s\\\", hash = %d\\n\", S.substr(0, 5).c_str(), x);\n    printf(\"S[11..15] = \\\"%s\\\", hash = %d\\n\", S.substr(10, 5).c_str(), y);\n    printf(\"equal: %d\\n\", (int)(x == y));",
+      "buggy": {
+        "kind": "stdout",
+        "value": "equal: 0"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "equal: 1"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "even-base-natural-overflow",
+    "category": "哈希",
+    "level": 3,
+    "title": "自然溢出 + 偶数 base=256：256^8 ≡ 0 (mod 2^64)，长度 9 的串第一位字符被整体抹掉",
+    "question": "用 unsigned long long 自然溢出做字符串哈希，base 取 256。取 \"aaaaaaaaa\" 和 \"baaaaaaaa\"——两个长度 9、只有首字符不同（a 与 b）的串——程序判定 same: 1。把长度改成 8，或者把 base 改成 131，又都正确地判为不同。整个过程没有写任何取模，为什么这两个串会撞在同一个值上？",
+    "buggy_code": "const ull base = 256;\nauto get_hash = [&](const string& s) {\n    ull h = 0;\n    for (char c : s) h = h * base + (ull)(unsigned char)c;\n    return h;\n};",
+    "answer": "用 unsigned long long 存哈希等价于取模 2^64，而 base = 256 = 2^8 与模数不互素：256^8 = 2^64 ≡ 0 (mod 2^64)。第 i 位字符的贡献是 s_i * base^(l-i)（从 1 开始数），只要 l-i >= 8，这一项就恒等于 0。长度 9 时首位字符的指数正好是 8，于是 'a' 和 'b' 的贡献都为 0，两个串的哈希完全一致——这是确定性碰撞，不用碰运气。推广开来：base = 2^k 时，任何长度超过 ceil(64/k) 的串，前 ceil(64/k) 个字符全部失效，构造反例是小学算术。这正是 oi-wiki「卡自然溢出 Hash」里 b 为偶数的情形，也是 CF 上 anti-hash 数据最爱打的一类写法。正解：base 必须取奇数（131、233、1000003），让 base 与 2^64 互素；或者干脆用大质数取模（中间结果用 long long，必要时 __int128），重要题目用双哈希。注意换成奇数 base 只是挡住了「偶数基」这一族构造，2^64 仍然可以被 Thue–Morse 一类串卡掉，所以别把自然溢出当成安全选择。",
+    "fix": "const ull base = 1000003;\nauto get_hash = [&](const string& s) {\n    ull h = 0;\n    for (char c : s) h = h * base + (ull)(unsigned char)c;\n    return h;\n};",
+    "source": "https://oi-wiki.org/string/hash/#卡自然溢出-hash",
+    "case": {
+      "prelude": "using ull = unsigned long long;\nconst string S1 = \"aaaaaaaaa\";\nconst string S2 = \"baaaaaaaa\";",
+      "run": "    printf(\"hash(\\\"%s\\\") = %llu\\n\", S1.c_str(), get_hash(S1));\n    printf(\"hash(\\\"%s\\\") = %llu\\n\", S2.c_str(), get_hash(S2));\n    printf(\"same: %d\\n\", (int)(get_hash(S1) == get_hash(S2)));",
+      "buggy": {
+        "kind": "stdout",
+        "value": "same: 1"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "same: 0"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "unordered-set-prime-multiple-keys",
+    "category": "哈希",
+    "level": 3,
+    "title": "键取 bucket_count 的倍数：libstdc++ 的整数 hash 是恒等映射，1000 个键全挤进一个桶",
+    "question": "统计不同元素个数，n = 1000。用 unordered_set 存数据，插入后测最坏桶长，结果是 1000——所有键都落在同一个桶里，插入退化成 O(n^2)，数据一上 1e5 就 TLE。同一份代码换成随机键时最坏桶长只有 5 左右。哈希函数和取模都不是你写的，为什么这些键会全撞在一起、而且撞得整整齐齐？",
+    "buggy_code": "unordered_set<long long> st;\nst.reserve(NKEY);\nconst long long step = (long long)st.bucket_count();\nfor (int i = 1; i <= NKEY; i++) st.insert(step * i);\nlong long worst = worst_bucket(st);",
+    "answer": "libstdc++ 里 std::hash<long long> 是恒等映射（把键原样返回），而桶下标 = 散列值 % bucket_count，bucket_count 扩容时从一张质数表里取值（g++ 6 及以前常见 126271，g++ 7 及以后常见 107897，见 oi-wiki 引用的 hashtable-aux.cc）。本题的键是 bucket_count 的整数倍，余数全部为 0，于是 1000 个键挤进同一个桶，每次插入都要沿链表比较整条链，单次 O(n)、整体 O(n^2)——「平均 O(1)」彻底失效。这正是 oi-wiki 说的「往容器里插入质数的倍数即可制造大量冲突」，也是 CF 上被 anti-hash 数据 hack、以及把 unordered_map 当无限数组用的经典翻车点。注意 reserve 只影响扩容时机，救不了已经退化的散列函数；复杂度退化时表现还依赖实现（GCC 各版本质数表不同），本机复现的数字不必强求跨版本一致。正解：给容器换一个先做混合的自定义 hash（splitmix64、乘加移位都行），或者加一个随机种子（std::chrono 生成）让攻击者无法预先构造；更稳的做法是离散化后用数组、或直接用 map，别把 unordered_* 当默认选择。",
+    "fix": "auto mix = [](uint64_t x) {\n    x += 0x9e3779b97f4a7c15ULL;\n    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;\n    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;\n    return x ^ (x >> 31);\n};\nauto my_hash = [&mix](long long x) { return (size_t)mix((uint64_t)x); };\nunordered_set<long long, decltype(my_hash)> st(0, my_hash);\nst.reserve(NKEY);\nconst long long step = (long long)st.bucket_count();\nfor (int i = 1; i <= NKEY; i++) st.insert(step * i);\nlong long worst = worst_bucket(st);",
+    "source": "https://oi-wiki.org/lang/csl/unordered-container/#制造哈希冲突",
+    "case": {
+      "prelude": "const int NKEY = 1000;\n\ntemplate <class Set>\nlong long worst_bucket(Set& st) {\n    map<long long, long long> cnt;\n    long long mx = 0;\n    for (long long x : st) mx = max(mx, ++cnt[(long long)st.bucket(x)]);\n    return mx;\n}",
+      "run": "    printf(\"keys = %d, worst bucket size = %lld\\n\", NKEY, worst);\n    printf(\"clustered: %d\\n\", (int)(worst * 2 > NKEY));",
+      "buggy": {
+        "kind": "stdout",
+        "value": "clustered: 1"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "clustered: 0"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "pbds_join_overlap_join_error",
+    "category": "pb_ds",
+    "level": 3,
+    "title": "join 要求两棵树的键值域不相交，相交时抛 join_error；catch 掉异常不会把元素并进来",
+    "question": "两个数据块分别建成 pb_ds 红黑树，要先把第二块并进第一块，再输出合并后集合的大小和元素。不加 try-catch 时程序直接停掉，屏幕上出现 terminate called after throwing an instance of '__gnu_pbds::join_error'；加上 try-catch 后能跑完了，可输出是 merged=4、seq: 1 4 5 9，第二块的 3 6 7 一个都没进去（应为 merged=7、1 3 4 5 6 7 9）。把两块换成值域完全不重叠的数据（比如一块 1 2 3、一块 8 9）再测，结果又是对的。",
+    "buggy_code": "  for (int v : {1, 4, 5, 9}) a.insert(v);     // 第一块数据\n  for (int v : {3, 6, 7}) b.insert(v);        // 第二块数据\n\n  try {\n    a.join(b);                                // 把 b 并进 a\n  } catch (...) {\n  }",
+    "answer": "join 有一条硬性的前置条件：两棵树的键值域必须完全不相交，也就是 b 里所有键要么都大于 a 的所有键、要么都小于，不能交错。两条值域一旦有交集（这里 a 是 [1,9]、b 是 [3,7]），libstdc++ 的 join 会在合并前做一次范围检查，直接抛 __gnu_pbds::join_error（它继承自 __gnu_pbds::container_error，本质是 std::logic_error 家族）。\n\n所以最初那个 terminate 不是写错了语法，而是没人接这个异常；后来加 try-catch 只是把异常压下去，a 依然一个元素都没并进来——b 的元素既没进 a，b 本身也没被清空，程序就拿着「只装了一半数据」的 a 继续跑，于是 merged=4、seq 只剩第一块。值域不相交的那组测试之所以对，是因为那种情况本来就能 join。\n\n要合并值域有交集的树，只有两条路：把一棵树的元素逐个 insert 到另一棵树里（O(n log n)，本题就是这条），或者先把元素按值域切成若干互不相交的块再 join。顺带记住 join 的另一个副作用：并入成功后 x 树会被清空（本例里是 b 变空），如果后面还要用 b 就得自己重新建。",
+    "fix": "  for (int v : {1, 4, 5, 9}) a.insert(v);\n  for (int v : {3, 6, 7}) b.insert(v);\n\n  for (int v : b) a.insert(v);                // 值域有交集，只能逐个插入\n  b.clear();                                  // 源树已空，这里显式说明不再使用",
+    "source": "https://oi-wiki.org/lang/pb-ds/tree/#成员函数",
+    "case": {
+      "prelude": "#include <ext/pb_ds/assoc_container.hpp>\n#include <ext/pb_ds/tree_policy.hpp>\nusing namespace __gnu_pbds;\n\ntypedef tree<int, null_type, less<int>, rb_tree_tag,\n             tree_order_statistics_node_update> oset;\n\noset a, b;                                    // 两棵树互相独立，a 是主树",
+      "run": "    printf(\"merged=%d\\n\", (int)a.size());\n    printf(\"seq:\");\n    for (int v : a) printf(\" %d\", v);\n    printf(\"\\n\");",
+      "buggy": {
+        "kind": "stdout",
+        "value": "merged=4"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "merged=7"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "pbds_order_of_key_strict_less",
+    "category": "pb_ds",
+    "level": 2,
+    "title": "order_of_key(x) 数的是严格小于 x 的个数，用它数「≤ x」会少一个",
+    "question": "树里存着 2 4 6 8 10，要回答两次「值 ≤ q 的元素个数」。q = 6 时输出 le(6)=2，正确答案是 3；q = 7 时输出 le(7)=3，又是对的。两次调用的是同一个函数、同一行代码，只有询问的 q 不同：6 在树里，7 不在。",
+    "buggy_code": "  for (int v : {2, 4, 6, 8, 10}) t.insert(v);\n\n  le6 = (int)t.order_of_key(6);   // 想数「值 <= 6 的个数」\n  le7 = (int)t.order_of_key(7);   // 想数「值 <= 7 的个数」",
+    "answer": "order_of_key(x) 的返回值是「严格小于 x 的元素个数」，也就是 x 在树里的 0 基排名：x 存在时它算的是 x 前面有多少个，x 不在时刚好等于「≤ x 的个数」。所以它天生是「< x」的计数，不是「≤ x」的。\n\n这解释了为什么同样的写法一问对一问错：q=7 不在树里，< 7 和 ≤ 7 是同一批元素，答案 3 碰巧正确；q=6 在树里，order_of_key(6) 只数了 2 和 4，把 6 自己漏掉了，于是 2 而不是 3。\n\n要数「≤ x」有几种等价写法：整型键可以直接 order_of_key(x + 1)；键类型不好加一时用 (int)t.order_of_key(x) + (t.find(x) != t.end())；或者对 x 做一次 upper_bound，再配合 order_of_key(*it)。反过来，要数「≥ x」是 size() − order_of_key(x)，要数「> x」是 size() − order_of_key(x + 1)。顺带一提，find_by_order 是它的反函数：第 r 小的元素是 *find_by_order(r)，r 从 0 开始，r ≥ size() 时返回 end()，解引用前必须判。",
+    "fix": "  for (int v : {2, 4, 6, 8, 10}) t.insert(v);\n\n  le6 = (int)t.order_of_key(6 + 1);   // <= 6 就是 < 7\n  le7 = (int)t.order_of_key(7 + 1);   // <= 7 就是 < 8",
+    "source": "https://oi-wiki.org/lang/pb-ds/tree/#成员函数",
+    "case": {
+      "prelude": "#include <ext/pb_ds/assoc_container.hpp>\n#include <ext/pb_ds/tree_policy.hpp>\nusing namespace __gnu_pbds;\n\ntypedef tree<int, null_type, less<int>, rb_tree_tag,\n             tree_order_statistics_node_update> oset;\n\noset t;\nint le6, le7;",
+      "run": "    printf(\"le(6)=%d\\n\", le6);\n    printf(\"le(7)=%d\\n\", le7);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "le(6)=2"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "le(6)=3"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "pbds_tree_set_semantics_dedup",
+    "category": "pb_ds",
+    "level": 1,
+    "title": "tree<int, null_type> 是集合语义：重复的键插进去会被静默吞掉",
+    "question": "数据是 3 3 5 5 5 8，六个元素全 insert 进树里之后 size 只有 3；接着统计「值落在 [3,5] 内的元素个数」得到 2，而正确答案是 5。把数据换成六个互不相同的数再跑，两个输出立刻都对。全程没有报错，insert 也没抛异常。",
+    "buggy_code": "  for (int i = 0; i < n; i++) t.insert(val[i]);\n  sz = (int)t.size();\n  rng = (int)t.order_of_key(6) - (int)t.order_of_key(3);   // 想数 [3, 5] 里的元素",
+    "answer": "pb_ds 的 tree 和 std::set 一样是「键唯一」的关联容器：Key 用 less<int> 比较，键相等就算同一个元素。insert 返回 pair<iterator, bool>，第二个值 false 表示键已经存在、树里什么都没增加——不报错、不抛异常，所以重复数据是被静默丢掉的。六个元素里 3 出现两次、5 出现三次，最后树里只剩 {3, 5, 8}。\n\n于是 size 变成 3，[3,5] 的计数只剩 3 和 5 这两个「不同的键」，得到 2 而不是 5。数据全不相同时没有重复键，自然一切正常，这也是这个坑最难发现的地方：错的不是代码逻辑，而是容器语义和需求不匹配。\n\n要按多重集合用，就得让每个元素有唯一的键：把 Key 换成 pair<值, 出现次序>（或 pair<值, 次数>），这样 (3,0) 和 (3,1) 是两个不同的键，重复值才能各占一个位置；此时排名查询要在 pair 上做，边界写成 (x, INT_MIN) 这类哨兵。如果只需要「有多少种不同的值」，那 set 语义恰好是想要的，说明是需求写错了。真的需要 multiset 语义又不想动键，就换 std::multiset，或者用 tree<int, int> 当计数器（值 → 出现次数）。",
+    "fix": "  typedef tree<pair<int, int>, null_type, less<pair<int, int>>, rb_tree_tag,\n               tree_order_statistics_node_update> osetp;\n  osetp tp;                                   // 键改成 (值, 下标)，重复值各占一个位置\n  for (int i = 0; i < n; i++) tp.insert(make_pair(val[i], i));\n  sz = (int)tp.size();\n  rng = (int)tp.order_of_key(make_pair(6, INT_MIN)) -\n        (int)tp.order_of_key(make_pair(3, INT_MIN));",
+    "source": "https://oi-wiki.org/lang/pb-ds/tree/#模板形参",
+    "case": {
+      "prelude": "#include <ext/pb_ds/assoc_container.hpp>\n#include <ext/pb_ds/tree_policy.hpp>\nusing namespace __gnu_pbds;\n\ntypedef tree<int, null_type, less<int>, rb_tree_tag,\n             tree_order_statistics_node_update> oset;\n\noset t;\nint val[6] = {3, 3, 5, 5, 5, 8};\nint n = 6;\nint sz, rng;",
+      "run": "    printf(\"size=%d\\n\", sz);\n    printf(\"in[3,5]=%d\\n\", rng);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "size=3"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "size=6"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "pbds_split_le_boundary",
+    "category": "pb_ds",
+    "level": 2,
+    "title": "split(x, b) 把「小于等于 x」的留在原树：按阈值 k 切分时 ≥k 的那一半会少一个元素",
+    "question": "树里是 1 2 4 8 16，要按阈值 4 拆成「< 4」和「≥ 4」两棵树。结果小的一半是 lo(3): 1 2 4、大的一半是 hi(2): 8 16 —— 4 跑到小的一半里去了，两棵树的元素个数都差 1，而且没有任何报错。阈值换成树里不存在的数（比如 5）时，切出来的结果又完全符合预期。",
+    "buggy_code": "  for (int v : {1, 2, 4, 8, 16}) t.insert(v);\n\n  t.split(k, hi);            // 想把 < k 的留在 t，>= k 的放进 hi\n  lo_cnt = (int)t.size();\n  hi_cnt = (int)hi.size();",
+    "answer": "split(x, b) 的分界语义是「≤ x 留在当前树，其余进 b」，闭区间，不是「< x」。所以 split(k, hi) 把等于 k 的那个元素也留在了 t 里：本例 lo 变成 {1,2,4}、hi 变成 {8,16}，两边的元素个数都与「< k / ≥ k」的预期差 1。阈值 5 不在树里时，「≤ 5」和「< 5」筛出的是同一批元素，所以看起来完全正常——和所有边界差一类的坑一样，只有阈值命中树里已有的键时才暴露。\n\n要让「≥ k」整体进 hi，边界应该取 k 的前驱：整型键直接 split(k - 1, hi)，通用写法是先 auto it = t.lower_bound(k)：it == t.end() 时不用切；it == t.begin() 时一个元素都不到 k，直接 hi.swap(t) 把整棵树搬过去；否则 split(*prev(it), hi)，用最后一个 < k 的元素当分界点。注意 split 的两个参数树类型必须完全一致，而且它做的是原地搬运，拆完原树的元素就没了。",
+    "fix": "  for (int v : {1, 2, 4, 8, 16}) t.insert(v);\n\n  t.split(k - 1, hi);        // split 是 <= 语义，边界取 k 的前驱 k-1\n  lo_cnt = (int)t.size();\n  hi_cnt = (int)hi.size();",
+    "source": "https://oi-wiki.org/lang/pb-ds/tree/#成员函数",
+    "case": {
+      "prelude": "#include <ext/pb_ds/assoc_container.hpp>\n#include <ext/pb_ds/tree_policy.hpp>\nusing namespace __gnu_pbds;\n\ntypedef tree<int, null_type, less<int>, rb_tree_tag,\n             tree_order_statistics_node_update> oset;\n\noset t, hi;\nint k = 4;\nint lo_cnt, hi_cnt;",
+      "run": "    printf(\"lo(%d):\", lo_cnt);\n    for (int v : t) printf(\" %d\", v);\n    printf(\"\\n\");\n    printf(\"hi(%d):\", hi_cnt);\n    for (int v : hi) printf(\" %d\", v);\n    printf(\"\\n\");",
+      "buggy": {
+        "kind": "stdout",
+        "value": "lo(3): 1 2 4"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "hi(3): 4 8 16"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "discrete-sort-without-unique",
+    "category": "离散化",
+    "level": 2,
+    "title": "只 sort 不 unique：{10,10,20,30,30,40} 被算成 6 个不同值，第 3 小不同值取成 20 而不是 30",
+    "question": "数组 {10,10,20,30,30,40} 里显然只有 4 个不同的数，要求输出「不同值个数」和「第 k=3 小的不同值」，正确结果是 4 和 30；这段代码却打印 distinct = 6、kth = 20。排序做了、值域太大所以也离散化了、取第 k 小直接按下标取，看着都对，为什么结果全错？",
+    "buggy_code": "    vector<int> tmp(a, a + n);\n    sort(tmp.begin(), tmp.end());          // 排好序\n    int m = (int)tmp.size();               // 排序后拿去当 m 用",
+    "answer": "离散化的第一步只是「复制 + 排序」，排序不会让重复元素消失，所以 tmp 仍然是 6 个元素：m = 6 并不是不同值个数。接着 tmp[k-1] 取的是排序后**第 k 个位置**上的值，而重复元素会各自占据一个位置——{10,10,20,30,30,40} 的第 3 个位置是 20，第 3 个**不同值**才是 30。漏掉 unique 这一步，后面凡是基于 m（开数组、建桶、算排名上界）和基于名次取值的结论都会整体偏移。修复：sort 之后补上 tmp.erase(unique(tmp.begin(), tmp.end()), tmp.end())，再用 tmp.size() 当 m。两个注意点：unique 只把重复元素移到尾部并返回新的逻辑结尾，必须配 erase（或自己截断长度）才真正缩短容器；而 unique 只能合并**相邻**的重复，所以它必须排在 sort 之后（见「unique 前没排序」那条）。",
+    "fix": "    vector<int> tmp(a, a + n);\n    sort(tmp.begin(), tmp.end());\n    tmp.erase(unique(tmp.begin(), tmp.end()), tmp.end());  // 去重后才是不同值\n    int m = (int)tmp.size();",
+    "source": "https://oi-wiki.org/misc/discrete/",
+    "case": {
+      "prelude": "int a[6] = {10, 10, 20, 30, 30, 40};\nint n = 6;\nint k = 3;",
+      "run": "    printf(\"distinct = %d\\n\", m);\n    printf(\"kth = %d\\n\", tmp.at(k - 1));",
+      "buggy": {
+        "kind": "stdout",
+        "value": "kth = 20"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "kth = 30"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "discrete-lower-bound-plus-one",
+    "category": "离散化",
+    "level": 2,
+    "title": "lower_bound 减 begin 得到的是 0-based 名次，直接当 1-based 编号用会把最小坐标丢进 0 号格子",
+    "question": "把 5 个坐标（其中 2 个重复）压缩成编号后逐个打标记，最后统计「被打过标记的编号个数」：期望 3，实际打印 distinct = 2。已经确认 m 算出来是 3、去重也做了、循环里每个坐标都写了标记，丢的那一个到底去哪了？",
+    "buggy_code": "    vector<long long> tmp(xs);\n    sort(tmp.begin(), tmp.end());\n    tmp.erase(unique(tmp.begin(), tmp.end()), tmp.end());\n    int m = (int)tmp.size();\n    vector<char> seen(m + 1, 0);           // seen[i] 标记编号 i 是否出现过\n    for (int i = 0; i < n; i++) {\n        int id = (int)(lower_bound(tmp.begin(), tmp.end(), xs[i]) - tmp.begin());\n        seen[id] = 1;\n    }\n    int cnt = 0;\n    for (int i = 1; i <= m; i++) cnt += seen[i];",
+    "answer": "lower_bound 返回迭代器，减去 begin() 得到的是**0-based 下标**（范围 0..m-1）；而 seen 被当成 1-based 数组使用，真正会被统计的只有下标 1..m。于是所有编号整体左移一格：最小的坐标 42 落在 seen[0]，统计循环从 1 开始扫，它被彻底忽略；最大值对应的编号 m-1 也只有落在 1..m 内才计数。这里 m = 3、真正被计入的只有 seen[1] 与 seen[2]，所以 cnt = 2 而不是 3，症状就是「最小值莫名消失」。修复只需 +1：id = lower_bound(...) - tmp.begin() + 1。这个偏移在配树状数组、线段树、1-based 前缀和时尤其致命——不会编译报错也不会越界（id 最大 m-1 仍在容器内），只是 0 号位置上的更新永远查不到；反过来的错法（1-based 值塞进 0-based 数组）则会在最大值处写越界。写离散化时把「名次从 1 还是从 0 开始」当成一条硬约定，一路贯彻到数组大小和循环边界。",
+    "fix": "    vector<long long> tmp(xs);\n    sort(tmp.begin(), tmp.end());\n    tmp.erase(unique(tmp.begin(), tmp.end()), tmp.end());\n    int m = (int)tmp.size();\n    vector<char> seen(m + 1, 0);           // seen[i] 标记编号 i 是否出现过\n    for (int i = 0; i < n; i++) {\n        int id = (int)(lower_bound(tmp.begin(), tmp.end(), xs[i]) - tmp.begin()) + 1;  // 1-based 编号\n        seen[id] = 1;\n    }\n    int cnt = 0;\n    for (int i = 1; i <= m; i++) cnt += seen[i];",
+    "source": "https://en.cppreference.com/w/cpp/algorithm/lower_bound",
+    "case": {
+      "prelude": "vector<long long> xs = {1000000007LL, 42LL, 999999999999LL, 42LL, 1000000007LL};\nint n = (int)xs.size();",
+      "run": "    printf(\"distinct = %d\\n\", cnt);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "distinct = 2"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "distinct = 3"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "discrete-unique-before-sort",
+    "category": "离散化",
+    "level": 1,
+    "title": "unique 只去掉相邻重复：先去重后排序，{3,1,3,2,1} 一个都没删掉，still 5 个「不同值」",
+    "question": "数组 {3,1,3,2,1} 明明只有 3 个不同的数，这份代码却打印 distinct = 5；再问第 2 小的不同值时又打印 second = 1，而正确值是 2。unique 和 sort 两个函数都调用了，为什么重复元素没被去掉？",
+    "buggy_code": "    vector<int> tmp(a);\n    tmp.erase(unique(tmp.begin(), tmp.end()), tmp.end());  // 先去重\n    sort(tmp.begin(), tmp.end());                          // 再排序",
+    "answer": "std::unique 的语义是「删除**相邻**的重复元素」：它顺着区间比较相邻两项，把与前一元素相同的往后搬，返回新的逻辑结尾。它要求区间事先有序，否则相隔很远的相等元素根本不会碰面。{3,1,3,2,1} 中没有任何相邻相等，unique 一个也删不掉，长度仍是 5；随后 sort 只把序列排成 1,1,2,3,3，重复照样在容器里。于是 distinct = 5，而 tmp[1] 是第二个 1 而不是 2。正确顺序是「sort → unique → erase」：排序先让相等的元素挤到一起，unique 才能把它们全部合并。顺序写反既不报错也不越界，只是去重静默失效，而且这类 bug 在「数据本来就升序」或「数据无重复」的测试点上完全看不出来，最容易自测通过、评测暴毙。另外别忘 unique 的返回值是新结尾，只是调用而不 erase（或不用它当长度），size 不会变小。",
+    "fix": "    vector<int> tmp(a);\n    sort(tmp.begin(), tmp.end());                          // 先排序，让相等元素相邻\n    tmp.erase(unique(tmp.begin(), tmp.end()), tmp.end());  // 再去重",
+    "source": "https://en.cppreference.com/w/cpp/algorithm/unique",
+    "case": {
+      "prelude": "vector<int> a = {3, 1, 3, 2, 1};",
+      "run": "    printf(\"distinct = %d\\n\", (int)tmp.size());\n    printf(\"second = %d\\n\", tmp[1]);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "distinct = 5"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "distinct = 3"
+      }
+    },
+    "verified": true
+  },
+  {
+    "id": "discrete-gap-on-compressed-ranks",
+    "category": "离散化",
+    "level": 3,
+    "title": "离散化只保序不保距：在压缩后的名次上算相邻时间差，最小间隔永远是 1",
+    "question": "给 4 个时间戳 {1000000000, 1000000005, 1000000100, 42}，要求输出排序后相邻时刻的最小间隔，正确答案是 5，程序却打印 min_gap = 1。它先把时间戳压缩成 1..4 的名次，压缩过程本身没写错（去重、排序、加一都对），为什么间隔全变成 1 了？",
+    "buggy_code": "    vector<long long> tmp(t);\n    sort(tmp.begin(), tmp.end());\n    tmp.erase(unique(tmp.begin(), tmp.end()), tmp.end());\n    vector<int> id(n);\n    for (int i = 0; i < n; i++)\n        id[i] = (int)(lower_bound(tmp.begin(), tmp.end(), t[i]) - tmp.begin()) + 1;\n    sort(id.begin(), id.end());\n    long long gap = LLONG_MAX;\n    for (int i = 1; i < n; i++) gap = min(gap, (long long)(id[i] - id[i - 1]));",
+    "answer": "离散化把原值换成名次，只保留了元素之间的**序关系**，把绝对数值和间距全部丢掉：在名次空间里，任意两个相邻的不同值之间差恒等于 1。代码在名次上求相邻差的最小值，答案必然是 1，不管原始间隔是 5、95 还是 10^9。而本题要的「最小时间间隔」恰恰是依赖绝对数值的度量量，属于离散化之后**必须映射回原值**才能算的东西：用 tmp[id-1] 取回原坐标再做减法（等价地直接对排序后的原数组求相邻差）。记一条分界线——压缩后可以安全地做「比较大小、求排名、计数、做前缀和、按下标开桶（桶的大小用 m，不用值域）」；不能直接做「差值、求和、平均、依赖值域长度的开数组」。本题正确的最小间隔来自 1000000005 - 1000000000 = 5，而 1000000000 - 42 这样跨越首个元素的大间隔不会成为最小值。",
+    "fix": "    vector<long long> tmp(t);\n    sort(tmp.begin(), tmp.end());\n    tmp.erase(unique(tmp.begin(), tmp.end()), tmp.end());\n    vector<int> id(n);\n    for (int i = 0; i < n; i++)\n        id[i] = (int)(lower_bound(tmp.begin(), tmp.end(), t[i]) - tmp.begin()) + 1;\n    sort(id.begin(), id.end());\n    long long gap = LLONG_MAX;\n    for (int i = 1; i < n; i++)\n        if (id[i] != id[i - 1])                                // 名次不同才是不同时刻\n            gap = min(gap, tmp[id[i] - 1] - tmp[id[i - 1] - 1]);  // 名次映射回原值再作差",
+    "source": "https://oi-wiki.org/misc/discrete/",
+    "case": {
+      "prelude": "vector<long long> t = {1000000000LL, 1000000005LL, 1000000100LL, 42LL};\nint n = (int)t.size();",
+      "run": "    printf(\"min_gap = %lld\\n\", gap);",
+      "buggy": {
+        "kind": "stdout",
+        "value": "min_gap = 1"
+      },
+      "fix": {
+        "kind": "stdout",
+        "value": "min_gap = 5"
+      }
+    },
+    "verified": true
   }
 ]

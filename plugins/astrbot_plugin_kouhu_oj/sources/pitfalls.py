@@ -126,3 +126,60 @@ class PitfallSource:
         if not pool:
             raise LookupError("这个条件下没有坑点题，换个分类或难度试试")
         return random.choice(pool)
+
+    def count(
+        self,
+        exclude: tuple[str, ...] = (),
+        category: str | None = None,
+        level: int | None = None,
+    ) -> int:
+        """符合条件的题还有多少条。用来判断「这一类出完了」还是「根本没这类」。"""
+        pool = self._filter(exclude=exclude, category=category, level=level)
+        return len(pool)
+
+    def _filter(
+        self,
+        exclude: tuple[str, ...] = (),
+        category: str | None = None,
+        level: int | None = None,
+    ) -> list[dict]:
+        items = self._load()
+        skip = set(exclude)
+        pool = [item for item in items if item["id"] not in skip]
+        if category:
+            real = self.resolve_category(category) or category
+            pool = [item for item in pool if item.get("category") == real]
+        if level is not None:
+            pool = [item for item in pool if int(item.get("level") or 2) == int(level)]
+        return pool
+
+    def get(self, pid: str) -> dict | None:
+        for item in self._load():
+            if item["id"] == pid:
+                return item
+        return None
+
+    def category_summary(self) -> str:
+        """一行一类的概览，直接贴进群消息。
+
+        比原来的 L1122233 好读：那串数字需要看底部的注释才懂。
+        """
+        items = self._load()
+        by_cat: dict[str, list[dict]] = {}
+        for item in items:
+            by_cat.setdefault(item.get("category") or "其他", []).append(item)
+
+        levels = {1: "入门", 2: "常见", 3: "阴间"}
+        proven = sum(1 for i in items if i.get("verified"))
+        lines = [f"坑点题共 {len(items)} 道，按分类（{proven} 道经机器验证）："]
+        for cat in sorted(by_cat, key=lambda c: (-len(by_cat[c]), c)):
+            group = by_cat[cat]
+            per = []
+            for lv in (1, 2, 3):
+                n = sum(1 for i in group if int(i.get("level") or 2) == lv)
+                if n:
+                    per.append(f"{levels[lv]}{n}")
+            lines.append(f"  {cat} {len(group)} 道（{' '.join(per)}）")
+        lines.append("")
+        lines.append("抽题：grm new [分类] [难度 1-3]，分类和难度都可以不带")
+        return "\n".join(lines)

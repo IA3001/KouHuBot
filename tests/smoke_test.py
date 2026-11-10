@@ -338,8 +338,10 @@ def test_pitfalls(tmp: Path) -> None:
         (Path(__file__).resolve().parent.parent
          / "plugins" / "astrbot_plugin_kouhu_oj" / "pitfalls.json").read_text(encoding="utf-8")
     )
-    leak_words = ["错", "死循环", "越界", "溢出", "没", "少", "应该", "注意",
-                  "问题", "不对", "漏", "仍", "遮蔽", "bug", "BUG"]
+    # 用词组而不是单字：单字「没」「少」会误伤「多少」「没有意义」这类正常措辞
+    leak_words = ["错了", "写错", "死循环", "越界", "溢出", "没有清空", "没有初始化",
+                  "没有判重", "少了", "应该写", "应该是", "注意这里", "问题出",
+                  "不对", "漏了", "仍然是", "遮蔽", "bug", "BUG"]
     bad_comments = []
     for item in items:
         for line in item["buggy_code"].split("\n"):
@@ -350,12 +352,15 @@ def test_pitfalls(tmp: Path) -> None:
                 bad_comments.append(f"{item['id']}: //{comment.strip()}")
     check("代码注释不泄底", not bad_comments, "; ".join(bad_comments[:3]))
 
-    # 问句里不能出现答案的关键术语
+    # 问句里不能出现答案的关键术语。
+    # 只收**高度特异**的说法：像「溢出」「越界」这种既是坑名也是题面设定的词，
+    # 出现在问句里很正常（「用自然溢出做哈希」），不能算泄底。
     leaks = []
+    specific = ["严格弱序", "迭代器失效", "无符号回绕", "取地址符",
+                "未初始化", "产生进位", "向零取整"]
     for item in items:
         q, ans = item["question"], item["answer"]
-        for term in ["严格弱序", "未初始化", "迭代器失效", "无符号回绕",
-                     "取地址", "严格弱", "越界", "溢出"]:
+        for term in specific:
             if term in ans and term in q:
                 leaks.append(f"{item['id']}: {term}")
     check("问句不含答案术语", not leaks, "; ".join(leaks[:3]))
@@ -394,6 +399,116 @@ def test_clock_rollback(tmp: Path) -> None:
     check("冷却不再直接用 time.time()",
           "cooldown - (time.time()" not in src,
           "还有残留的墙钟冷却计算")
+
+
+def test_pitfall_memory(mod, tmp: Path) -> None:
+    """坑点题出题记忆：出过的不能重复出，出完一轮才重置。
+
+    没有这层记忆就是有放回抽样，64 条按生日问题算第 10 次左右就开始撞车。
+    """
+    print("\n[pitfalls] 出题记忆")
+    store = mod.OjStore(tmp / "mem.db")
+    scope = "group:1:grammar"
+
+    eq("初始没有记录", store.used_pitfalls(scope), set())
+    store.note_pitfall(scope, "a")
+    store.note_pitfall(scope, "b")
+    eq("记了 2 条", store.used_pitfalls(scope), {"a", "b"})
+
+    store.note_pitfall(scope, "a")
+    eq("重复记不叠加", len(store.used_pitfalls(scope)), 2)
+
+    store.forget_pitfall(scope, "a")
+    eq("单条遗忘", store.used_pitfalls(scope), {"b"})
+
+    store.note_pitfall(scope, "a")
+    store.reset_pitfalls(scope)
+    eq("整轮重置", store.used_pitfalls(scope), set())
+
+    # 不同群互不影响
+    store.note_pitfall(scope, "x")
+    eq("别的群不受影响", store.used_pitfalls("group:2:grammar"), set())
+    store.close()
+
+
+def test_pitfall_no_repeat(tmp: Path) -> None:
+    """连续抽题不能重复，直到把这一类抽完。"""
+    print("\n[pitfalls] 抽题不重复")
+    import importlib
+    import random as _random
+
+    pf = importlib.import_module("sources.pitfalls")
+    src = pf.PitfallSource()
+
+    for cat in ["二分", "位运算", "输入输出"]:
+        total = src.count(category=cat)
+        if total == 0:
+            check(f"{cat} 有题", False, "0 条")
+            continue
+        seen: set[str] = set()
+        picked = []
+        for _ in range(total):
+            item = src.random_pitfall(exclude=tuple(seen), category=cat)
+            seen.add(item["id"])
+            picked.append(item["id"])
+        check(f"{cat} 连抽 {total} 次不重复", len(set(picked)) == total, str(picked))
+        # 抽完之后必须报错，而不是悄悄重复
+        try:
+            src.random_pitfall(exclude=tuple(seen), category=cat)
+        except LookupError:
+            check(f"{cat} 抽完后再抽要报错", True)
+        else:
+            check(f"{cat} 抽完后再抽要报错", False, "又抽出一条重复的")
+
+
+def test_verified_flag() -> None:
+    """题库里「机器证实过」和「还没补骨架」要能区分开。
+
+    不做这个区分的话，一条只是片段、从没被跑过的题，和一条真跑通过、
+    buggy 确实报错 fix 确实修好的题，在数据里长得一模一样，
+    后面接手的人不知道该信谁。
+    """
+    print("\n[pitfalls] 验证状态可区分")
+    import json
+    from pathlib import Path as _P
+
+    items = json.loads(
+        (_P(__file__).resolve().parent.parent
+         / "plugins" / "astrbot_plugin_kouhu_oj" / "pitfalls.json").read_text(encoding="utf-8")
+    )
+    missing = [i["id"] for i in items if "verified" not in i]
+    check("每条都有 verified 字段", not missing, str(missing[:5]))
+
+    proven = [i for i in items if i.get("verified")]
+    check("至少 45 条机器证实", len(proven) >= 45, f"{len(proven)} 条")
+
+    # 证实的条目必须真带 case，否则这个标记就是空的
+    fake = [i["id"] for i in proven if not i.get("case")]
+    check("标记为证实的必须带 case", not fake, str(fake[:5]))
+
+    # 带 case 的条目要真的写了 buggy/fix 两组期望，且不同
+    bad = []
+    for i in proven:
+        c = i["case"]
+        b = (c.get("buggy") or {}).get("value")
+        f = (c.get("fix") or {}).get("value")
+        if b is None or f is None:
+            bad.append(f"{i['id']}: 缺期望值")
+        elif b == f:
+            bad.append(f"{i['id']}: buggy 和 fix 期望相同，证明不了有 bug")
+    check("证实的条目两侧期望不同", not bad, "; ".join(bad[:3]))
+
+
+def test_category_summary() -> None:
+    """grm list 的概览要可读，不能是一串 L1122233。"""
+    print("\n[pitfalls] 分类概览")
+    import importlib
+    src = importlib.import_module("sources.pitfalls").PitfallSource()
+    text = src.category_summary()
+    check("概览有总数", "共" in text, text[:80])
+    check("概览用可读难度名", "入门" in text and "常见" in text, text[:120])
+    check("概览没有 L1122233 这种密文", "L1" not in text and "L2" not in text, text[:120])
+    check("概览带抽题指引", "grm new" in text, text[-120:])
 
 
 def test_no_title_leak(tmp: Path) -> None:
@@ -467,7 +582,7 @@ def test_package_import(tmp: Path) -> None:
         eq("包加载下 normalize_tex 生效", cf.normalize_tex(r"a \le b"), r"a \leq b")
 
         main_mod = importlib.import_module("data.plugins.astrbot_plugin_kouhu_oj.main")
-        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.5.5")
+        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.6.0")
         cmds = [n for n in dir(main_mod.KouHuOJ) if n.startswith("cmd_")]
         check(f"指令齐全（{len(cmds)} 个）", len(cmds) >= 12, str(sorted(cmds)))
     finally:
@@ -491,6 +606,10 @@ def main() -> int:
     test_store(mod, tmp)
     test_pitfalls(tmp)
     test_no_title_leak(tmp)
+    test_pitfall_memory(mod, tmp)
+    test_pitfall_no_repeat(tmp)
+    test_category_summary()
+    test_verified_flag()
     test_clock_rollback(tmp)
     test_package_import(tmp)
 

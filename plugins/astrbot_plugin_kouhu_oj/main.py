@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import functools
 import html
 import json
@@ -71,7 +72,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.5.5"
+PLUGIN_VERSION = "0.6.0"
 SCHEMA_VERSION = 5
 
 VERDICT_AC = "AC"
@@ -447,6 +448,19 @@ _DDL_USED = """
 """
 
 
+# 坑点题出题记忆。单独一张表，用 CREATE IF NOT EXISTS 建，
+# 不跟 SCHEMA_VERSION 走——升版本会把积分库整个清掉，为了加一张新表
+# 把所有人的分数洗了不值当。
+_DDL_USED_PITFALL = """
+    CREATE TABLE IF NOT EXISTS used_pitfalls (
+        scope_id TEXT NOT NULL,
+        pitfall_id TEXT NOT NULL,
+        at       REAL NOT NULL,
+        PRIMARY KEY (scope_id, pitfall_id)
+    )
+"""
+
+
 class OjStore:
     """每个群（或私聊）各自一套状态，共用一个 SQLite 文件。"""
 
@@ -478,7 +492,10 @@ class OjStore:
                 cur.execute(f"DROP TABLE IF EXISTS {table}")
             cur.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             logger.info(f"[KouHuOJ] 数据库结构升级到 v{SCHEMA_VERSION}，旧数据已清理")
-        for ddl in (_DDL_PLAYERS, _DDL_CURRENT, _DDL_STATE, _DDL_ATTEMPTS, _DDL_SOLVED, _DDL_USED):
+        for ddl in (
+            _DDL_PLAYERS, _DDL_CURRENT, _DDL_STATE, _DDL_ATTEMPTS,
+            _DDL_SOLVED, _DDL_USED, _DDL_USED_PITFALL,
+        ):
             cur.execute(ddl)
         self._conn.commit()
 
@@ -595,6 +612,33 @@ class OjStore:
             "SELECT cf_key FROM used_problems WHERE scope_id = ?", (scope,)
         ).fetchall()
         return {r["cf_key"] for r in rows}
+
+    # -- 坑点题出题记忆 ------------------------------------------------
+    def used_pitfalls(self, scope: str) -> set[str]:
+        """这个群已经出过的坑点题 id。"""
+        rows = self._conn.execute(
+            "SELECT pitfall_id FROM used_pitfalls WHERE scope_id = ?", (scope,)
+        ).fetchall()
+        return {r["pitfall_id"] for r in rows}
+
+    def note_pitfall(self, scope: str, pitfall_id: str) -> None:
+        self._conn.execute(
+            "INSERT OR IGNORE INTO used_pitfalls (scope_id, pitfall_id, at) VALUES (?,?,?)",
+            (scope, pitfall_id, time.time()),
+        )
+        self._conn.commit()
+
+    def forget_pitfall(self, scope: str, pitfall_id: str) -> None:
+        self._conn.execute(
+            "DELETE FROM used_pitfalls WHERE scope_id = ? AND pitfall_id = ?",
+            (scope, pitfall_id),
+        )
+        self._conn.commit()
+
+    def reset_pitfalls(self, scope: str) -> None:
+        """一个群把题库出完了，重置这一轮，重新开始。"""
+        self._conn.execute("DELETE FROM used_pitfalls WHERE scope_id = ?", (scope,))
+        self._conn.commit()
 
     # -- 群难度进度 ----------------------------------------------------
     def state(self, scope: str) -> dict:
@@ -1471,10 +1515,6 @@ class KouHuOJ(Star):
             )
             return
 
-        exclude: tuple[str, ...] = ()
-        if current and str(current.get("cf_key", "")).startswith(PITFALL_PREFIX):
-            exclude = (str(current["cf_key"])[len(PITFALL_PREFIX):],)
-
         # 参数里可以混着写分类和难度，位置随意：grm new 二分 1 / grm new 1 二分
         category = None
         level = None
@@ -1484,15 +1524,55 @@ class KouHuOJ(Star):
             else:
                 category = category or token
 
+        # 分类打错时直接在回复里推荐，别让人再发一条 grm list
+        if category and not self._pitfalls.resolve_category(category):
+            names = self._pitfalls.categories()
+            near = difflib.get_close_matches(category.lower(), names, n=3, cutoff=0.3)
+            hint = f"没有「{category}」这个分类。"
+            if near:
+                hint += "\n你是不是想找：" + "、".join(near)
+            hint += "\n\n" + self._pitfalls.category_summary()
+            yield event.plain_result(hint)
+            return
+
+        # 出题记忆：本群出过的先排除，出完一轮才重置。
+        # 不记的话就是有放回抽样，64 条按生日问题算第 10 次左右就开始撞车，
+        # 扩到 300 条也只是把撞车点推到第 24 次。
+        reset_note = ""
+        seen = self._store.used_pitfalls(scope)
         try:
             pitfall = self._pitfalls.random_pitfall(
-                exclude=exclude, category=category, level=level
+                exclude=tuple(seen), category=category, level=level
             )
-        except LookupError as exc:
-            yield event.plain_result(
-                f"{exc}\n\n发 grm list 看有哪些分类和难度。"
-            )
-            return
+        except LookupError:
+            # 两种情况：这个筛选条件本身就没题，或者这一类已经全出过了
+            if self._pitfalls.count(category=category, level=level) == 0:
+                yield event.plain_result(
+                    "这个条件下没有坑点题，换个分类或难度试试。\n\n"
+                    + self._pitfalls.category_summary()
+                )
+                return
+            # 全出过了 → 只忘掉这一类，别的分类的记忆保留
+            for pid in list(seen):
+                item = self._pitfalls.get(pid)
+                if not item:
+                    continue
+                if category is not None and item["category"] != category:
+                    continue
+                if level is not None and int(item["level"]) != level:
+                    continue
+                self._store.forget_pitfall(scope, pid)
+            reset_note = "这一类的题都出过一遍了，重新开始。\n"
+            try:
+                pitfall = self._pitfalls.random_pitfall(
+                    exclude=tuple(self._store.used_pitfalls(scope)),
+                    category=category, level=level,
+                )
+            except LookupError as exc:
+                yield event.plain_result(str(exc))
+                return
+
+        self._store.note_pitfall(scope, pitfall["id"])
 
         problem = self._pitfall_to_problem(pitfall)
         try:
@@ -1530,28 +1610,20 @@ class KouHuOJ(Star):
         )
         cf_cur = self._store.current(self._scope_of(event))
         if cf_cur and cf_cur.get("status") == STATUS_OPEN:
-            hint += "\n\n（正题也还开着：那道用 submit 交，别和这道混了）"
-        yield event.plain_result(hint)
+            hint += "\n\n（正题也还开着：那道用 sub 交，别和这道混了）"
+        left = self._pitfalls.count(
+            category=category, level=level
+        ) - len(self._store.used_pitfalls(scope))
+        if left > 0:
+            hint += f"\n（这个条件下还剩 {left} 道没出过）"
+        yield event.plain_result(reset_note + hint)
 
     # -- 坑点题：重看 ---------------------------------------------------
     def _grammar_catalog(self) -> str:
         """grm list —— 有哪些分类、各多少条、难度怎么分。"""
         if not self._pitfalls:
             return "坑点库还没加载好"
-        items = self._pitfalls._load()          # noqa: SLF001
-        by_cat: dict[str, list[int]] = {}
-        for item in items:
-            by_cat.setdefault(item.get("category") or "其他", []).append(
-                int(item.get("level") or 2)
-            )
-        lines = [f"坑点题共 {len(items)} 道，按分类："]
-        for cat, levels in sorted(by_cat.items(), key=lambda kv: -len(kv[1])):
-            dist = "".join(str(lv) for lv in sorted(levels))
-            lines.append(f"  {cat}  {len(levels)} 道  L{dist}")
-        lines.append("")
-        lines.append("难度：1 入门 / 2 常见 / 3 阴间（后面那串数字是各难度的题数）")
-        lines.append("抽题：grm new 二分 1　（分类和难度都可以不带）")
-        return "\n".join(lines)
+        return self._pitfalls.category_summary()
 
     async def _grammar_show(self, event: AstrMessageEvent):
         scope = self._scope_of(event) + GRAMMAR_SUFFIX

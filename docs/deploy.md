@@ -185,7 +185,7 @@ docker compose logs -f astrbot | grep KouHuOJ
 看到类似日志即成功：
 
 ```
-[KouHuOJ] 就绪：题目源 Codeforces + 内置坑点 40 条，题面缓存 0 道，数据目录 /AstrBot/data/plugin_data/astrbot_plugin_kouhu_oj
+[KouHuOJ] 就绪：题目源 Codeforces + 内置坑点 90 条，题面缓存 0 道，数据目录 /AstrBot/data/plugin_data/astrbot_plugin_kouhu_oj
 ```
 
 然后在 WebUI 插件页确认「口胡 OJ」已启用。
