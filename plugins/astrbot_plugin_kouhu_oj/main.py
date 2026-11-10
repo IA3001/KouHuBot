@@ -72,7 +72,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.6.1"
+PLUGIN_VERSION = "0.6.2"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -104,14 +104,34 @@ def _as_int(value, default: int) -> int:
         return default
 
 
-def _load_changelog() -> str:
+# 内嵌兜底：.md 文件可能没同步到数据卷，而 .py 一定会被复制。
+# 优先用 .md（可以在不重建镜像的情况下更新日志），读不到再用内嵌的。
+try:
+    from ._changelog_text import CHANGELOG_MD as _EMBEDDED_CHANGELOG
+except ImportError:  # 插件以非包形式加载时的退路
+    try:
+        from _changelog_text import CHANGELOG_MD as _EMBEDDED_CHANGELOG
+    except ImportError:
+        _EMBEDDED_CHANGELOG = ""
+
+
+def _changelog_source() -> tuple[str, str]:
+    """返回 (正文, 来源说明)。来源要能看出来，方便定位部署问题。"""
     for path in _CHANGELOG_CANDIDATES:
         try:
             if path.is_file():
-                return path.read_text(encoding="utf-8")
+                text = path.read_text(encoding="utf-8")
+                if text.strip():
+                    return text, str(path)
         except OSError:
             continue
-    return ""
+    if _EMBEDDED_CHANGELOG.strip():
+        return _EMBEDDED_CHANGELOG, "内嵌副本"
+    return "", "找不到"
+
+
+def _load_changelog() -> str:
+    return _changelog_source()[0]
 
 
 def _changelog_section(text: str, version: str) -> str:
@@ -194,6 +214,9 @@ RE_ME = re.compile(r"^\s*/?\s*me\s*$", re.I)
 RE_GRM = re.compile(r"^\s*/?\s*(?:grm|grammar)(?:\s+([\s\S]+?))?\s*$", re.I)
 RE_HELP = re.compile(r"^\s*/?\s*help\s*$", re.I)
 RE_ASK = re.compile(r"^\s*/?\s*ask\s+([\s\S]+?)\s*$", re.I)
+# 更新日志单独一条指令：ask 要过意图匹配，匹配不上就退回模型；
+# 而「想看日志」是最确定的需求，不该靠猜。
+RE_VER = re.compile(r"^\s*/?\s*(?:ver|version|changelog|更新|更新日志)\s*$", re.I)
 RE_SKIP = re.compile(r"^\s*/?\s*skip\s*$", re.I)
 RE_TIER = re.compile(r"^\s*/?\s*tier(?:\s+(\d+))?\s*$", re.I)
 RE_STATUS = re.compile(r"^\s*/?\s*status\s*$", re.I)
@@ -207,6 +230,7 @@ giveup        放弃这题（注意：会关掉全群这道题）
 rank          积分榜
 me            我的战绩
 ask 问题       自由问答：题库、运行情况，随便问
+ver           版本号和这一版改了什么
 help          这条帮助
 
 坑点题是另一条独立的线（看代码找 bug），指令都挂在 grm 下面：
@@ -1943,21 +1967,32 @@ class KouHuOJ(Star):
         # 不走模型：模型不知道仓库里有什么，只会说「日志里没有这个信息」，
         # 而日志就在那儿。而且版本历史这种事实性内容，让模型转述容易编。
         if _CHANGELOG_ASK.search(question):
-            changelog = _load_changelog()
-            if changelog:
-                # 问哪个版本就只给哪一节，没点名就给最新一版
-                want = re.search(r"\d+\.\d+\.\d+", question)
-                if want:
-                    section = _changelog_section(changelog, want.group(0))
-                    body = section or f"没找到 {want.group(0)} 的记录。当前版本 {PLUGIN_VERSION}。"
-                else:
-                    body = _changelog_section(changelog, PLUGIN_VERSION)
-                    if not body:
-                        body = changelog.split("## ", 2)[-1][:1500]
+            changelog, origin = _changelog_source()
+            if not changelog:
+                # 绝不静默退回模型：模型没有日志，只会答「快照里没有这个字段」，
+                # 让人以为是功能没做，其实是文件没找到。
+                logger.warning(
+                    "[KouHuOJ] 找不到更新日志，已查路径："
+                    + "、".join(str(p) for p in _CHANGELOG_CANDIDATES)
+                )
                 yield event.plain_result(
-                    f"当前版本 {PLUGIN_VERSION}。\n\n{body}"[:1800]
+                    f"当前版本 {PLUGIN_VERSION}，但更新日志没读出来。\n"
+                    "这通常说明插件文件没同步全，重启容器试试（"
+                    "或把 KOUHU_PLUGIN_SYNC 设成 force）。"
                 )
                 return
+            # 问哪个版本就只给哪一节，没点名就给最新一版
+            want = re.search(r"\d+\.\d+\.\d+", question)
+            if want:
+                section = _changelog_section(changelog, want.group(0))
+                body = section or f"没找到 {want.group(0)} 的记录。当前版本 {PLUGIN_VERSION}。"
+            else:
+                body = _changelog_section(changelog, PLUGIN_VERSION)
+                if not body:
+                    body = changelog.split("## ", 2)[-1][:1500]
+            logger.debug(f"[KouHuOJ] 更新日志来源：{origin}")
+            yield event.plain_result(f"当前版本 {PLUGIN_VERSION}。\n\n{body}"[:1800])
+            return
 
         ack = str(self.config.get("ask_ack_message", "让我看看……") or "").strip()
         if ack:
@@ -1968,6 +2003,29 @@ class KouHuOJ(Star):
             yield event.plain_result("答不上来（模型没响应），稍后再试")
             return
         yield event.plain_result(answer[:1200])
+
+    @filter.regex(RE_VER)
+    @_consumes
+    async def cmd_version(self, event: AstrMessageEvent):
+        """ver —— 版本和最近一版更新日志"""
+        changelog, origin = _changelog_source()
+        head = f"当前版本 {PLUGIN_VERSION}"
+        if not changelog:
+            logger.warning(f"[KouHuOJ] 更新日志不可用（来源：{origin}）")
+            yield event.plain_result(
+                f"{head}，但更新日志没读出来。\n"
+                "插件文件可能没同步全，重启容器试试。"
+            )
+            return
+        body = _changelog_section(changelog, PLUGIN_VERSION)
+        if not body:
+            # 版本号更新了但日志没跟上，把最新一节给他，别让指令空转
+            body = changelog.split("## ", 2)[-1][:1200]
+            yield event.plain_result(
+                f"{head}（这一版还没写日志记录）\n\n{body}"[:1600]
+            )
+            return
+        yield event.plain_result(f"{head}\n\n{body}"[:1600])
 
     @filter.regex(RE_HELP)
     @_consumes

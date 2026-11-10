@@ -485,6 +485,65 @@ def test_changelog(mod) -> None:
         check(f"不误伤 {q!r}", not mod._CHANGELOG_ASK.search(q))
 
 
+def test_changelog_embedded(mod) -> None:
+    """内嵌副本必须和 CHANGELOG.md 一致，且要能兜底。
+
+    线上踩到的：数据卷里的 .md 没同步上，ask 就静默退回模型，
+    模型答「快照里没有这个字段」——看起来像功能没做，其实是文件没找到。
+    现在 .md 读不到就用内嵌的 .py 副本，两个副本靠测试保证不走样。
+    """
+    print("\n[changelog] 内嵌兜底")
+    embedded = mod._EMBEDDED_CHANGELOG
+    check("有内嵌副本", bool(embedded.strip()), "空的")
+
+    import subprocess
+    import sys
+    from pathlib import Path as _P
+
+    root = _P(__file__).resolve().parent.parent
+    gen = root / "tools" / "sync_changelog.py"
+    if gen.is_file():
+        before = (root / "plugins" / "astrbot_plugin_kouhu_oj"
+                  / "_changelog_text.py").read_text(encoding="utf-8")
+        r = subprocess.run([sys.executable, str(gen)], capture_output=True, text=True)
+        after = (root / "plugins" / "astrbot_plugin_kouhu_oj"
+                 / "_changelog_text.py").read_text(encoding="utf-8")
+        check("内嵌副本与 CHANGELOG.md 同步", before == after,
+              "两者不一致，跑 python3 tools/sync_changelog.py 重新生成")
+
+    check("内嵌副本有当前版本", f"## {mod.PLUGIN_VERSION}" in embedded,
+          mod.PLUGIN_VERSION)
+
+    # 兜底路径真的能切出版本节
+    section = mod._changelog_section(embedded, mod.PLUGIN_VERSION)
+    check("内嵌副本能切出版本节", bool(section) and mod.PLUGIN_VERSION in section)
+
+
+def test_version_cmd(mod, tmp: Path) -> None:
+    """ver 指令不依赖 ask 的意图匹配，必须稳定可用。"""
+    print("\n[changelog] ver 指令")
+    for q in ["ver", "version", "更新", "更新日志", "changelog", "/ver"]:
+        check(f"{q!r} 命中 ver", bool(mod.RE_VER.match(q)))
+
+    # 别把 ask 吃掉
+    check("ask 不被 ver 抢", not mod.RE_VER.match("ask 更新了什么"))
+    check("help 不被 ver 抢", not mod.RE_VER.match("help"))
+
+    # 日志缺失时必须明说，不能静默。改完要还原，后面测试还要用。
+    saved_paths = mod._CHANGELOG_CANDIDATES
+    saved_embed = mod._EMBEDDED_CHANGELOG
+    try:
+        mod._CHANGELOG_CANDIDATES = (Path("/nonexistent/a.md"),)
+        mod._EMBEDDED_CHANGELOG = ""
+        text, origin = mod._changelog_source()
+        check("缺失时返回空", text == "", text[:40])
+        check("缺失时来源可诊断", "找不到" in origin, origin)
+    finally:
+        mod._CHANGELOG_CANDIDATES = saved_paths
+        mod._EMBEDDED_CHANGELOG = saved_embed
+    check("还原后能读到日志", bool(mod._load_changelog()))
+
+
 def test_snapshot_healthy(mod, tmp: Path) -> None:
     """状态快照不能有「读取失败」这种含糊字段，且指令表必须是新名。
 
@@ -651,7 +710,7 @@ def test_package_import(tmp: Path) -> None:
         eq("包加载下 normalize_tex 生效", cf.normalize_tex(r"a \le b"), r"a \leq b")
 
         main_mod = importlib.import_module("data.plugins.astrbot_plugin_kouhu_oj.main")
-        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.6.1")
+        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.6.2")
         cmds = [n for n in dir(main_mod.KouHuOJ) if n.startswith("cmd_")]
         check(f"指令齐全（{len(cmds)} 个）", len(cmds) >= 12, str(sorted(cmds)))
     finally:
@@ -681,6 +740,8 @@ def main() -> int:
     test_verified_flag()
     test_changelog(mod)
     test_snapshot_healthy(mod, tmp)
+    test_changelog_embedded(mod)
+    test_version_cmd(mod, tmp)
     test_clock_rollback(tmp)
     test_package_import(tmp)
 

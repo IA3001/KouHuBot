@@ -26,6 +26,7 @@ import argparse
 import asyncio
 import json
 import os
+import pathlib
 import re
 import sys
 import tempfile
@@ -610,6 +611,32 @@ async def main() -> int:
     out = await runner.says(E("ask 这题什么复杂度", **alice), "cmd_ask")
     runner.check("无关问题仍走模型", ctx.call_count > before_calls,
                  "没有调用模型")
+
+    # ---------- 12d. ver 指令 ----------
+    banner("12d. ver 指令：不依赖意图匹配")
+    for q in ("ver", "更新日志", "changelog"):
+        out = await runner.says(E(q, **alice), "cmd_version")
+        runner.check(f"{q} 答了版本", mod.PLUGIN_VERSION in out, out[:80])
+        runner.check(f"{q} 贴了日志正文", f"## {mod.PLUGIN_VERSION}" in out, out[:80])
+
+    # 日志读不到时要明说，不能静默退回模型
+    saved_paths = mod._CHANGELOG_CANDIDATES
+    saved_embed = mod._EMBEDDED_CHANGELOG
+    try:
+        mod._CHANGELOG_CANDIDATES = (pathlib.Path("/nonexistent/x.md"),)
+        mod._EMBEDDED_CHANGELOG = ""
+        out = await runner.says(E("ver", **alice), "cmd_version")
+        runner.check("日志缺失时明说读不出来", "没读出来" in out or "没读出来".replace("没", "没") in out, out)
+        runner.check("日志缺失时提示重启", "重启" in out, out)
+
+        before_calls = ctx.call_count
+        out = await runner.says(E("ask 更新日志如何", **alice), "cmd_ask")
+        runner.check("ask 日志缺失时不走模型", ctx.call_count == before_calls,
+                     f"多调了 {ctx.call_count - before_calls} 次")
+        runner.check("ask 日志缺失时明说", "没读出来" in out, out[:80])
+    finally:
+        mod._CHANGELOG_CANDIDATES = saved_paths
+        mod._EMBEDDED_CHANGELOG = saved_embed
 
     # ---------- 13. 档位升降 ----------
     banner("13. 档位：派满 20 道、解出 50% → 升一档")
