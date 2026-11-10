@@ -485,14 +485,39 @@ async def main() -> int:
     runner.check("不显示坑点标题", "忘了取地址" not in out and "没关同步" not in out, out)
     runner.check("显示了分类和难度", "难度" in out and "/3" in out, out)
 
-    # 坑点题开着的同时，顶层 submit 仍然只作用于正题
+    # ---- 关键回归：两条线同时开着时，submit 绝不能串到另一条线 ----
+    # 判据不能看回复措辞（判错也会「看起来正常」），必须看**送进模型的题面是什么**。
     gscope = scope + mod.GRAMMAR_SUFFIX
     runner.check("坑点题有自己的槽位", plugin._store.current(gscope) is not None)
-    open_cf = plugin._store.current(scope)
+
+    gcur = plugin._store.current(gscope)
+    judged_pitfall = plugin._pitfalls.get(str(gcur["cf_key"])[len(mod.PITFALL_PREFIX):])
+    cf_cur = plugin._store.current(scope)
+    cf_cached = plugin._cache.get(cf_cur["cf_key"])
+    cf_stmt = cf_cached["statement_en"][:60]
+
+    ctx.last_prompt = ""
+    runner.judge("WA", "测试用判词")
     out = await runner.says(E("submit 用哈希表", **alice), "cmd_submit")
-    runner.check("顶层 submit 判的是正题", "坑点" not in out, out)
-    runner.check("坑点题槽位没被动过",
+    prompt = ctx.last_prompt
+
+    runner.check("顶层 submit 把正题题面送进了模型", cf_stmt in prompt,
+                 f"题面片段 {cf_stmt!r} 不在 prompt 里")
+    runner.check("顶层 submit 没有送坑点题代码",
+                 judged_pitfall["buggy_code"][:40] not in prompt, "把坑点题送进去了")
+    runner.check("顶层 submit 没把坑点题判掉",
                  plugin._store.current(gscope)["status"] == "open")
+
+    # grammar submit 反过来也不能串到正题
+    ctx.last_prompt = ""
+    runner.judge("WA", "测试用判词")
+    out = await runner.says(E("grammar submit 这里少了标记", **alice), "cmd_pitfall")
+    prompt = ctx.last_prompt
+    runner.check("grammar submit 把坑点题送进了模型",
+                 judged_pitfall["buggy_code"][:40] in prompt, "没送坑点题")
+    runner.check("grammar submit 没送正题题面", cf_stmt not in prompt, "把正题送进去了")
+    runner.check("grammar submit 没关掉正题",
+                 plugin._store.current(scope)["status"] == "open")
 
     out = await runner.says(E("grammar problem", **alice), "cmd_pitfall")
     runner.check("grammar problem 重看", len(image_path_of(out)) == 1, out)
@@ -512,6 +537,10 @@ async def main() -> int:
 
     out = await runner.says(E("grammar new 二分 1", **alice), "cmd_pitfall")
     runner.check("能按分类难度抽", "二分" in out and "难度 1/3" in out, out)
+
+    # 两条线同时开着时，提示要明确告诉群友用哪个指令交
+    out = await runner.says(E("problem", **alice), "cmd_problem")
+    runner.check("正题提示别和坑点题混", "grammar submit" in out, out)
 
     out = await runner.says(E("grammar 二分", **alice), "cmd_pitfall")
     runner.check("直接写分类也能抽", "二分" in out, out)

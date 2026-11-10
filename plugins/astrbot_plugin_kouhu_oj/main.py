@@ -71,7 +71,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.5.1"
+PLUGIN_VERSION = "0.5.2"
 SCHEMA_VERSION = 5
 
 VERDICT_AC = "AC"
@@ -1033,9 +1033,12 @@ class KouHuOJ(Star):
             yield event.plain_result(
                 problem.get("statement_cn") or problem.get("statement_en") or "题面为空"
             )
-        yield event.plain_result(
-            "思路想好了发 submit 你的思路（写伪代码或代码也行）。做不出来发 giveup。"
-        )
+        hint = "思路想好了发 submit 你的思路（写伪代码或代码也行）。做不出来发 giveup。"
+        # 两条线同时开着时，明确说一句，否则群友会不知道自己那条 submit 判的是哪道题
+        gcur = self._store.current(scope + GRAMMAR_SUFFIX)
+        if gcur and gcur.get("status") == STATUS_OPEN:
+            hint += "\n\n（坑点题也还开着：那道用 grammar submit 交，别和这道混了）"
+        yield event.plain_result(hint)
 
     # -- 指令：重看当前题 ----------------------------------------------
     @filter.regex(RE_PROBLEM)
@@ -1065,6 +1068,12 @@ class KouHuOJ(Star):
         status = current.get("status")
         if status != STATUS_OPEN:
             yield event.plain_result("这题已经结束了，发 new 抽下一道")
+            return
+        hint = "答案想好了发 submit。"
+        gcur = self._store.current(scope + GRAMMAR_SUFFIX)
+        if gcur and gcur.get("status") == STATUS_OPEN:
+            hint += "\n（坑点题也还开着：那道用 grammar submit 交，别和这道混了）"
+        yield event.plain_result(hint)
 
     # -- 指令：提交 ----------------------------------------------------
     @filter.regex(RE_SUBMIT)
@@ -1091,36 +1100,11 @@ class KouHuOJ(Star):
         # 没有报名这一步：第一次 submit 时才建档，省掉一个没人会用的指令
         self._store.ensure_player(scope, sender_id, sender_name)
 
-        # 坑点题走自己的槽位，和 CF 题互不干扰
-        gscope = scope + GRAMMAR_SUFFIX
-        gcur = self._store.current(gscope)
-        if gcur and gcur.get("status") == STATUS_OPEN and self._pitfalls:
-            pitfall = self._pitfalls.get(str(gcur["cf_key"])[len(PITFALL_PREFIX):])
-            if not pitfall:
-                self._store.close_problem(gscope, STATUS_GAVE_UP, sender_id)
-                yield event.plain_result("这道坑点题找不到了，发 grammar 重新抽")
-                return
-            yield event.plain_result("正在判，稍等……")
-            result = await self._judge(
-                event, {}, submission, pitfall=pitfall,
-                timeout=float(self.config.get("judge_timeout_seconds", 90)),
-            )
-            if not result:
-                yield event.plain_result("判题失败（模型没响应），重发一次试试")
-                return
-            verdict, comment = result["verdict"], result.get("comment") or ""
-            if verdict == VERDICT_AC:
-                self._store.close_problem(gscope, STATUS_AC, sender_id)
-                yield event.plain_result(
-                    f"✅ AC\n{comment}\n\n【标准答案】\n{pitfall.get('answer', '')[:600]}"
-                )
-            else:
-                yield event.plain_result(
-                    f"{VERDICT_EMOJI.get(verdict, '❌')} {verdict}\n{comment}\n\n"
-                    "再想想，或者发 giveup 看答案"
-                )
-            return
-
+        # 这里**只看正题槽位**。坑点题有它自己的 grammar submit，绝不在这里路由。
+        # 曾经这里会「先看坑点题槽位，开着就判坑点题」，结果群友明明在做 CF 题，
+        # 一条 submit 被判成了坑点题——判词是「你在讲图论连边，和这段哈希代码
+        # 完全不沾边」，而群友从头到尾没见过那段哈希代码。这不是判题质量问题，
+        # 是路由把两道题搞混了。
         current = self._store.current(scope)
         if not current:
             yield event.plain_result("还没派题，发 new 抽一道")
@@ -1530,10 +1514,14 @@ class KouHuOJ(Star):
             yield event.plain_result(
                 f"{pitfall.get('question', '')}\n\n{pitfall.get('buggy_code', '')}"
             )
-        yield event.plain_result(
+        hint = (
             f"【{pitfall.get('category', '坑点')} · 难度 {pitfall.get('level', 2)}/3】\n"
             "看代码找 bug：分析好了发 grammar submit 你的分析，想看答案发 grammar giveup。"
         )
+        cf_cur = self._store.current(self._scope_of(event))
+        if cf_cur and cf_cur.get("status") == STATUS_OPEN:
+            hint += "\n\n（正题也还开着：那道用 submit 交，别和这道混了）"
+        yield event.plain_result(hint)
 
     # -- 坑点题：重看 ---------------------------------------------------
     def _grammar_catalog(self) -> str:
