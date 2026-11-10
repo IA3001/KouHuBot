@@ -20,6 +20,22 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from astrbot.api import logger
+from html.parser import HTMLParser
+from urllib.parse import urljoin
+
+from .statement_images import download_images
+
+_IMAGE_TOKEN = re.compile(r"KOUHUIMAGE\d+END")
+
+
+class _ImageTag(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.src = ""
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "img":
+            self.src = dict(attrs).get("src") or ""
 
 # 插件在 AstrBot 里是以包（data.plugins.astrbot_plugin_kouhu_oj）加载的，
 # 兄弟模块只能用相对导入；本地测试时 main.py 是顶层模块，才需要绝对兜底。
@@ -66,8 +82,22 @@ def _extract_div(html: str, start: int) -> str:
     return ""
 
 
-def _text_of(fragment: str) -> str:
-    """把一段 HTML 转成纯文本，保留 $$$ 公式与换行结构。"""
+def _text_of(fragment: str, image_urls: list[str] | None = None) -> str:
+    """把 HTML 转成文本，图片原位替换为不可变 token。"""
+    if image_urls is None:
+        image_urls = []
+
+    def save_image(match):
+        parser = _ImageTag()
+        parser.feed(match.group(0))
+        source = parser.src
+        # CF uses both absolute and site-relative image paths.
+        source = urljoin("https://codeforces.com/", source) if source else ""
+        token = f"KOUHUIMAGE{len(image_urls)}END"
+        image_urls.append(source)
+        return token
+
+    fragment = re.sub(r'''<img\b(?:[^>"']|"[^"]*"|'[^']*')*>''', save_image, fragment, flags=re.I)
     code_blocks = []
     def save_pre(match):
         code = re.sub(r'<br\s*/?>', '\n', match.group(1), flags=re.I)
@@ -81,8 +111,6 @@ def _text_of(fragment: str) -> str:
     text = re.sub(r"</li\s*>", "\n", text, flags=re.I)
     text = re.sub(r"<li[^>]*>", "· ", text, flags=re.I)
     text = re.sub(r"</(div|ul|ol|pre|h\d)\s*>", "\n", text, flags=re.I)
-    # 图片没有文字，给个占位提示
-    text = re.sub(r"<img[^>]*>", "〔图〕", text, flags=re.I)
     # 其余标签直接剥掉
     text = re.sub(r"<[^>]+>", "", text)
     text = html_mod.unescape(text)
@@ -111,12 +139,12 @@ def _strip_section_title(text: str) -> str:
     return re.sub(r"^(Input|Output|Note|Examples?)\s*\n?", "", text.strip(), flags=re.I).strip()
 
 
-def _section(html: str, cls: str) -> str:
+def _section(html: str, cls: str, image_urls: list[str] | None = None) -> str:
     """取出 class="cls" 的 div 的纯文本，取不到返回空串。"""
     marker = re.search(rf'<div class="{re.escape(cls)}"', html)
     if not marker:
         return ""
-    return _text_of(_extract_div(html, marker.start()))
+    return _text_of(_extract_div(html, marker.start()), image_urls)
 
 
 def _top_level_divs(inner: str) -> list[tuple[str, str]]:
@@ -168,16 +196,18 @@ def parse_statement(html: str) -> dict[str, Any]:
             if m:
                 memory_limit = int(m.group(1))
 
+    # 正文和各节共用索引，图片在 statement_en 中保持原始顺序。
+    image_urls: list[str] = []
     # 正文 = 第一个没有 class 的子 div
     body = ""
     for cls, content in _top_level_divs(inner):
         if cls == "":
-            body = _text_of(content)
+            body = _text_of(content, image_urls)
             break
 
-    input_spec = _strip_section_title(_section(inner, "input-specification"))
-    output_spec = _strip_section_title(_section(inner, "output-specification"))
-    note = _strip_section_title(_section(inner, "note"))
+    input_spec = _strip_section_title(_section(inner, "input-specification", image_urls))
+    output_spec = _strip_section_title(_section(inner, "output-specification", image_urls))
+    note = _strip_section_title(_section(inner, "note", image_urls))
 
     examples: list[dict[str, str]] = []
     sample_start = inner.find('<div class="sample-tests">')
@@ -217,6 +247,7 @@ def parse_statement(html: str) -> dict[str, Any]:
     return {
         "title": title,
         "statement_en": "\n\n".join(parts).strip(),
+        "image_urls": image_urls,
         "examples": examples,
         "time_limit": time_limit,
         "memory_limit": memory_limit,
@@ -310,6 +341,7 @@ _DDL = """
         statement_en  TEXT,
         statement_cn  TEXT,
         examples_json TEXT,
+        images_json   TEXT,
         time_limit    REAL,
         memory_limit  INTEGER,
         fetched_at    REAL,
@@ -328,6 +360,9 @@ class CfCache:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_DDL)
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(cf_problems)")}
+        if "images_json" not in columns:
+            self._conn.execute("ALTER TABLE cf_problems ADD COLUMN images_json TEXT")
         self._conn.commit()
 
     def get(self, cf_key: str) -> dict | None:
@@ -341,17 +376,22 @@ class CfCache:
             """
             INSERT INTO cf_problems (
                 cf_key, contest_id, idx, rating, tier, points, title,
-                statement_en, statement_cn, examples_json,
+                statement_en, statement_cn, examples_json, images_json,
                 time_limit, memory_limit, fetched_at, translated_at, used_count
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(cf_key) DO UPDATE SET
                 rating = excluded.rating,
                 tier = excluded.tier,
                 points = excluded.points,
                 title = excluded.title,
                 statement_en = COALESCE(excluded.statement_en, cf_problems.statement_en),
-                statement_cn = COALESCE(excluded.statement_cn, cf_problems.statement_cn),
+                statement_cn = CASE
+                    WHEN excluded.statement_en IS NOT NULL
+                         AND excluded.statement_en IS NOT cf_problems.statement_en
+                    THEN excluded.statement_cn
+                    ELSE COALESCE(excluded.statement_cn, cf_problems.statement_cn) END,
                 examples_json = COALESCE(excluded.examples_json, cf_problems.examples_json),
+                images_json = COALESCE(excluded.images_json, cf_problems.images_json),
                 time_limit = COALESCE(excluded.time_limit, cf_problems.time_limit),
                 memory_limit = COALESCE(excluded.memory_limit, cf_problems.memory_limit),
                 fetched_at = excluded.fetched_at,
@@ -363,6 +403,8 @@ class CfCache:
                 problem.get("title"), problem.get("statement_en"),
                 problem.get("statement_cn"),
                 json.dumps(problem.get("examples") or [], ensure_ascii=False),
+                (json.dumps(problem["statement_images"], ensure_ascii=False)
+                 if "statement_images" in problem else problem.get("images_json")),
                 problem.get("time_limit"), problem.get("memory_limit"),
                 problem.get("fetched_at") or time.time(),
                 problem.get("translated_at"),
@@ -506,10 +548,24 @@ class CodeforcesSource:
         """拿到一道完整可用的题（题面 + 中文译文），优先用缓存。"""
         cf_key = entry["cf_key"]
         cached = self._cache.get(cf_key)
+        if cached and cached.get("statement_en"):
+            text = cached["statement_en"]
+            try:
+                images = json.loads(cached.get("images_json") or "[]")
+                expected = [item["token"] for item in images if item.get("src")]
+                metadata_ok = (isinstance(images, list) and expected == _IMAGE_TOKEN.findall(text)
+                               and all(isinstance(item.get("src"), str)
+                                       and (not item["src"] or item["src"].startswith("data:image/png;base64,"))
+                                       for item in images))
+            except (ValueError, TypeError, KeyError, AttributeError):
+                metadata_ok = False
+            if "〔图〕" in text or not metadata_ok:
+                cached = None  # Legacy image placeholders require a fresh source scrape.
         if cached and cached.get("statement_en") and cached.get("statement_cn"):
             _, formulas = protect_tex(cached['statement_en'])
             translated_formulas = _TEX_BLOCK.findall(cached['statement_cn'])
-            if translated_formulas == formulas and not translation_incomplete(cached['statement_cn']):
+            if (translated_formulas == formulas and not translation_incomplete(cached['statement_cn'])
+                    and _IMAGE_TOKEN.findall(cached['statement_cn']) == _IMAGE_TOKEN.findall(cached['statement_en'])):
                 return self._row_to_problem(cached)
             cached = dict(cached)
             cached['statement_cn'] = None
@@ -530,9 +586,16 @@ class CodeforcesSource:
             )
             if not parsed.get("statement_en"):
                 raise RuntimeError(f"题面解析为空（{cf_key}）")
+            images = await asyncio.to_thread(download_images, parsed.get("image_urls") or [])
+            statement = parsed["statement_en"]
+            for image in images:
+                if not image.get("src"):
+                    statement = statement.replace(image["token"], image.get("error") or "〔图片加载失败〕")
             problem.update({
+                "statement_images": images,
+                "statement_cn": None,
                 "title": parsed["title"] or entry.get("name") or cf_key,
-                "statement_en": parsed["statement_en"],
+                "statement_en": statement,
                 "examples": parsed["examples"],
                 "time_limit": parsed["time_limit"],
                 "memory_limit": parsed["memory_limit"],
@@ -548,10 +611,13 @@ class CodeforcesSource:
                 protected, tex = protect_tex(problem["statement_en"])
                 try:
                     for attempt in range(2):
-                        paragraphs = [p for p in protected.split('\n\n') if p.strip()]
+                        # Image tokens never reach the translation model: translate
+                        # the prose on either side and join the immutable markers back.
+                        paragraphs = re.split(r'(\n\n|KOUHUIMAGE\d+END|〔图片加载失败[^〕]*〕)', protected)
                         translated_parts = []
                         for paragraph in paragraphs:
-                            if not re.search('[A-Za-z]', paragraph):
+                            if (_IMAGE_TOKEN.fullmatch(paragraph) or paragraph.startswith('〔图片加载失败')
+                                    or not re.search('[A-Za-z]', paragraph)):
                                 translated_parts.append(paragraph)
                             else:
                                 expected_tokens = re.findall(r'⟦\d+⟧',paragraph)
@@ -573,11 +639,12 @@ class CodeforcesSource:
                                         safe_parts.append(fragment)
                                     result=''.join(safe_parts)
                                 translated_parts.append(result)
-                        translated = '\n\n'.join(translated_parts)
+                        translated = ''.join(translated_parts)
                         tokens = [int(x) for x in re.findall(r'[⟦\[［【]+\s*(\d+)\s*[⟧\]］】]+', translated)]
                         restored = restore_tex(translated, tex)
                         if (tokens == list(range(len(tex))) and _TEX_BLOCK.findall(restored) == tex
-                                and not translation_incomplete(restored)):
+                                and not translation_incomplete(restored)
+                                and _IMAGE_TOKEN.findall(restored) == _IMAGE_TOKEN.findall(problem['statement_en'])):
                             break
                     else:
                         raise ValueError('译文公式占位符丢失、重复、顺序错误或正文未译完整')
@@ -610,7 +677,14 @@ class CodeforcesSource:
                 examples = json.loads(examples)
             except (ValueError, TypeError):
                 examples = []
+        images = row.get("statement_images") or row.get("images_json") or []
+        if isinstance(images, str):
+            try:
+                images = json.loads(images)
+            except (ValueError, TypeError):
+                images = []
         return {
+            "statement_images": images,
             "cf_key": row["cf_key"],
             "contest_id": row.get("contest_id"),
             "idx": row.get("idx"),

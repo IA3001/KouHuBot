@@ -197,6 +197,8 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f5f6f8;
 .math-fallback { white-space: pre-wrap; }
 .limits { font-size: 17px; color: #42645a; margin: 0 0 18px; }
 footer { color: #8a867c; font-size: 16px; margin-top: 28px; }
+.statement-image { display: block; max-width: 100%; height: auto; margin: 18px auto; object-fit: contain; }
+.image-warning { color: #a14d13; }
 .katex { font-size: 1.12em; }
 .katex-display { overflow-wrap: anywhere; margin: 18px 0; }
 """
@@ -252,6 +254,18 @@ def build_html(problem: dict, examples: bool = False, width: int = 900) -> str:
         if not body.startswith("<h2>题面</h2>"):
             body = "<h2>题面</h2>" + body
     limits = '<p class="limits">时间限制：' + html.escape(str(problem.get('time_limit') or '未提供')) + (' 秒' if problem.get('time_limit') else '') + ' · 内存限制：' + html.escape(str(problem.get('memory_limit') or '未提供')) + (' MB' if problem.get('memory_limit') else '') + '</p>'
+    if not pitfall:
+        # Images are downloaded and normalized by the source; Chromium never
+        # contacts CF. Substitute only opaque markers and validated PNG data.
+        for image in problem.get('statement_images') or []:
+            token=str(image.get('token') or '')
+            source=str(image.get('src') or '')
+            if re.fullmatch(r'KOUHUIMAGE\d+END',token):
+                if re.fullmatch(r'data:image/png;base64,[A-Za-z0-9+/=]+',source):
+                    replacement='<img class="statement-image" alt="题面示意图" src="'+source+'">'
+                else:
+                    replacement='<span class="image-warning">〔题面图片未获取，请查看原题链接〕</span>'
+                body=body.replace(token,replacement)
     if pitfall:
         limits='<p class="limits">'+html.escape(str(problem.get('cpp_standard') or 'C++17'))+' · 找出问题并解释原因</p>'
     body = limits + body
@@ -332,7 +346,7 @@ def _render(problem: dict, out_dir: str | None, width: int, examples: bool) -> s
                     page.set_default_timeout(30_000)
                     page.goto(page_path.as_uri(), wait_until="load")
                     page.wait_for_function("window.__kouhuRendered === true")
-                    page.evaluate("async () => { await document.fonts.ready; }")
+                    page.evaluate("async () => { await document.fonts.ready; await Promise.all(Array.from(document.images, image => image.decode())); }")
                     dimensions = page.evaluate("""() => ({
                       height: Math.ceil(Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)),
                       width: Math.ceil(Math.max(document.body.scrollWidth, document.documentElement.scrollWidth))

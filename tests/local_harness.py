@@ -933,6 +933,14 @@ async def main() -> int:
     out = await runner.says(E(f'new [{empty_rating}-{empty_rating}]',**range_user),'cmd_new')
     runner.check('真实空区间不跨范围派题', '区间没有' in out and plugin._store.current(range_scope)['status']=='gave_up',out)
 
+    requested_key=next(iter(plugin._cf.problems))
+    out=await runner.says(E('new CF'+requested_key,**range_user),'cmd_new')
+    runner.check('按指定CF题号派题',plugin._store.current(range_scope)['cf_key']==requested_key and plugin._store.current(range_scope)['status']=='open',out)
+    out=await runner.says(E('new CF'+requested_key,**range_user),'cmd_new')
+    runner.check('指定题号不覆盖开放题','还没人做出来' in out,out)
+    plugin._store.close_problem(range_scope,'gave_up','1001')
+    out=await runner.says(E('new CF999999Z',**range_user),'cmd_new')
+    runner.check('不存在的指定题号不随机换题','没有找到' in out and plugin._store.current(range_scope)['status']=='gave_up',out)
     saved_provider=plugin.config.get('judge_provider_id')
     plugin.config['judge_provider_id']=''
     ctx.reply_queue.append('给定整数数组，求最大值。')

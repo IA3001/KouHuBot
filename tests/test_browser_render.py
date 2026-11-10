@@ -126,6 +126,16 @@ class HtmlTests(unittest.TestCase):
         self.assertIn("border-left: 3px solid", document)
         self.assertIn("22px/", document)
 
+    def test_statement_images_embed_only_cached_png_data(self):
+        token='KOUHUIMAGE0END'
+        doc=self.build({'statement_cn':'之前'+token+'之后','statement_images':[{'token':token,'src':'data:image/png;base64,YWJj'}]})
+        self.assertIn('<img class="statement-image"',doc)
+        self.assertLess(doc.index('之前'),doc.index('<img class="statement-image"'))
+        self.assertLess(doc.index('<img class="statement-image"'),doc.index('之后'))
+        unsafe=self.build({'statement_cn':token,'statement_images':[{'token':token,'src':'https://evil.example/a.png'}]})
+        self.assertNotIn('src="https://evil',unsafe)
+        self.assertIn('题面图片未获取',unsafe)
+
     def test_section_labels_and_metadata(self):
         problem = {key: "SECRET_" + key for key in ("title", "rating", "tags", "url", "id")}
         problem["statement_cn"] = "内容\n\n【输入】\n输入说明\n输出：\n输出说明\n数据范围\n1 <= n"
