@@ -18,4 +18,6 @@ venv/
 .idea/
 .vscode/
 *.md
+# ask 要读更新日志，这份必须进镜像
+!CHANGELOG.md
 !plugins/astrbot_plugin_kouhu_oj/README.md

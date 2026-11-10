@@ -31,6 +31,8 @@ ENV MPLCONFIGDIR=/var/cache/matplotlib
 # 插件放在 /opt/kouhu，不放 data/ ——data 目录通常挂成数据卷，放镜像里的
 # data/ 会被卷盖住。启动时由 entrypoint 复制过去。
 COPY plugins/astrbot_plugin_kouhu_oj /opt/kouhu/astrbot_plugin_kouhu_oj
+# 更新日志放插件目录里：ask 要读它，而容器里根目录那份不进镜像
+COPY CHANGELOG.md /opt/kouhu/astrbot_plugin_kouhu_oj/CHANGELOG.md
 COPY docker/entrypoint.sh /usr/local/bin/kouhu-entrypoint
 
 # 基底镜像已经带了 Pillow 和 Noto Sans CJK 字体（/usr/share/fonts/opentype/noto），

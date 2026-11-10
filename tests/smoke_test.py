@@ -461,6 +461,75 @@ def test_pitfall_no_repeat(tmp: Path) -> None:
             check(f"{cat} 抽完后再抽要报错", False, "又抽出一条重复的")
 
 
+def test_changelog(mod) -> None:
+    """更新日志要能被 ask 读到，否则模型只会说「日志里没有」。"""
+    print("\n[changelog] 更新日志")
+    text = mod._load_changelog()
+    check("能读到 CHANGELOG", bool(text), "文件没找到或为空")
+    if not text:
+        return
+
+    check("有当前版本的节", f"## {mod.PLUGIN_VERSION}" in text,
+          f"没找到 {mod.PLUGIN_VERSION}")
+
+    section = mod._changelog_section(text, mod.PLUGIN_VERSION)
+    check("能切出当前版本", bool(section) and mod.PLUGIN_VERSION in section)
+    check("切出的节不含下一版", "## 0.5.5" not in section if mod.PLUGIN_VERSION != "0.5.5" else True)
+
+    check("不存在的版本返回空", mod._changelog_section(text, "9.9.9") == "")
+
+    # 关键词匹配：问更新相关的问题要能命中
+    for q in ["你更新了什么功能", "0.5.5 改了什么", "版本号多少", "what's new"]:
+        check(f"命中 {q!r}", bool(mod._CHANGELOG_ASK.search(q)))
+    for q in ["今天天气", "这题怎么做", "rank 怎么用"]:
+        check(f"不误伤 {q!r}", not mod._CHANGELOG_ASK.search(q))
+
+
+def test_snapshot_healthy(mod, tmp: Path) -> None:
+    """状态快照不能有「读取失败」这种含糊字段，且指令表必须是新名。
+
+    这两个都是线上踩到的：配置项是坏值时 int() 抛异常被吞掉，
+    模型只看到「读取失败」四个字，什么都查不出来；指令表还留着
+    改名前的 problem/submit/grammar，模型照着旧名回答群友。
+    """
+    print("\n[snapshot] 状态快照")
+    import asyncio
+
+    class Ctx:
+        async def get_current_chat_provider_id(self, umo=None):
+            return "p"
+
+    async def build(config):
+        plug = mod.KouHuOJ(Ctx(), config)
+        plug._store = mod.OjStore(tmp / f"snap{len(str(config))}.db")
+        plug._started_at = __import__("time").monotonic()
+        return plug._status_snapshot("group:1")
+
+    # 正常配置
+    snap = asyncio.run(build({"leaderboard_size": 10}))
+    check("正常配置下积分榜可读", "读取失败" not in str(snap.get("本群积分榜")),
+          str(snap.get("本群积分榜")))
+
+    # 坏配置：None / 字符串垃圾，都不能炸
+    for bad in (None, "abc", "", []):
+        try:
+            snap = asyncio.run(build({"leaderboard_size": bad}))
+            ok = "读取失败" not in str(snap.get("本群积分榜"))
+            check(f"坏配置 {bad!r} 不炸", ok, str(snap.get("本群积分榜")))
+        except Exception as exc:  # noqa: BLE001
+            check(f"坏配置 {bad!r} 不炸", False, f"{type(exc).__name__}: {exc}")
+
+    # 指令表必须是改名后的
+    snap = asyncio.run(build({"leaderboard_size": 10}))
+    cmds = " ".join(snap.get("指令", {}).keys())
+    check("指令表用新名 cur", "cur" in cmds, cmds)
+    check("指令表用新名 sub", "sub" in cmds, cmds)
+    check("指令表用新名 grm", "grm" in cmds, cmds)
+    stale = [w for w in ("problem", "submit", "grammar") if w in cmds]
+    check("指令表没有旧名残留", not stale, str(stale))
+    check("快照带更新日志", any("更新日志" in k for k in snap), str(list(snap.keys())))
+
+
 def test_verified_flag() -> None:
     """题库里「机器证实过」和「还没补骨架」要能区分开。
 
@@ -582,7 +651,7 @@ def test_package_import(tmp: Path) -> None:
         eq("包加载下 normalize_tex 生效", cf.normalize_tex(r"a \le b"), r"a \leq b")
 
         main_mod = importlib.import_module("data.plugins.astrbot_plugin_kouhu_oj.main")
-        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.6.0")
+        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.6.1")
         cmds = [n for n in dir(main_mod.KouHuOJ) if n.startswith("cmd_")]
         check(f"指令齐全（{len(cmds)} 个）", len(cmds) >= 12, str(sorted(cmds)))
     finally:
@@ -610,6 +679,8 @@ def main() -> int:
     test_pitfall_no_repeat(tmp)
     test_category_summary()
     test_verified_flag()
+    test_changelog(mod)
+    test_snapshot_healthy(mod, tmp)
     test_clock_rollback(tmp)
     test_package_import(tmp)
 

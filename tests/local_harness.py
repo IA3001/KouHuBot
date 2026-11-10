@@ -580,6 +580,34 @@ async def main() -> int:
     runner.check("结束后能抽下一道", "二分" in out, out)
     runner.check("新题也出图", len(image_path_of(out)) == 1, out)
 
+    # ---------- 12c. ask 问更新日志 ----------
+    banner("12c. ask 问更新日志：直接读文件，不经过模型")
+    before_calls = ctx.call_count
+    out = await runner.says(E("ask 你更新了什么功能", **alice), "cmd_ask")
+    runner.check("答了更新日志", "当前版本" in out, out)
+    runner.check("带了版本号", mod.PLUGIN_VERSION in out, out)
+    runner.check("讲了功能变化", "坑点题" in out or "题库" in out, out)
+    runner.check("没走大模型（省 token）", ctx.call_count == before_calls,
+                 f"多调了 {ctx.call_count - before_calls} 次模型")
+    runner.check("没出现「没有相关信息」", "没有" not in out[:40], out[:80])
+
+    # 问具体版本
+    out = await runner.says(E("ask 0.5.5 改了什么", **alice), "cmd_ask")
+    runner.check("能答指定版本", "0.5.5" in out, out)
+    runner.check("答的是那一版而不是最新的", "grammar" in out or "单调时钟" in out, out)
+
+    # 问不存在的版本
+    out = await runner.says(E("ask 9.9.9 改了什么", **alice), "cmd_ask")
+    runner.check("不存在的版本有提示", "没找到" in out or "当前版本" in out, out)
+
+    # 无关问题仍然走模型
+    runner.judge("WA", "测试用判词")
+    before_calls = ctx.call_count
+    ctx.reply_queue.append("这道题大概需要 O(n log n)。")
+    out = await runner.says(E("ask 这题什么复杂度", **alice), "cmd_ask")
+    runner.check("无关问题仍走模型", ctx.call_count > before_calls,
+                 "没有调用模型")
+
     # ---------- 13. 档位升降 ----------
     banner("13. 档位：派满 20 道、解出 50% → 升一档")
     store = plugin._store
