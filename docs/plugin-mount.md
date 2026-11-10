@@ -2,7 +2,26 @@
 
 使用已下载的运行镜像，插件从Git仓库只读挂载。日常不构建、不拉取Docker镜像。仅当运行依赖变更时才另行升级运行镜像。
 
-首次切换（先确认git pull成功）：
+推荐一键更新（同时支持首次切换与后续更新）：
+
+```bash
+cd ~/KouHuBot
+git pull --ff-only
+bash update.sh
+```
+
+首次拉取到脚本后，后续只需 `bash ~/KouHuBot/update.sh`。脚本会先检查干净工作区和Docker访问、获取更新，再固定现有容器镜像、合并挂载配置、按需重建或重启，并核对容器加载目录的源码哈希。脚本不自动修复属主，不强制覆盖本地改动，不下载镜像，也不删除数据。运行需要Git、Docker Compose v2、flock。失败会停止；不自动回滚源码或容器，保留日志便于处理。
+
+也可先从GitHub下载脚本再执行（私有仓库推荐上面的git方式；raw URL未登录时可能404）：
+
+```bash
+curl -fL https://raw.githubusercontent.com/IA3001/KouHuBot/main/update.sh -o /tmp/kouhu-update.sh
+bash /tmp/kouhu-update.sh "$HOME/KouHuBot"
+```
+
+只有curl成功才运行下一条。脚本沿用现有仓库的Git认证，不需要把Token写进命令。该方式需要宿主机上已有仓库和astrbot容器，不包含首次安装；不会通过SSH从其他机器部署。
+
+手动切换（先确认git pull成功）：
 
 ```bash
 cd ~/KouHuBot
