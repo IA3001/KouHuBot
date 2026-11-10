@@ -78,7 +78,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.13.2"
+PLUGIN_VERSION = "0.13.3"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -283,7 +283,9 @@ HELP_TEXT = """╭── 📚 口胡 OJ · 指令菜单 ──╮
 ━━━━━━━━━━━━━━━━
 › ask 问题 · 功能与运行情况问答
 › about · 功能介绍与上手方式
-› ver / ver list / ver 0.11.0 · 更新日志
+› ver · 当前版本与更新内容
+› ver list · 历史版本列表
+› ver 版本号 · 指定版本的更新内容
 › help · 打开本菜单
 
 🔐 管理员
