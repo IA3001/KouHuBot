@@ -20,9 +20,16 @@ _DEFAULT_DATA = Path(__file__).resolve().parent.parent / "pitfalls.json"
 class PitfallSource:
     """内置坑点库，纯本地读取，不发网络请求。"""
 
-    def __init__(self, data_file: str | Path | None = None) -> None:
+    def __init__(self, data_file: str | Path | None = None, growth_file: str | Path | None = None) -> None:
         self._path = Path(data_file) if data_file else _DEFAULT_DATA
+        self._growth_path = Path(growth_file) if growth_file else None
         self._items: list[dict] | None = None
+
+    def reload(self) -> None:
+        self._items = None
+
+    def all_items(self) -> list[dict]:
+        return list(self._load())
 
     def _load(self) -> list[dict]:
         if self._items is None:
@@ -30,6 +37,13 @@ class PitfallSource:
                 raw = json.loads(self._path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 raw = []
+            if self._growth_path and self._growth_path.exists():
+                try:
+                    grown = json.loads(self._growth_path.read_text(encoding='utf-8')).get('approved',[])
+                    known = {x.get('id') for x in raw}
+                    raw.extend(x for x in grown if x.get('id') not in known and x.get('verified') and x.get('review',{}).get('status')=='auto_verified')
+                except (OSError,ValueError,AttributeError):
+                    pass
             self._items = [item for item in raw if item.get("id") and item.get("buggy_code")
                            and item.get("review", {}).get("status") not in {"pending", "rejected", "paused"}]
         return self._items

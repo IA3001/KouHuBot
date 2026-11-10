@@ -933,6 +933,27 @@ async def main() -> int:
     out = await runner.says(E(f'new [{empty_rating}-{empty_rating}]',**range_user),'cmd_new')
     runner.check('真实空区间不跨范围派题', '区间没有' in out and plugin._store.current(range_scope)['status']=='gave_up',out)
 
+    from sources.pitfall_growth import GrowthBank
+    from sources.pitfalls import PitfallSource
+    from growth_probe import CANDIDATE
+    growth=GrowthBank(data_root/'growth-test')
+    plugin._growth=growth
+    plugin._pitfalls=PitfallSource(growth_file=growth.path)
+    material={'url':'https://oi-wiki.org/lang/csl/','hash':'a'*64,'text':'C++ vector initializer_list chooses elements, parentheses choose count and value.'}
+    with patch.object(growth,'material',new=AsyncMock(return_value=material)), patch.object(mod,'validate_candidate',return_value={'ok':True,'reason':'probe passed','evidence':{}}):
+        ctx.reply_queue.extend([json.dumps(CANDIDATE,ensure_ascii=False),'{"approve":true,"reason":"来源支持"}'])
+        out=await runner.says(E('grm grow',**admin),'cmd_pitfall')
+    runner.check('grm grow通过验证后入正式题库','新题已加入' in out and len(growth.state['approved'])==1,out)
+    new_id=growth.state['approved'][0]['id']
+    runner.check('新题可以直接被题源查询',plugin._pitfalls.get(new_id) is not None)
+    calls_before=ctx.call_count
+    out=await runner.says(E('grm grow',**admin),'cmd_pitfall')
+    runner.check('自动采集冷却不重复烧模型','冷却' in out and ctx.call_count==calls_before,out)
+    out=await runner.says(E('grm grow',**alice),'cmd_pitfall')
+    runner.check('手动生长需要管理员','管理员' in out and ctx.call_count==calls_before,out)
+    out=await runner.says(E('grm growth',**alice),'cmd_pitfall')
+    runner.check('用户可查看自动题库状态','已入库：1' in out,out)
+
     # ---------- 19. 数据持久化 ----------
     banner("19. 重开数据库，数据要还在")
     db_path = data_root / "plugin_data" / mod.PLUGIN_NAME / "kouhu_oj.db"

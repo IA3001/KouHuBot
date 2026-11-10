@@ -51,7 +51,7 @@ INTRO_TEXT = """我是口胡 OJ，陪群友练算法、找 C++ 代码里的 bug�
 
 ① 正题练习：new 抽 Codeforces 题，cur 重看；支持中文题面与公式图片。用 sub 思路 提交文字、伪代码或代码，由模型判断。首个 AC 后全群这题结束；giveup 会放弃全群当前题。
 ② 三级提示：hint 1 看方向，hint 2 看关键观察，hint 3 看解法框架。提示群内可见，不扣分。
-③ C++ 坑点练习：grm new 抽题，grm list 看分类，grm sub 分析 提交，grm cur 重看，grm giveup 看答案。与正题独立，不计分；同群出过的题抽完一轮再重置。
+③ C++ 坑点练习：grm new 抽题，grm list 看分类，grm sub 分析 提交，grm cur 重看，grm giveup 看答案。与正题独立，不计分；同群出过的题抽完一轮再重置。grm new 默认每6小时尝试自动补一道题；管理员 grm grow 手动触发，grm growth 查状态。采集OI Wiki、cppreference等C++资料，模型整理复核后隔离编译反例，验证通过才入库，失败候选不出题。
 ④ 积分与战绩：rank 看群榜，me 看个人战绩。正题答对加分、答错不扣分，同一玩家同题只计首次 AC；群难度按解出情况升降。
 ⑤ 问答与更新：rules 查看计分、排名和升降档规则；ask 问题 查询功能和运行情况；ver 看当前更新，ver list 看历版摘要，ver 0.6.0 看指定版本。
 

@@ -41,6 +41,8 @@ COPY docker/entrypoint.sh /usr/local/bin/kouhu-entrypoint
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/kouhu/browsers
 RUN pip install --no-cache-dir "curl_cffi>=0.7" "matplotlib>=3.7,<4" "playwright==1.65.0" \
     && python -m playwright install --with-deps chromium \
+    && apt-get update && apt-get install -y --no-install-recommends g++ bubblewrap libseccomp2 \
+    && rm -rf /var/lib/apt/lists/* \
     && mkdir -p "$MPLCONFIGDIR" \
     && python -c "\
 import matplotlib; matplotlib.use('Agg');\

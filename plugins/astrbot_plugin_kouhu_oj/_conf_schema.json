@@ -70,6 +70,18 @@
     "hint": "判题快的时候不吭声，超过这个秒数还没结果就回「正在判题」，避免像死机。设 0 表示总是先回一句。",
     "default": 5
   },
+  "grm_auto_growth": {
+    "description": "grm new 自动补充题库",
+    "type": "bool",
+    "hint": "达到冷却后采集一次C++资料并调用模型生成一道候选，隔离代码验证通过才入库；失败继续使用原库。",
+    "default": true
+  },
+  "grm_growth_interval_seconds": {
+    "description": "自动题库采集冷却（秒）",
+    "type": "int",
+    "hint": "全局共享冷却，默认6小时，最低5分钟；一次生成一道候选，不并行运行。",
+    "default": 21600
+  },
   "ask_timeout_seconds": {
     "description": "自由问答超时（秒）",
     "type": "int",
