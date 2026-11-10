@@ -505,6 +505,13 @@ async def main() -> int:
     runner.check('反馈与申诉指令已移除', all(not hasattr(plugin,name) for name in ('cmd_report','cmd_appeal','cmd_tickets')))
     runner.check('菜单无工单入口', all(word not in mod.HELP_TEXT for word in ('report','appeal','tickets')))
 
+    snap_alice = plugin._status_snapshot(scope, '1001')
+    recent = snap_alice['提问者最近做题记录']
+    runner.check('ask知道刚做完的题号和判定', recent[0]['题号']==first_key and recent[0]['判定']=='AC', str(recent))
+    runner.check('ask结束题目允许揭晓', snap_alice['本群当前题目']['题号']==first_key)
+    runner.check('ask不混入其他用户记录', plugin._status_snapshot(scope, '1002')['提问者最近做题记录']==[])
+    runner.check('ask不混入其他群记录', plugin._status_snapshot('empty-group', '1001')['提问者最近做题记录']==[])
+
     # ---------- 8. 已关闭的题不能再交 ----------
     banner("8. 题目已关闭后再 submit 应当被拒")
     out = await runner.says(E("sub 再交一次", **bob), "cmd_submit")

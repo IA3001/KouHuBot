@@ -78,7 +78,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.12.1"
+PLUGIN_VERSION = "0.12.2"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -2020,7 +2020,7 @@ class KouHuOJ(Star):
         )
 
     # -- 自由问答 ------------------------------------------------------
-    def _status_snapshot(self, scope: str) -> dict:
+    def _status_snapshot(self, scope: str, user_id: str | None = None) -> dict:
         """收集一份只读状态快照。
 
         刻意不用 function calling：模型没有任何可执行路径，
@@ -2055,6 +2055,22 @@ class KouHuOJ(Star):
                 if current
                 else "这个群还没派过题"
             )
+            if current and current.get('status') != STATUS_OPEN:
+                snapshot['本群当前题目'] = {'状态':current['status'], '题号':current['cf_key'], '题名':current.get('title')}
+            if user_id:
+                recent = []
+                for suffix, label in (('', '正题'), (GRAMMAR_SUFFIX, '坑点')):
+                    lane = scope + suffix
+                    rows, _ = self._store.review_history(lane, user_id, 1, 5)
+                    for row in rows:
+                        item = {'线路':label, '提交时间戳':row['at'], '判定':row['verdict'], '时间':time.strftime('%m-%d %H:%M',time.localtime(row['at']))}
+                        if self._review_hidden(lane,row):
+                            item['题目'] = '进行中，题号和题名暂时隐藏'
+                        else:
+                            item.update({'题号':row['cf_key'], '题名':row.get('title'), '回看题面':f"history{' grm' if suffix else ''} problem {row['cf_key']}"})
+                        recent.append(item)
+                snapshot['提问者最近做题记录'] = sorted(recent,key=lambda r:r['提交时间戳'],reverse=True)[:5]
+                snapshot['个人记录说明'] = '仅当前提问者在本群的记录，按提交时间倒序；第一项是最近一次，不代表已完成。没有记录不能推断没看过题。'
             # 配置项可能是 None 或非数字（升级后旧配置里没有这个键，
             # 或者被人手工改坏），int() 会直接抛 TypeError。
             size = max(1, min(50, _as_int(self.config.get("leaderboard_size"), 10)))
@@ -2083,7 +2099,7 @@ class KouHuOJ(Star):
             "about": "自我介绍和已实现功能",
             "rules": "计分、排名、升降档和提示规则",
             "sol [题号]": "已结束正题的模型解析，例如 sol 628B；不再使用提交记录号，非官方题解",
-            "history [grm] [页码]": "本群自己的按题汇总历史；history [grm] problem 题号 只发题面与样例不切换当前判题；show 题号 [页码] 查看个人各次提交与申诉记录号",
+            "history [grm] [页码]": "本群自己的按题汇总历史；history [grm] problem 题号 只发题面与样例不切换当前判题；show 题号 [页码] 查看个人各次提交与判词",
             "ver [list|版本号]": "查看当前更新、历史摘要或指定版本记录",
             "new": "派一道新题",
             "cur": "重看当前题",
@@ -2109,7 +2125,7 @@ class KouHuOJ(Star):
         if not provider_id:
             return None
 
-        snapshot = self._status_snapshot(scope)
+        snapshot = self._status_snapshot(scope, str(event.get_sender_id()))
         prompt = (
             "【状态快照开始】\n"
             + json.dumps(snapshot, ensure_ascii=False, indent=2)
