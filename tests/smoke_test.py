@@ -142,6 +142,10 @@ def test_tex(cf_mod) -> None:
         got = cf_mod.restore_tex(f"值是 {variant}", found)
         check(f"还原容错 {variant}", "$$$" in got, got)
 
+    check('长英文未译能检出', cf_mod.translation_incomplete('Each test consists of multiple test cases and the first line contains one integer for the number of cases.'))
+    check('中文公式不误报', not cf_mod.translation_incomplete(r'给定 $$$a_i | a_j$$$，输出 Yes 或 No。'))
+    check('HTML格式块保留换行缩进', '```\nN K\n  A B\n```' in cf_mod._text_of('<pre>N K<br>  A B</pre>'))
+
     # 译文把公式弄丢时要能被发现（上层据此退回英文）
     check("丢公式能被检出", not cf_mod.tex_intact("译文里没有公式了", 2))
 
@@ -710,7 +714,7 @@ def test_package_import(tmp: Path) -> None:
         eq("包加载下 normalize_tex 生效", cf.normalize_tex(r"a \le b"), r"a \leq b")
 
         main_mod = importlib.import_module("data.plugins.astrbot_plugin_kouhu_oj.main")
-        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.10.0")
+        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.11.0")
         cmds = [n for n in dir(main_mod.KouHuOJ) if n.startswith("cmd_")]
         check(f"指令齐全（{len(cmds)} 个）", len(cmds) >= 12, str(sorted(cmds)))
     finally:

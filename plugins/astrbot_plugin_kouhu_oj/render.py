@@ -1041,32 +1041,17 @@ def render_cf_statement(problem: dict, out_dir: str | None = None, width: int = 
     也**不显示难度和分值**——看到「CF 2600 / 1950 分」会直接劝退或者反向
     暴露这题大概要用什么级别的算法。名字和题号在判 AC / 放弃时才揭晓。
     """
-    header = ["算法题"]
-    text = problem.get("statement_cn") or problem.get("statement_en") or ""
-    paragraphs = [p for p in re.split(r"\n{2,}", text) if p.strip()]
-    footer = (
-        f"时限 {problem.get('time_limit') or '-'} 秒 · "
-        f"内存 {problem.get('memory_limit') or '-'} MB"
-    )
-    return _render_cf_card(
-        header_lines=header, paragraphs=paragraphs, examples=None,
-        footer=footer, out_dir=out_dir, width=width,
-        name_hint=_opaque_name("q"),
-    )
+    try:
+        from .browser_render import render_statement
+    except ImportError:
+        from browser_render import render_statement
+    return render_statement(problem, out_dir, width)
 
 
 def render_cf_examples(problem: dict, out_dir: str | None = None, width: int = 900) -> str:
     """样例图。样例是验证理解的关键，单独一张，别挤在正文里。"""
-    examples = problem.get("examples") or []
-    blocks: list[tuple[str, str]] = []
-    for i, ex in enumerate(examples[:3], 1):
-        blocks.append((f"样例 {i} · 输入", ex.get("input", "")))
-        blocks.append((f"样例 {i} · 输出", ex.get("output", "")))
-    if not blocks:
-        blocks = [("没有样例", "（这道题没有提供样例）")]
-    header = ["样例"]
-    return _render_cf_card(
-        header_lines=header, paragraphs=[], examples=blocks,
-        footer="提交：submit 你的思路", out_dir=out_dir, width=width,
-        name_hint=_opaque_name("ex"),
-    )
+    try:
+        from .browser_render import render_examples
+    except ImportError:
+        from browser_render import render_examples
+    return render_examples(problem, out_dir, width)

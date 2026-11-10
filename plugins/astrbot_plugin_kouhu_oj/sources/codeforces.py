@@ -68,7 +68,13 @@ def _extract_div(html: str, start: int) -> str:
 
 def _text_of(fragment: str) -> str:
     """把一段 HTML 转成纯文本，保留 $$$ 公式与换行结构。"""
-    text = fragment
+    code_blocks = []
+    def save_pre(match):
+        code = re.sub(r'<br\s*/?>', '\n', match.group(1), flags=re.I)
+        code = html_mod.unescape(re.sub(r'<[^>]+>', '', code))
+        code_blocks.append(code)
+        return '\n\nKOUHUPREBLOCK' + str(len(code_blocks)-1) + '\n\n'
+    text = re.sub(r'<pre[^>]*>([\s\S]*?)</pre>', save_pre, fragment, flags=re.I)
     # 块级元素变成换行
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
     text = re.sub(r"</p\s*>", "\n\n", text, flags=re.I)
@@ -93,7 +99,10 @@ def _text_of(fragment: str) -> str:
             blank += 1
             if blank <= 1 and out:
                 out.append("")
-    return "\n".join(out).strip()
+    result = '\n'.join(out).strip()
+    for index, code in enumerate(code_blocks):
+        result = result.replace('KOUHUPREBLOCK' + str(index), '```\n' + code + '\n```')
+    return result
 
 
 def _strip_section_title(text: str) -> str:
@@ -259,6 +268,12 @@ def restore_tex(text: str, found: list[str]) -> str:
         return f"$$${found[idx]}$$$" if 0 <= idx < len(found) else m.group(0)
 
     return re.sub(r"[⟦\[［【]+\s*(\d+)\s*[⟧\]］】]+", _sub, text)
+
+
+def translation_incomplete(text: str) -> bool:
+    """长英文叙述残留意味着整段未译；变量及短英文名称不误报。"""
+    plain = _TEX_BLOCK.sub('', text)
+    return bool(re.search(r'(?:[A-Za-z]+[ ,;:\-]+){12,}[A-Za-z]+', plain))
 
 
 def tex_intact(restored: str, expected: int) -> bool:
@@ -484,7 +499,12 @@ class CodeforcesSource:
         cf_key = entry["cf_key"]
         cached = self._cache.get(cf_key)
         if cached and cached.get("statement_en") and cached.get("statement_cn"):
-            return self._row_to_problem(cached)
+            _, formulas = protect_tex(cached['statement_en'])
+            translated_formulas = _TEX_BLOCK.findall(cached['statement_cn'])
+            if translated_formulas == formulas and not translation_incomplete(cached['statement_cn']):
+                return self._row_to_problem(cached)
+            cached = dict(cached)
+            cached['statement_cn'] = None
 
         problem = dict(cached or {})
         problem.update({
@@ -519,7 +539,22 @@ class CodeforcesSource:
             else:
                 protected, tex = protect_tex(problem["statement_en"])
                 try:
-                    translated = await self._translate(protected)
+                    for attempt in range(2):
+                        paragraphs = [p for p in protected.split('\n\n') if p.strip()]
+                        translated_parts = []
+                        for paragraph in paragraphs:
+                            if not re.search('[A-Za-z]', paragraph):
+                                translated_parts.append(paragraph)
+                            else:
+                                translated_parts.append(await self._translate(paragraph))
+                        translated = '\n\n'.join(translated_parts)
+                        tokens = [int(x) for x in re.findall(r'[⟦\[［【]+\s*(\d+)\s*[⟧\]］】]+', translated)]
+                        restored = restore_tex(translated, tex)
+                        if (tokens == list(range(len(tex))) and _TEX_BLOCK.findall(restored) == tex
+                                and not translation_incomplete(restored)):
+                            break
+                    else:
+                        raise ValueError('译文公式占位符丢失、重复、顺序错误或正文未译完整')
                 except Exception as exc:  # noqa: BLE001
                     # 翻译挂了不能连题一起废掉：先发英文题面。
                     # 关键：这时**不写 statement_cn 到缓存**，让它保持「未翻译」状态，

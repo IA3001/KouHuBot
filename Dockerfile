@@ -38,7 +38,9 @@ COPY docker/entrypoint.sh /usr/local/bin/kouhu-entrypoint
 # 基底镜像已经带了 Pillow 和 Noto Sans CJK 字体（/usr/share/fonts/opentype/noto），
 # 这里只补缺的两个：curl_cffi 过 Cloudflare、matplotlib 画公式。
 # 装完顺手把 matplotlib 的字体缓存烤进镜像，容器启动后第一次出图就不用等。
-RUN pip install --no-cache-dir "curl_cffi>=0.7" "matplotlib>=3.7,<4" \
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/kouhu/browsers
+RUN pip install --no-cache-dir "curl_cffi>=0.7" "matplotlib>=3.7,<4" "playwright==1.65.0" \
+    && python -m playwright install --with-deps chromium \
     && mkdir -p "$MPLCONFIGDIR" \
     && python -c "\
 import matplotlib; matplotlib.use('Agg');\
