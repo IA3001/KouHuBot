@@ -1,0 +1,25 @@
+# Use with docker-compose.yml; retain the existing runtime image locally.
+# First: docker tag "$(docker inspect --format '{{.Image}}' astrbot)" kouhubot-runtime:local
+# Then: docker compose -f docker-compose.yml -f compose.plugin.yml up -d --pull never
+services:
+  astrbot:
+    image: kouhubot-runtime:local
+    pull_policy: never
+    environment:
+      # Existing image entrypoints compare versions in these two mounted paths.
+      # Never force-copy into the read-only plugin mount.
+      KOUHU_PLUGIN_SYNC: ""
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - type: bind
+        source: ../plugins/astrbot_plugin_kouhu_oj
+        target: /opt/kouhu/astrbot_plugin_kouhu_oj
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../plugins/astrbot_plugin_kouhu_oj
+        target: /AstrBot/data/plugins/astrbot_plugin_kouhu_oj
+        read_only: true
+        bind:
+          create_host_path: false
