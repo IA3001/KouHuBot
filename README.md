@@ -430,7 +430,7 @@ AstrBot 的插件目录是 `data/plugins/`，而 `data/` 通常挂成数据卷�
 所以镜像把插件放在 `/opt/kouhu/`，由 entrypoint 在启动时复制到数据卷：
 
 ```
-[kouhu] 插件已同步到 /AstrBot/data/plugins/astrbot_plugin_kouhu_oj（v0.4.2 → v0.5.0）
+[kouhu] 插件已同步到 /AstrBot/data/plugins/astrbot_plugin_kouhu_oj（v0.5.0 → v0.5.1）
 ```
 
 数据卷里已经有插件时不会盲目覆盖，而是**比对 `metadata.yaml` 里的版本号**：
