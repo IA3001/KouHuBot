@@ -34,6 +34,17 @@ class RatingRangeTest(unittest.TestCase):
                 self.assertEqual(len(pool),expected)
                 self.assertEqual(len({p['cf_key'] for p in pool}),expected)
 
+    def test_translation_failure_never_returns_english_as_chinese(self):
+        import asyncio
+        from unittest.mock import Mock, AsyncMock
+        source=self.source
+        source._cache=Mock()
+        source._cache.get.return_value=dict(cf_key='1A',contest_id=1,idx='A',statement_en='Find the maximum possible sum of all the numbers in the array.',statement_cn=None,examples='[]')
+        source._translate=AsyncMock(side_effect=RuntimeError('provider unavailable'))
+        with self.assertRaisesRegex(RuntimeError,'中文题面翻译未完成'):
+            asyncio.run(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',title='test',rating=800,tier=800)))
+        source._cache.bump_used.assert_not_called()
+
     def test_complete_cache_avoids_scraping(self):
         import asyncio
         from unittest.mock import Mock

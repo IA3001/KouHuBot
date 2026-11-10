@@ -933,6 +933,16 @@ async def main() -> int:
     out = await runner.says(E(f'new [{empty_rating}-{empty_rating}]',**range_user),'cmd_new')
     runner.check('真实空区间不跨范围派题', '区间没有' in out and plugin._store.current(range_scope)['status']=='gave_up',out)
 
+    saved_provider=plugin.config.get('judge_provider_id')
+    plugin.config['judge_provider_id']=''
+    ctx.reply_queue.append('给定整数数组，求最大值。')
+    token=plugin._translation_event.set(E('new',**alice))
+    try:
+        translated=await plugin._translate_statement('Given an array of integers, find its maximum.')
+    finally:
+        plugin._translation_event.reset(token)
+        plugin.config['judge_provider_id']=saved_provider
+    runner.check('翻译支持会话默认模型',translated=='给定整数数组，求最大值。')
     from sources.pitfall_growth import GrowthBank
     from sources.pitfalls import PitfallSource
     from growth_probe import CANDIDATE

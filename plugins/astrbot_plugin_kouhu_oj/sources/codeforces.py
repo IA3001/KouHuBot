@@ -567,11 +567,8 @@ class CodeforcesSource:
                     # 翻译挂了不能连题一起废掉：先发英文题面。
                     # 关键：这时**不写 statement_cn 到缓存**，让它保持「未翻译」状态，
                     # 否则这道题会永远停在英文上，以后也不会再尝试翻译。
-                    logger.warning(f"[KouHuOJ] {cf_key} 翻译失败，本次先发英文题面：{exc}")
-                    self._cache.bump_used(cf_key)
-                    fallback = dict(problem)
-                    fallback["statement_cn"] = problem["statement_en"]
-                    return self._row_to_problem(fallback)
+                    logger.warning(f"[KouHuOJ] {cf_key} 中文题面翻译未完成：{exc}")
+                    raise RuntimeError('中文题面翻译未完成，请检查翻译模型配置后重试；英文原文已缓存，不占用当前题位') from exc
                 restored = restore_tex(translated, tex)
                 if not tex_intact(restored, len(tex)):
                     # 译文把公式弄丢或弄多了，宁可退回英文也不发一份坏题面

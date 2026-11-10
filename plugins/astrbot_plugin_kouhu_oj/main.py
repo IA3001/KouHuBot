@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import difflib
 import functools
 import html
@@ -84,7 +85,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.16.1"
+PLUGIN_VERSION = "0.16.2"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -988,6 +989,7 @@ class KouHuOJ(Star):
         self._last_fetch_error: str = ""
         self._growth: GrowthBank | None = None
         self._growth_lock = asyncio.Lock()
+        self._translation_event = ContextVar('translation_event',default=None)
 
     # -- 生命周期 ------------------------------------------------------
     async def initialize(self) -> None:
@@ -1088,8 +1090,11 @@ class KouHuOJ(Star):
         """把英文题面翻成中文。给 CodeforcesSource 当回调用。"""
         provider_id = str(self.config.get("judge_provider_id") or "").strip()
         if not provider_id:
-            # 没有专门指定判题模型时，翻译直接放弃，退回英文题面
-            raise RuntimeError("没有配置 judge_provider_id，无法翻译题面")
+            event=self._translation_event.get()
+            if event is not None:
+                provider_id=await self._provider_id(event)
+        if not provider_id:
+            raise RuntimeError('没有可用的翻译模型，请配置模型或当前会话默认模型')
         prompt = TRANSLATE_PROMPT.format(text=text)
         timeout = float(self.config.get("translate_timeout_seconds", 90))
         response = await asyncio.wait_for(
@@ -1209,6 +1214,9 @@ class KouHuOJ(Star):
             # 卡片上不挂来源链接：OI-Wiki 那条链接就是这份答案的出处
             "link": "",
             "kind": "pitfall",
+            "pitfall_question": pitfall.get('question','找出下面这段代码的 bug。'),
+            "pitfall_code": pitfall.get('buggy_code',''),
+            "cpp_standard": pitfall.get('cpp_standard','C++17'),
             "answer": pitfall.get("answer", ""),
         }
 
@@ -1285,12 +1293,16 @@ class KouHuOJ(Star):
         yield event.plain_result("正在选题并准备题面（优先复用缓存），稍等……")
 
         try:
-            problem = await self._cf.fetch(entry)
+            token=self._translation_event.set(event)
+            try:
+                problem = await self._cf.fetch(entry)
+            finally:
+                self._translation_event.reset(token)
         except Exception as exc:  # noqa: BLE001
             self._last_fetch_error = str(exc)
             logger.error(f"[KouHuOJ] 抓取题面失败 {entry['cf_key']}：{exc}")
             yield event.plain_result(
-                "这道题没拉下来（Codeforces 那边没响应或反爬拦了），再发一次 new 换个题试试"
+                ('中文题面暂未准备好，请检查模型配置后重试 new；当前题目未被替换。' if '翻译' in str(exc) else '这道题没拉下来（Codeforces 那边没响应或反爬拦了），再发一次 new 换个题试试')
             )
             return
 

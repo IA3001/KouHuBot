@@ -122,7 +122,7 @@ class HtmlTests(unittest.TestCase):
         with patch.object(renderer, "ASSET_DIR", self.assets / "missing"):
             document = renderer.build_html({}, False, 960)
         self.assertIn("width: 960px", document)
-        self.assertIn("#f6f4ec", document)
+        self.assertIn("#ffffff", document)
         self.assertIn("border-left: 3px solid", document)
         self.assertIn("22px/", document)
 

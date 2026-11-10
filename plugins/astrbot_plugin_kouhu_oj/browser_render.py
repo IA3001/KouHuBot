@@ -182,16 +182,16 @@ def _markdown(text: str) -> str:
 
 _STYLE = """
 * { box-sizing: border-box; }
-html, body { margin: 0; background: #f6f4ec; color: #30382f; }
-body { padding: 30px; font: 22px/1.85 'Noto Sans CJK SC', 'Noto Sans SC',
-       'WenQuanYi Micro Hei', sans-serif; overflow-wrap: anywhere; }
+html, body { margin: 0; background: #ffffff; color: #202124; }
+body { padding: 30px; font: 22px/1.75 Arial, 'Noto Sans CJK SC', 'Noto Sans SC',
+       'Microsoft YaHei', sans-serif; font-style: normal; overflow-wrap: anywhere; }
 .card { border-left: 3px solid #62866a; padding: 4px 30px 20px; }
 h1,h2,h3,h4,h5,h6 { color: #487052; font-size: 19px; font-weight: 600;
                     margin: 28px 0 12px; }
 .card > h2:first-child { margin-top: 0; }
 p { margin: 14px 0; } ul,ol { padding-left: 30px; } li { margin: 8px 0; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f0ecdf;
-      border: 1px solid #d9d3c2; border-radius: 5px; padding: 18px 22px;
+pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f5f6f8;
+      border: 1px solid #e0e3e7; border-radius: 5px; padding: 18px 22px;
       font: 19px/1.7 'DejaVu Sans Mono', 'Noto Sans CJK SC', monospace; }
 .math { white-space: pre-wrap; font-family: 'DejaVu Sans Mono', monospace; }
 .math-fallback { white-space: pre-wrap; }
@@ -231,7 +231,13 @@ def build_html(problem: dict, examples: bool = False, width: int = 900) -> str:
     assets = ASSET_DIR.resolve()
     css_url = html.escape((assets / "katex.min.css").as_uri(), quote=True)
     js_url = html.escape((assets / "katex.min.js").as_uri(), quote=True)
-    if examples:
+    pitfall = problem.get('kind') == 'pitfall'
+    if pitfall:
+        title='C++ 坑点练习'
+        body='<h2>C++ 坑点练习</h2>'+_prose(str(problem.get('pitfall_question') or '找出代码的问题。'))
+        body+='<pre><code>'+html.escape(str(problem.get('pitfall_code') or ''))+'</code></pre>'
+        body+='<p>提交分析：grm sub 你的分析<br>查看答案：grm giveup</p>'
+    elif examples:
         title = "样例"
         sections = []
         for index, example in enumerate(problem.get("examples") or [], 1):
@@ -246,6 +252,8 @@ def build_html(problem: dict, examples: bool = False, width: int = 900) -> str:
         if not body.startswith("<h2>题面</h2>"):
             body = "<h2>题面</h2>" + body
     limits = '<p class="limits">时间限制：' + html.escape(str(problem.get('time_limit') or '未提供')) + (' 秒' if problem.get('time_limit') else '') + ' · 内存限制：' + html.escape(str(problem.get('memory_limit') or '未提供')) + (' MB' if problem.get('memory_limit') else '') + '</p>'
+    if pitfall:
+        limits='<p class="limits">'+html.escape(str(problem.get('cpp_standard') or 'C++17'))+' · 找出问题并解释原因</p>'
     body = limits + body
     return ("<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
             '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; '

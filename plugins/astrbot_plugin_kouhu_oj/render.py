@@ -347,6 +347,12 @@ def render_problem(
     show_meta: bool = False,
 ) -> str:
     """把一道题渲染成 PNG，返回文件路径。"""
+    if problem.get('kind') == 'pitfall':
+        try:
+            from .browser_render import render_statement
+        except ImportError:
+            from browser_render import render_statement
+        return render_statement(problem,out_dir,width)
     blocks = html_to_blocks(problem.get("content_html") or "")
     if not blocks:
         blocks = [{"type": "text", "text": "（这道题没有题面内容）"}]
