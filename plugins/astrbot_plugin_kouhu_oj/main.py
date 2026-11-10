@@ -85,7 +85,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.17.1"
+PLUGIN_VERSION = "0.17.2"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -1096,7 +1096,10 @@ class KouHuOJ(Star):
                 provider_id=await self._provider_id(event)
         if not provider_id:
             raise RuntimeError('没有可用的翻译模型，请配置模型或当前会话默认模型')
-        prompt = TRANSLATE_PROMPT.format(text=text)
+        placeholders=re.findall(r'⟦\d+⟧',text)
+        instruction=('本段实际包含的公式标记依次为：'+ '、'.join(placeholders)+'。只保留这些标记，不得增删或改号。' if placeholders else '本段没有公式标记。禁止输出或补充任何方括号数字标记，不补全上下文，不猜测缺失公式。')
+        prompt=('把给定的算法题面文字翻译为简体中文，只输出译文，不解题、不复述英文、不加解释。'
+                '输入可能是句子片段，按现有文字翻译，不补全句子。保留段落与原有数字。\n'+instruction+'\n待翻译文字：\n'+text)
         timeout = float(self.config.get("translate_timeout_seconds", 90))
         response = await asyncio.wait_for(
             self.context.llm_generate(chat_provider_id=provider_id, prompt=prompt),
@@ -1305,12 +1308,20 @@ class KouHuOJ(Star):
         try:
             token=self._translation_event.set(event)
             try:
-                problem = await self._cf.fetch(entry)
+                # One deadline for fetch + all translation retries, rather than
+                # restarting a 90-second timer for every paragraph/model call.
+                prepare_timeout=max(5,min(90,float(self.config.get('prepare_timeout_seconds',60))))
+                problem = await asyncio.wait_for(self._cf.fetch(entry),timeout=prepare_timeout)
             finally:
                 self._translation_event.reset(token)
+        except asyncio.TimeoutError:
+            self._last_fetch_error='TimeoutError: 派题准备超过总时限'
+            logger.warning(f"[KouHuOJ] {entry['cf_key']} 派题准备超时（含抓取及翻译总计 {prepare_timeout:g} 秒）")
+            yield event.plain_result('题面准备超时，本轮已停止等待，当前题目未被替换。请稍后重试；管理员可检查翻译模型的响应速度。')
+            return
         except Exception as exc:  # noqa: BLE001
-            self._last_fetch_error = str(exc)
-            logger.error(f"[KouHuOJ] 抓取题面失败 {entry['cf_key']}：{exc}")
+            self._last_fetch_error = f'{type(exc).__name__}: {exc}'
+            logger.error(f"[KouHuOJ] 抓取题面失败 {entry['cf_key']}：{type(exc).__name__}: {exc}")
             yield event.plain_result(
                 ('中文题面翻译未通过完整性检查（可能是公式被改动、漏译或模型超时），请重试 new；当前题目未被替换。' if '翻译' in str(exc) else '这道题没拉下来（Codeforces 那边没响应或反爬拦了），再发一次 new 换个题试试')
             )

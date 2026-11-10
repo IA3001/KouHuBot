@@ -34,10 +34,16 @@
     "hint": "访问 Codeforces 的最长等待时间。CF 有 Cloudflare，偶尔会慢，网络差可以调大。",
     "default": 40
   },
+  "prepare_timeout_seconds": {
+    "description": "题面准备总超时（秒）",
+    "type": "int",
+    "hint": "抓取、下载原图、翻译和重试共用的总时限，默认60秒，限制5–90秒，避免多次串行调用拖至QQ回复过期。不包含渲染和QQ发送。",
+    "default": 60
+  },
   "translate_timeout_seconds": {
     "description": "题面翻译超时（秒）",
     "type": "int",
-    "hint": "一道题的题面通常一两千 token，正常十几秒能翻完。超时就退回英文原题面，不影响出题。",
+    "hint": "单次模型翻译调用的上限，同时受题面准备总时限约束。失败保留原文缓存，不发不完整中文、不替换当前题。",
     "default": 90
   },
   "ask_cooldown_seconds": {

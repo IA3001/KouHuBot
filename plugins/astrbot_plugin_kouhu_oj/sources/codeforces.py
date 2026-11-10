@@ -613,7 +613,9 @@ class CodeforcesSource:
                     for attempt in range(2):
                         # Image tokens never reach the translation model: translate
                         # the prose on either side and join the immutable markers back.
-                        paragraphs = re.split(r'(\n\n|KOUHUIMAGE\d+END|〔图片加载失败[^〕]*〕)', protected)
+                        # Preserve paragraph context in one request; splitting every
+                        # paragraph multiplied latency on the deployed cloud model.
+                        paragraphs = re.split(r'(KOUHUIMAGE\d+END|〔图片加载失败[^〕]*〕)', protected)
                         translated_parts = []
                         for paragraph in paragraphs:
                             if (_IMAGE_TOKEN.fullmatch(paragraph) or paragraph.startswith('〔图片加载失败')
@@ -633,9 +635,17 @@ class CodeforcesSource:
                                         if not piece or re.fullmatch(r'⟦\d+⟧',piece) or not re.search(r'[A-Za-z]{2}',piece):
                                             safe_parts.append(piece)
                                             continue
-                                        fragment=await self._translate(piece)
-                                        if translation_incomplete(fragment) or re.search(r'[⟦\[［【]+\s*\d+\s*[⟧\]］】]+',fragment):
-                                            raise ValueError('正文片段翻译未完成')
+                                        for fragment_attempt in range(3):
+                                            fragment=await self._translate(piece)
+                                            # A literal [1] in a valid Chinese translation
+                                            # is not automatically a fabricated math token.
+                                            # Only our reserved Unicode marker is forbidden.
+                                            if (not translation_incomplete(fragment)
+                                                    and not re.search(r'⟦\s*\d+\s*⟧',fragment)
+                                                    and (not re.search(r'[A-Za-z]{3,}',piece) or re.search(r'[\u3400-\u9fff]',fragment))):
+                                                break
+                                        else:
+                                            raise ValueError('正文片段翻译未完成：三次重试仍有长英文、无中文或多余公式标记')
                                         safe_parts.append(fragment)
                                     result=''.join(safe_parts)
                                 translated_parts.append(result)
@@ -652,8 +662,9 @@ class CodeforcesSource:
                     # 翻译挂了不能连题一起废掉：先发英文题面。
                     # 关键：这时**不写 statement_cn 到缓存**，让它保持「未翻译」状态，
                     # 否则这道题会永远停在英文上，以后也不会再尝试翻译。
-                    logger.warning(f"[KouHuOJ] {cf_key} 中文题面翻译未完成：{exc}")
-                    raise RuntimeError('中文题面翻译未完成，请检查翻译模型配置后重试；英文原文已缓存，不占用当前题位') from exc
+                    reason=f'{type(exc).__name__}: {exc}'
+                    logger.warning(f"[KouHuOJ] {cf_key} 中文题面翻译未完成：{reason}")
+                    raise RuntimeError('中文题面翻译未完成（'+reason+'）；英文原文已缓存，不占用当前题位') from exc
                 restored = restore_tex(translated, tex)
                 if not tex_intact(restored, len(tex)):
                     # 译文把公式弄丢或弄多了，宁可退回英文也不发一份坏题面

@@ -954,6 +954,7 @@ async def main() -> int:
         plugin._translation_event.reset(token)
         plugin.config['judge_provider_id']=saved_provider
     runner.check('翻译支持会话默认模型',translated=='给定整数数组，求最大值。')
+    runner.check('无公式片段提示词不诱导标记','⟦0⟧' not in ctx.last_prompt and '禁止输出或补充' in ctx.last_prompt)
     from sources.pitfall_growth import GrowthBank
     from sources.pitfalls import PitfallSource
     from growth_probe import CANDIDATE

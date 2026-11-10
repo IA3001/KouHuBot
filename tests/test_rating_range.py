@@ -34,6 +34,35 @@ class RatingRangeTest(unittest.TestCase):
                 self.assertEqual(len(pool),expected)
                 self.assertEqual(len({p['cf_key'] for p in pool}),expected)
 
+    def test_cancellation_stops_translation_without_retry_or_opening(self):
+        import asyncio
+        from unittest.mock import Mock, AsyncMock
+        source=self.source;source._cache=Mock()
+        source._cache.get.return_value=dict(cf_key='1A',contest_id=1,idx='A',statement_en='Find the answer.',statement_cn=None,examples='[]')
+        cancelled=[]
+        async def slow(text):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(True)
+        source._translate=AsyncMock(side_effect=slow)
+        async def run():
+            with self.assertRaises(asyncio.TimeoutError):
+                await asyncio.wait_for(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',rating=800)),0.01)
+        asyncio.run(run())
+        self.assertEqual(cancelled,[True])
+        self.assertEqual(source._translate.await_count,1)
+        source._cache.bump_used.assert_not_called()
+
+    def test_multiple_paragraphs_share_one_cloud_request(self):
+        import asyncio
+        from unittest.mock import Mock, AsyncMock
+        source=self.source;source._cache=Mock()
+        source._cache.get.return_value=dict(cf_key='1A',contest_id=1,idx='A',statement_en='Find the sum.\n\nInput\nThe array is given.\n\nOutput\nPrint the answer.',statement_cn=None,examples='[]')
+        source._translate=AsyncMock(return_value='求和。\n\n输入\n给定数组。\n\n输出\n打印答案。')
+        asyncio.run(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',rating=800)))
+        self.assertEqual(source._translate.await_count,1)
+
     def test_translation_failure_never_returns_english_as_chinese(self):
         import asyncio
         from unittest.mock import Mock, AsyncMock
@@ -57,6 +86,16 @@ class RatingRangeTest(unittest.TestCase):
         self.assertIn('求最大值',result['statement_cn'])
         self.assertEqual(source._translate.await_count,3)
         self.assertTrue(all('⟦' not in call.args[0] for call in source._translate.await_args_list[1:]))
+
+    def test_fragment_english_echo_retries_before_failing(self):
+        import asyncio
+        from unittest.mock import Mock, AsyncMock
+        source=self.source; source._cache=Mock()
+        source._cache.get.return_value=dict(cf_key='1A',contest_id=1,idx='A',statement_en='Find the maximum value of $$$x$$$ in the array.',statement_cn=None,examples='[]')
+        source._translate=AsyncMock(side_effect=['求最大值。','Find the maximum value of','求最大值','在数组中。'])
+        result=asyncio.run(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',title='test',rating=800,tier=800)))
+        self.assertIn('求最大值$$$x$$$',result['statement_cn'])
+        self.assertEqual(source._translate.await_count,4)
 
     def test_complete_cache_avoids_scraping(self):
         import asyncio
