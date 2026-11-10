@@ -404,6 +404,27 @@ async def main() -> int:
     runner.check("当前题已入库", current is not None and current["status"] == "open")
     first_key = current["cf_key"] if current else ""
 
+    banner("4b. 三级提示按需展示并持久化")
+    calls = ctx.call_count
+    for command in ("hint", "hint 0", "hint 4"):
+        out = await runner.says(E(command, **alice), "cmd_hint")
+        runner.check(f"{command} 给用法", "hint 1" in out and "hint 3" in out, out)
+    runner.check("用法不调用模型", ctx.call_count == calls)
+    ctx.reply_queue.append("不是合法JSON")
+    out = await runner.says(E("hint 1", **alice), "cmd_hint")
+    runner.check("坏响应可重试", "生成失败" in out and plugin._store.hints(scope, first_key) is None, out)
+    ctx.reply_queue.append(json.dumps(["方向提示甲", "关键观察乙", "解法框架丙"], ensure_ascii=False))
+    calls = ctx.call_count
+    out = await runner.says(E("hint 1", **alice), "cmd_hint")
+    runner.check("一级不泄露后续级别", "方向提示甲" in out and "关键观察乙" not in out and "解法框架丙" not in out, out)
+    runner.check("调用模型时不带题名题号", "Watermelon" not in ctx.last_prompt and first_key not in ctx.last_prompt, ctx.last_prompt)
+    for level, expected in ((2, "关键观察乙"), (3, "解法框架丙"), (1, "方向提示甲")):
+        out = await runner.says(E(f"hint {level}", **bob), "cmd_hint")
+        runner.check(f"缓存提示{level}", expected in out, out)
+    runner.check("三级只生成一次", ctx.call_count == calls + 1)
+    runner.check("其他群提示隔离", plugin._store.hints("another-group", first_key) is None)
+    runner.check("提示不改题目状态", plugin._store.current(scope)["status"] == "open")
+
     # ---------- 5. 未结束不能换题 ----------
     banner("5. 当前题没结束，再 new 要被拦")
     out = await runner.says(E("new", **bob), "cmd_new")
@@ -433,6 +454,10 @@ async def main() -> int:
     runner.check("分数已入账", panel["total_score"] == points, str(panel["total_score"]))
     runner.check("解题数 +1", panel["solved"] == 1, str(panel["solved"]))
     runner.check("题目已关闭", plugin._store.current(scope)["status"] == "ac")
+
+    calls = ctx.call_count
+    out = await runner.says(E("hint 1", **alice), "cmd_hint")
+    runner.check("结束后不给提示", "已经结束" in out and ctx.call_count == calls, out)
 
     # ---------- 8. 已关闭的题不能再交 ----------
     banner("8. 题目已关闭后再 submit 应当被拒")
@@ -738,6 +763,8 @@ async def main() -> int:
     kept = store2.player(scope, "1001")
     runner.check("积分还在", kept is not None and kept["total_score"] > 0, str(kept))
     runner.check("排行榜还查得到", bool(store2.leaderboard(scope, 10)))
+    runner.check("提示重启后仍在", store2.hints(scope, first_key) == ["方向提示甲", "关键观察乙", "解法框架丙"])
+    runner.check("提示不串到别的题", store2.hints(scope, "another-key") is None)
     store2.close()
 
     # ---------- 汇总 ----------
