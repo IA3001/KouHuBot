@@ -85,7 +85,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.17.0"
+PLUGIN_VERSION = "0.17.1"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -1562,7 +1562,9 @@ class KouHuOJ(Star):
 
             link = f"https://codeforces.com/problemset/problem/{problem.get('contest_id')}/{problem.get('idx')}"
             head = f"✅ AC  +{points} 分" if newly else "✅ AC（这题你已经拿过分了）"
-            body = f"{head}\n{comment}\n\n题号：CF{cf_key}\n{link}"
+            rating = problem.get('rating')
+            rating_label = str(rating) if rating is not None else '未评级'
+            body = f"{head}\n{comment}\n\n题号：CF{cf_key}\nCF rating：{rating_label}\n{link}"
             if state.get("_reason"):
                 body += f"\n\n【档位变更】{state['_reason']}，下一题难度 CF {state['current_tier']}"
             yield event.plain_result(body)
@@ -1608,9 +1610,11 @@ class KouHuOJ(Star):
         tail = f"\n{link}" if link else ""
         title = (cached or {}).get("title") or ""
         name = f"：{title}" if title else ""
+        rating = (cached or {}).get('rating')
+        rating_label = str(rating) if rating is not None else '未评级'
         yield event.plain_result(
             f"已放弃这道题。\n"
-            f"题目{name}（CF{current.get('cf_key')}）{tail}\n\n"
+            f"题目{name}（CF{current.get('cf_key')}）\nCF rating：{rating_label}{tail}\n\n"
             "想看题解可以搜这个题号。发 new 抽下一道。"
             + (f"\n\n【档位变更】{state['_reason']}，下一题难度 CF {state['current_tier']}"
                if state.get("_reason") else "")

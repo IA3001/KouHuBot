@@ -136,6 +136,16 @@ class HtmlTests(unittest.TestCase):
         self.assertNotIn('src="https://evil',unsafe)
         self.assertIn('题面图片未获取',unsafe)
 
+    def test_note_follows_examples_and_is_a_heading(self):
+        p={'statement_cn':'正文\n\n【说明】\n解释 KOUHUIMAGE0END','examples':[{'input':'123','output':'456'}], 'statement_images':[{'token':'KOUHUIMAGE0END','src':'data:image/png;base64,YWJj'}]}
+        statement=self.build(p)
+        examples=self.build(p,examples=True)
+        self.assertNotIn('解释',statement)
+        self.assertNotIn('【说明】',examples)
+        self.assertIn('<h2>样例说明</h2>',examples)
+        self.assertLess(examples.index('456'),examples.index('解释'))
+        self.assertIn('<img class="statement-image"',examples)
+
     def test_section_labels_and_metadata(self):
         problem = {key: "SECRET_" + key for key in ("title", "rating", "tags", "url", "id")}
         problem["statement_cn"] = "内容\n\n【输入】\n输入说明\n输出：\n输出说明\n数据范围\n1 <= n"

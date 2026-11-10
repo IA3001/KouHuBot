@@ -464,6 +464,7 @@ async def main() -> int:
     runner.judge("AC")
     out = await runner.says(E("sub 哈希表统计前缀", **alice), "cmd_submit")
     runner.check("返回 AC", "AC" in out, out)
+    runner.check('AC揭晓CF官方rating',f"CF rating：{plugin._cf.problems[first_key]['rating']}" in out,out)
     points = plugin._store.current(scope)["points"]
     runner.check(f"加 {points} 分", f"+{points}" in out, out)
     runner.check("揭晓题号", first_key in out, out)
@@ -537,6 +538,8 @@ async def main() -> int:
 
     out = await runner.says(E("giveup", **bob), "cmd_giveup")
     runner.check("放弃成功", "已放弃" in out, out)
+    ended_key=plugin._store.current(scope)['cf_key']
+    runner.check('giveup揭晓CF官方rating',f"CF rating：{plugin._cf.problems[ended_key]['rating']}" in out,out)
     runner.check("揭晓题号", second_key in out, out)
     runner.check("题目已关闭", plugin._store.current(scope)["status"] == "gave_up")
     bob_panel = plugin._store.player(scope, "1002")

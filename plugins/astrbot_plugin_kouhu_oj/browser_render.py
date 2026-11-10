@@ -122,7 +122,7 @@ def _prose(text: str) -> str:
             list_kind = ""
 
     for line in _inline_lines(text):
-        section = re.fullmatch(r"\s*(?:【(题面|输入|输出|数据范围)】|(题面|输入|输出|数据范围)[：:]?)\s*", line)
+        section = re.fullmatch(r"\s*(?:【(题面|输入|输出|数据范围|说明|样例说明)】|(题面|输入|输出|数据范围|说明|样例说明)[：:]?)\s*", line)
         heading = re.match(r"^(#{1,6})\s+(.+)$", line)
         item = re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)(.*)$", line)
         if not line.strip():
@@ -234,6 +234,11 @@ def build_html(problem: dict, examples: bool = False, width: int = 900) -> str:
     css_url = html.escape((assets / "katex.min.css").as_uri(), quote=True)
     js_url = html.escape((assets / "katex.min.js").as_uri(), quote=True)
     pitfall = problem.get('kind') == 'pitfall'
+    statement=str(problem.get('statement_cn') or problem.get('statement_en') or '')
+    # Also handles previously cached combined statements without a cache migration.
+    split=re.split(r'(?m)^\s*(?:【(?:说明|样例说明)】|#{1,6}\s*(?:说明|样例说明)|(?:说明|样例说明)[：:])\s*\n',statement,maxsplit=1)
+    statement_body=split[0]
+    note=split[1] if len(split)>1 else ''
     if pitfall:
         title='C++ 坑点练习'
         body='<h2>C++ 坑点练习</h2>'+_prose(str(problem.get('pitfall_question') or '找出代码的问题。'))
@@ -247,9 +252,11 @@ def build_html(problem: dict, examples: bool = False, width: int = 900) -> str:
                 value = html.escape(str(example.get(key) or ""))
                 sections.append(f"<h2>样例 {index} · {label}</h2><pre><code>{value}</code></pre>")
         body = "\n".join(sections) or "<p>（这道题没有提供样例）</p>"
+        if note.strip():
+            body += '<h2>样例说明</h2>'+_markdown(note)
     else:
         title = "题面"
-        text = str(problem.get("statement_cn") or problem.get("statement_en") or "（这道题没有题面内容）")
+        text = statement_body or '（这道题没有题面内容）'
         body = _markdown(text)
         if not body.startswith("<h2>题面</h2>"):
             body = "<h2>题面</h2>" + body
