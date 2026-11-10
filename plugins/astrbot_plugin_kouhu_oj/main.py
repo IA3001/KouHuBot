@@ -3,20 +3,20 @@
 指令一律用完整英文单词，手机上不容易打错：
 
     new            派一道新题（当前题已答对或已放弃时才允许）
-    problem        重看当前题
-    submit <思路>   提交作答，模型判
+    cur            重看当前题
+    sub <思路>      提交作答，模型判
     giveup         放弃当前题（会关闭全群这道题）
     rank           积分榜
     me             我的战绩
     ask <问题>      自由问答
     help           帮助
 
-坑点题是独立的另一条线，全部挂在 grammar 命名空间下：
+坑点题是独立的另一条线，全部挂在 grm 命名空间下：
 
-    grammar            抽一道 C++ 算竞坑点题
-    grammar problem    重看当前坑点题
-    grammar submit X   提交你的分析
-    grammar giveup     放弃，看答案
+    grm new            抽一道 C++ 算竞坑点题
+    grm cur            重看当前坑点题
+    grm sub X          提交你的分析
+    grm giveup         放弃，看答案
 
 题目来自 Codeforces，题面翻成中文渲染成图片发出来，做题时不显示题号（防止搜题解），
 答对之后才揭晓。题目按 CF 难度分档，每档有固定分值，答对得分、答错不扣分。
@@ -71,7 +71,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.5.3"
+PLUGIN_VERSION = "0.5.5"
 SCHEMA_VERSION = 5
 
 VERDICT_AC = "AC"
@@ -128,15 +128,15 @@ def _consumes(handler):
 # 指令正则：一律完整英文单词，允许带 / 前缀，大小写不敏感
 # ----------------------------------------------------------------------
 RE_NEW = re.compile(r"^\s*/?\s*new\s*$", re.I)
-RE_SUBMIT = re.compile(r"^\s*/?\s*submit\s+([\s\S]+?)\s*$", re.I)
+RE_SUBMIT = re.compile(r"^\s*/?\s*(?:sub|submit)\s+([\s\S]+?)\s*$", re.I)
 RE_GIVEUP = re.compile(r"^\s*/?\s*giveup\s*$", re.I)
 RE_RANK = re.compile(r"^\s*/?\s*rank\s*$", re.I)
-RE_PROBLEM = re.compile(r"^\s*/?\s*problem\s*$", re.I)
+RE_PROBLEM = re.compile(r"^\s*/?\s*(?:cur|problem)\s*$", re.I)
 RE_ME = re.compile(r"^\s*/?\s*me\s*$", re.I)
 # grammar 是一个命名空间：grammar [new|problem|submit …|giveup]
 # 抽坑点题和 CF 正题是两条完全独立的线，指令上也必须分开，
 # 否则「同时开着一道正题和一道坑点题」时 submit 该判哪道就说不清了。
-RE_GRM = re.compile(r"^\s*/?\s*grammar(?:\s+([\s\S]+?))?\s*$", re.I)
+RE_GRM = re.compile(r"^\s*/?\s*(?:grm|grammar)(?:\s+([\s\S]+?))?\s*$", re.I)
 RE_HELP = re.compile(r"^\s*/?\s*help\s*$", re.I)
 RE_ASK = re.compile(r"^\s*/?\s*ask\s+([\s\S]+?)\s*$", re.I)
 RE_SKIP = re.compile(r"^\s*/?\s*skip\s*$", re.I)
@@ -146,21 +146,21 @@ RE_STATUS = re.compile(r"^\s*/?\s*status\s*$", re.I)
 HELP_TEXT = """口胡 OJ —— 群内做题，答对得分
 
 new           派一道新题（上一题答对或放弃后才能派）
-problem       重看当前题
-submit 思路    提交作答（写思路、伪代码、代码都行）
+cur           重看当前题
+sub 思路       提交作答（写思路、伪代码、代码都行）
 giveup        放弃这题（注意：会关掉全群这道题）
 rank          积分榜
 me            我的战绩
 ask 问题       自由问答：题库、运行情况，随便问
 help          这条帮助
 
-坑点题是另一条独立的线（看代码找 bug），指令都挂在 grammar 下面：
-grammar new       抽一道坑点题（上一道答对或放弃后才能抽）
-grammar new 二分   按分类抽（分类见 grammar list）
-grammar list      有哪些分类、各多少题
-grammar problem   重看当前坑点题
-grammar submit X  提交你的分析
-grammar giveup    放弃，看答案
+坑点题是另一条独立的线（看代码找 bug），指令都挂在 grm 下面：
+grm new           抽一道坑点题（上一道答对或放弃后才能抽）
+grm new 二分       按分类抽（分类见 grm list）
+grm list          有哪些分类、各多少题
+grm cur           重看当前坑点题
+grm sub X         提交你的分析
+grm giveup        放弃，看答案
 
 正题：答对加分，答错不扣分，做完之前不告诉你题号和题目名字。
 坑点题：不计分，纯粹练手。"""
@@ -748,7 +748,7 @@ class KouHuOJ(Star):
         self._last_new: dict[str, float] = {}
         self._last_ask: dict[str, float] = {}
         self._judge_locks: dict[str, asyncio.Lock] = {}
-        self._started_at: float = time.time()
+        self._started_at: float = time.monotonic()
         self._last_fetch_ok: float | None = None
         self._last_fetch_error: str = ""
 
@@ -765,7 +765,7 @@ class KouHuOJ(Star):
             timeout=float(self.config.get("fetch_timeout_seconds", 40)),
         )
         self._pitfalls = PitfallSource()
-        self._started_at = time.time()
+        self._started_at = time.monotonic()
         self._image_dir = data_dir / "images"
         self._image_dir.mkdir(parents=True, exist_ok=True)
         self._cleanup_images()
@@ -935,7 +935,7 @@ class KouHuOJ(Star):
         content_html = (
             f"<p>{question}</p>"
             f"<pre><code>{code}</code></pre>"
-            "<p>回复 grammar submit + 你的分析交卷，回复 grammar giveup 看答案。</p>"
+            "<p>回复 grm sub + 你的分析交卷，回复 grm giveup 看答案。</p>"
         )
         return {
             "slug": "grm:" + pitfall["id"],
@@ -963,17 +963,21 @@ class KouHuOJ(Star):
         scope = self._scope_of(event)
         sender_id, sender_name = self._sender(event)
 
+        # 冷却用单调时钟：time.time() 是墙钟，NTP 回拨会让它倒退，
+        # 倒退时 (now - last) 变负、left 变正，冷却就会平白无故触发。
+        # 另外冷却配成 0 时应该彻底跳过，不该还去算一遍。
         cooldown = float(self.config.get("new_cooldown_seconds", 5))
-        left = cooldown - (time.time() - self._last_new.get(scope, 0.0))
-        if left > 0:
-            yield event.plain_result(f"别急，{int(left) + 1} 秒后再派")
-            return
+        if cooldown > 0:
+            left = cooldown - (time.monotonic() - self._last_new.get(scope, 0.0))
+            if left > 0:
+                yield event.plain_result(f"别急，{int(left) + 1} 秒后再派")
+                return
 
         current = self._store.current(scope)
         if current and current.get("status") == STATUS_OPEN:
             yield event.plain_result(
-                "当前这道题还没人做出来。先 submit 交卷，做不出来可以 giveup 放弃。\n"
-                "重看题目发 problem。"
+                "当前这道题还没人做出来。先 sub 交卷，做不出来可以 giveup 放弃。\n"
+                "重看题目发 cur。"
             )
             return
 
@@ -1024,7 +1028,7 @@ class KouHuOJ(Star):
             logger.error(f"[KouHuOJ] 保存当前题失败：{exc}")
             yield event.plain_result("题目存不进去了（数据库错误），看日志排查")
             return
-        self._last_new[scope] = time.time()
+        self._last_new[scope] = time.monotonic()
 
         images = self._render_cf(problem)
         if images:
@@ -1035,18 +1039,18 @@ class KouHuOJ(Star):
             yield event.plain_result(
                 problem.get("statement_cn") or problem.get("statement_en") or "题面为空"
             )
-        hint = "思路想好了发 submit 你的思路（写伪代码或代码也行）。做不出来发 giveup。"
+        hint = "思路想好了发 sub 你的思路（写伪代码或代码也行）。做不出来发 giveup。"
         # 两条线同时开着时，明确说一句，否则群友会不知道自己那条 submit 判的是哪道题
         gcur = self._store.current(scope + GRAMMAR_SUFFIX)
         if gcur and gcur.get("status") == STATUS_OPEN:
-            hint += "\n\n（坑点题也还开着：那道用 grammar submit 交，别和这道混了）"
+            hint += "\n\n（坑点题也还开着：那道用 grm sub 交，别和这道混了）"
         yield event.plain_result(hint)
 
     # -- 指令：重看当前题 ----------------------------------------------
     @filter.regex(RE_PROBLEM)
     @_consumes
     async def cmd_problem(self, event: AstrMessageEvent):
-        """problem —— 重看当前题"""
+        """cur —— 重看当前题"""
         if not self._store or not self._cf:
             yield event.plain_result("插件还没初始化完，稍等几秒再试")
             return
@@ -1071,17 +1075,17 @@ class KouHuOJ(Star):
         if status != STATUS_OPEN:
             yield event.plain_result("这题已经结束了，发 new 抽下一道")
             return
-        hint = "答案想好了发 submit。"
+        hint = "答案想好了发 sub。"
         gcur = self._store.current(scope + GRAMMAR_SUFFIX)
         if gcur and gcur.get("status") == STATUS_OPEN:
-            hint += "\n（坑点题也还开着：那道用 grammar submit 交，别和这道混了）"
+            hint += "\n（坑点题也还开着：那道用 grm sub 交，别和这道混了）"
         yield event.plain_result(hint)
 
     # -- 指令：提交 ----------------------------------------------------
     @filter.regex(RE_SUBMIT)
     @_consumes
     async def cmd_submit(self, event: AstrMessageEvent):
-        """submit <思路> —— 提交作答"""
+        """sub <思路> —— 提交作答"""
         if not self._store or not self._cf:
             yield event.plain_result("插件还没初始化完，稍等几秒再试")
             return
@@ -1091,7 +1095,7 @@ class KouHuOJ(Star):
         match = RE_SUBMIT.match(event.message_str or "")
         submission = (match.group(1) if match else "").strip()
         if not submission:
-            yield event.plain_result("把思路写在 submit 后面，比如：submit 用哈希表存…")
+            yield event.plain_result("把思路写在 sub 后面，比如：sub 用哈希表存…")
             return
 
         limit = int(self.config.get("max_submission_chars", 2000))
@@ -1102,7 +1106,7 @@ class KouHuOJ(Star):
         # 没有报名这一步：第一次 submit 时才建档，省掉一个没人会用的指令
         self._store.ensure_player(scope, sender_id, sender_name)
 
-        # 这里**只看正题槽位**。坑点题有它自己的 grammar submit，绝不在这里路由。
+        # 这里**只看正题槽位**。坑点题有它自己的 grm sub，绝不在这里路由。
         # 曾经这里会「先看坑点题槽位，开着就判坑点题」，结果群友明明在做 CF 题，
         # 一条 submit 被判成了坑点题——判词是「你在讲图论连边，和这段哈希代码
         # 完全不沾边」，而群友从头到尾没见过那段哈希代码。这不是判题质量问题，
@@ -1157,7 +1161,7 @@ class KouHuOJ(Star):
 
             if verdict != VERDICT_AC:
                 yield event.plain_result(
-                    f"❌ WA\n{comment}\n\n（答错不扣分，想好了再 submit。做不出来可以 giveup）"
+                    f"❌ WA\n{comment}\n\n（答错不扣分，想好了再 sub。做不出来可以 giveup）"
                 )
                 return
 
@@ -1384,7 +1388,7 @@ class KouHuOJ(Star):
         stats = self._store.stats()
         lines = [
             f"口胡 OJ {PLUGIN_VERSION}",
-            f"已运行 {_fmt_uptime(time.time() - self._started_at)}",
+            f"已运行 {_fmt_uptime(time.monotonic() - self._started_at)}",
             f"群难度 CF {state['current_tier']}，本档已派 {state['tier_issued']} 道",
             f"当前题：{current['cf_key'] if current else '无'}（{current['status'] if current else '-'}）",
             f"题库缓存 {self._cache.ready_count() if self._cache else 0} 道",
@@ -1420,18 +1424,18 @@ class KouHuOJ(Star):
         rest = (parts[1].strip() if len(parts) > 1 else "")
 
         if sub == "new":
-            # grammar new [分类] [难度]
+            # grm new [分类] [难度]
             async for r in self._grammar_new(event, rest or ""):
                 yield r
             return
         if sub in ("list", "分类", "目录", "help"):
             yield event.plain_result(self._grammar_catalog())
             return
-        if sub in ("problem", "show", "p", "重看", "当前"):
+        if sub in ("cur", "problem", "show", "p", "重看", "当前"):
             async for r in self._grammar_show(event):
                 yield r
             return
-        if sub in ("submit", "s", "交", "提交"):
+        if sub in ("sub", "submit", "s", "交", "提交"):
             async for r in self._grammar_submit(event, rest):
                 yield r
             return
@@ -1441,13 +1445,13 @@ class KouHuOJ(Star):
             return
 
         yield event.plain_result(
-            "grammar 后面要跟子命令：\n"
-            "grammar new                抽一道新的坑点题（上一道答对或放弃后才能抽）\n"
-            "grammar new 分类 [难度]     按分类抽，如 grammar new 二分 / grammar new 二分 1\n"
-            "grammar list               看有哪些分类和难度\n"
-            "grammar problem            重看当前这道\n"
-            "grammar submit 分析         提交你的分析\n"
-            "grammar giveup             放弃，看答案"
+            "grm 后面要跟子命令：\n"
+            "grm new                抽一道新的坑点题（上一道答对或放弃后才能抽）\n"
+            "grm new 分类 [难度]     按分类抽，如 grm new 二分 / grm new 二分 1\n"
+            "grm list               看有哪些分类和难度\n"
+            "grm cur                重看当前这道\n"
+            "grm sub 分析            提交你的分析\n"
+            "grm giveup             放弃，看答案"
         )
 
     # -- 坑点题：抽新题 -------------------------------------------------
@@ -1457,12 +1461,12 @@ class KouHuOJ(Star):
 
         # 和正题一个规矩：上一道必须已经 AC 或放弃，才能抽下一道。
         # 之前是「抽题时直接把老题顶掉」，等于可以无限换题——
-        # 一路 grammar new 刷到一道自己会的，找 bug 就失去了意义。
+        # 一路 grm new 刷到一道自己会的，找 bug 就失去了意义。
         current = self._store.current(scope)
         if current and current.get("status") == STATUS_OPEN:
             yield event.plain_result(
                 "这道坑点题还没结束。\n"
-                "先发 grammar submit 你的分析，或者 grammar giveup 看答案。\n"
+                "先发 grm sub 你的分析，或者 grm giveup 看答案。\n"
                 "两道都做完才能抽下一道。"
             )
             return
@@ -1471,7 +1475,7 @@ class KouHuOJ(Star):
         if current and str(current.get("cf_key", "")).startswith(PITFALL_PREFIX):
             exclude = (str(current["cf_key"])[len(PITFALL_PREFIX):],)
 
-        # 参数里可以混着写分类和难度，位置随意：grammar new 二分 1 / grammar new 1 二分
+        # 参数里可以混着写分类和难度，位置随意：grm new 二分 1 / grm new 1 二分
         category = None
         level = None
         for token in arg.split():
@@ -1486,7 +1490,7 @@ class KouHuOJ(Star):
             )
         except LookupError as exc:
             yield event.plain_result(
-                f"{exc}\n\n发 grammar list 看有哪些分类和难度。"
+                f"{exc}\n\n发 grm list 看有哪些分类和难度。"
             )
             return
 
@@ -1522,7 +1526,7 @@ class KouHuOJ(Star):
             )
         hint = (
             f"【{pitfall.get('category', '坑点')} · 难度 {pitfall.get('level', 2)}/3】\n"
-            "看代码找 bug：分析好了发 grammar submit 你的分析，想看答案发 grammar giveup。"
+            "看代码找 bug：分析好了发 grm sub 你的分析，想看答案发 grm giveup。"
         )
         cf_cur = self._store.current(self._scope_of(event))
         if cf_cur and cf_cur.get("status") == STATUS_OPEN:
@@ -1531,7 +1535,7 @@ class KouHuOJ(Star):
 
     # -- 坑点题：重看 ---------------------------------------------------
     def _grammar_catalog(self) -> str:
-        """grammar list —— 有哪些分类、各多少条、难度怎么分。"""
+        """grm list —— 有哪些分类、各多少条、难度怎么分。"""
         if not self._pitfalls:
             return "坑点库还没加载好"
         items = self._pitfalls._load()          # noqa: SLF001
@@ -1546,19 +1550,19 @@ class KouHuOJ(Star):
             lines.append(f"  {cat}  {len(levels)} 道  L{dist}")
         lines.append("")
         lines.append("难度：1 入门 / 2 常见 / 3 阴间（后面那串数字是各难度的题数）")
-        lines.append("抽题：grammar new 二分 1　（分类和难度都可以不带）")
+        lines.append("抽题：grm new 二分 1　（分类和难度都可以不带）")
         return "\n".join(lines)
 
     async def _grammar_show(self, event: AstrMessageEvent):
         scope = self._scope_of(event) + GRAMMAR_SUFFIX
         current = self._store.current(scope)
         if not current:
-            yield event.plain_result("还没有坑点题。发 grammar 抽一道。")
+            yield event.plain_result("还没有坑点题。发 grm new 抽一道。")
             return
 
         pitfall = self._pitfalls.get(str(current["cf_key"])[len(PITFALL_PREFIX):])
         if not pitfall:
-            yield event.plain_result("这道坑点题找不到了，发 grammar 重新抽一道")
+            yield event.plain_result("这道坑点题找不到了，发 grm new 重新抽一道")
             return
 
         problem = self._pitfall_to_problem(pitfall)
@@ -1581,10 +1585,10 @@ class KouHuOJ(Star):
 
         if current.get("status") == STATUS_OPEN:
             yield event.plain_result(
-                "分析好了发 grammar submit 你的分析，想看答案发 grammar giveup。"
+                "分析好了发 grm sub 你的分析，想看答案发 grm giveup。"
             )
         else:
-            yield event.plain_result("这道坑点题已经结束了。发 grammar 抽下一道。")
+            yield event.plain_result("这道坑点题已经结束了。发 new 抽下一道。")
 
     # -- 坑点题：提交 ---------------------------------------------------
     async def _grammar_submit(self, event: AstrMessageEvent, submission: str):
@@ -1593,7 +1597,7 @@ class KouHuOJ(Star):
 
         if not submission:
             yield event.plain_result(
-                "把分析写在后面，比如：grammar submit 这里少了标记已访问，会重复入队"
+                "把分析写在后面，比如：grm sub 这里少了标记已访问，会重复入队"
             )
             return
 
@@ -1604,16 +1608,16 @@ class KouHuOJ(Star):
 
         current = self._store.current(scope)
         if not current:
-            yield event.plain_result("还没有坑点题。发 grammar 抽一道。")
+            yield event.plain_result("还没有坑点题。发 grm new 抽一道。")
             return
         if current.get("status") != STATUS_OPEN:
-            yield event.plain_result("这道坑点题已经结束了。发 grammar 抽下一道。")
+            yield event.plain_result("这道坑点题已经结束了。发 new 抽下一道。")
             return
 
         pitfall = self._pitfalls.get(str(current["cf_key"])[len(PITFALL_PREFIX):])
         if not pitfall:
             self._store.close_problem(scope, STATUS_GAVE_UP, sender_id)
-            yield event.plain_result("这道坑点题找不到了，发 grammar 重新抽一道")
+            yield event.plain_result("这道坑点题找不到了，发 grm new 重新抽一道")
             return
 
         self._store.ensure_player(self._scope_of(event), sender_id, sender_name)
@@ -1636,7 +1640,7 @@ class KouHuOJ(Star):
         else:
             yield event.plain_result(
                 f"{VERDICT_EMOJI.get(verdict, '❌')} {verdict}\n{comment}\n\n"
-                "再想想，或者发 grammar giveup 看答案"
+                "再想想，或者发 grm giveup 看答案"
             )
 
     # -- 坑点题：放弃 ---------------------------------------------------
@@ -1646,20 +1650,20 @@ class KouHuOJ(Star):
 
         current = self._store.current(scope)
         if not current or current.get("status") != STATUS_OPEN:
-            yield event.plain_result("当前没有正在做的坑点题。发 grammar 抽一道。")
+            yield event.plain_result("当前没有正在做的坑点题。发 grm new 抽一道。")
             return
 
         self._store.close_problem(scope, STATUS_GAVE_UP, sender_id)
         pitfall = self._pitfalls.get(str(current["cf_key"])[len(PITFALL_PREFIX):])
         if not pitfall:
-            yield event.plain_result("已放弃。这道坑点题找不到了，发 grammar 重新抽一道")
+            yield event.plain_result("已放弃。这道坑点题找不到了，发 grm new 重新抽一道")
             return
 
         yield event.plain_result(
             f"【这道坑点】{pitfall.get('title', '')}\n\n"
             f"{_clip(pitfall.get('answer', ''), 700)}\n\n"
             f"正确写法：{_clip(pitfall.get('fix', ''), 300)}\n\n"
-            "发 grammar 抽下一道。"
+            "发 new 抽下一道。"
         )
 
     # -- 自由问答 ------------------------------------------------------
@@ -1672,7 +1676,7 @@ class KouHuOJ(Star):
         now = time.time()
         snapshot: dict = {
             "插件版本": PLUGIN_VERSION,
-            "已运行": _fmt_uptime(now - self._started_at),
+            "已运行": _fmt_uptime(time.monotonic() - self._started_at),
             "Python": _platform.python_version(),
             "系统": _system_info(),
         }
@@ -1783,12 +1787,13 @@ class KouHuOJ(Star):
             return
 
         scope = self._scope_of(event)
-        cooldown = float(self.config.get("ask_cooldown_seconds", 8))
-        left = cooldown - (time.time() - self._last_ask.get(scope, 0.0))
-        if left > 0:
-            yield event.plain_result(f"问得太快了，{int(left) + 1} 秒后再来")
-            return
-        self._last_ask[scope] = time.time()
+        cooldown = float(self.config.get("ask_cooldown_seconds", 3))
+        if cooldown > 0:
+            left = cooldown - (time.monotonic() - self._last_ask.get(scope, 0.0))
+            if left > 0:
+                yield event.plain_result(f"问得太快了，{int(left) + 1} 秒后再来")
+                return
+        self._last_ask[scope] = time.monotonic()
 
         ack = str(self.config.get("ask_ack_message", "让我看看……") or "").strip()
         if ack:

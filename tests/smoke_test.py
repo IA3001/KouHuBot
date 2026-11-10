@@ -366,6 +366,36 @@ def test_pitfalls(tmp: Path) -> None:
     check("每条都有代码和答案", not empty, str(empty[:3]))
 
 
+def test_clock_rollback(tmp: Path) -> None:
+    """墙钟回拨不能让冷却误触发。
+
+    time.time() 是墙钟，NTP 校时 / 虚拟机迁移都可能让它倒退。冷却一旦用
+    time.time() 算差值，倒退时 (now - last) 会变负、剩余时间变正，
+    于是「别急，1 秒后再派」会平白无故冒出来——配成 0 秒冷却也照样中招。
+    """
+    print("\n[clock] 墙钟回拨不能让冷却误触发")
+    import inspect
+    import importlib
+
+    mod = importlib.import_module("main")
+    src = inspect.getsource(mod)
+
+    # 冷却相关必须是单调时钟
+    for name, pattern in [
+        ("_last_new 写入", "self._last_new[scope] = time.monotonic()"),
+        ("_last_new 读取", "time.monotonic() - self._last_new.get"),
+        ("_last_ask 写入", "self._last_ask[scope] = time.monotonic()"),
+        ("_last_ask 读取", "time.monotonic() - self._last_ask.get"),
+    ]:
+        check(name + "用单调时钟", pattern in src, pattern)
+
+    # 冷却 <= 0 时要彻底跳过，不该还进分支
+    check("new 冷却为 0 时跳过", 'if cooldown > 0:' in src)
+    check("冷却不再直接用 time.time()",
+          "cooldown - (time.time()" not in src,
+          "还有残留的墙钟冷却计算")
+
+
 def test_no_title_leak(tmp: Path) -> None:
     """题面卡片不能出现题目名字、题号、难度、分值。
 
@@ -437,7 +467,7 @@ def test_package_import(tmp: Path) -> None:
         eq("包加载下 normalize_tex 生效", cf.normalize_tex(r"a \le b"), r"a \leq b")
 
         main_mod = importlib.import_module("data.plugins.astrbot_plugin_kouhu_oj.main")
-        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.5.3")
+        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.5.5")
         cmds = [n for n in dir(main_mod.KouHuOJ) if n.startswith("cmd_")]
         check(f"指令齐全（{len(cmds)} 个）", len(cmds) >= 12, str(sorted(cmds)))
     finally:
@@ -461,6 +491,7 @@ def main() -> int:
     test_store(mod, tmp)
     test_pitfalls(tmp)
     test_no_title_leak(tmp)
+    test_clock_rollback(tmp)
     test_package_import(tmp)
 
     print(f"\n{'─' * 60}")
