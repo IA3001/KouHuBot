@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "runtime_version": "runtime-1",
+  "runtime_image": "ia3000/kouhubot@sha256:29b79254047d841158190c963d092ca2054f085d98cc7898083dc27b4c7509d8",
+  "platform": "linux/amd64"
+}

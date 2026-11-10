@@ -403,6 +403,10 @@ cd .local/astrbot && ../venv/bin/python main.py
 
 ---
 
+## 运维工具
+
+云服务器日常运行 `bash ~/KouHuBot/ops/kouhubot update`，只获取Git插件更新，不拉镜像。另提供status、check、显式upgrade-runtime与默认预览的cleanup命令，环境升级检查失败恢复旧镜像，成功后清理本项目未使用的旧镜像。完整命令、权限与回退范围见[运维说明](docs/operations.md)。
+
 ## Docker 镜像
 
 已发布到 Docker Hub：**[ia3000/kouhubot](https://hub.docker.com/r/ia3000/kouhubot)**
