@@ -828,7 +828,7 @@ async def main() -> int:
     banner("17. status 运维信息")
     out = await runner.says(E("status", **admin), "cmd_status")
     runner.check("显示版本", mod.PLUGIN_VERSION in out, out)
-    runner.check("显示缓存题数", "题库缓存" in out, out)
+    runner.check("显示缓存题数", "题面缓存" in out, out)
     runner.check("不泄露密钥", "api_key" not in out.lower(), out)
 
     # ---------- 18. 帮助 ----------

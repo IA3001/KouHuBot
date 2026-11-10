@@ -78,7 +78,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from sources.pitfalls import PitfallSource  # type: ignore
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.13.3"
+PLUGIN_VERSION = "0.14.0"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -1665,15 +1665,22 @@ class KouHuOJ(Star):
         rate = f"{player['first_try'] / solved * 100:.0f}%" if solved else "-"
         gave_up = player["gave_up"] or 0
         hint_stats = self._store.review_hint_stats(scope, sender_id)
+        display_name = '' if sender_name == sender_id or re.fullmatch(r'[0-9A-Fa-f]{24,}', sender_name or '') else sender_name
+        title = f'{display_name} 的战绩' if display_name else '我的战绩'
         yield event.plain_result(
-            f"{sender_name} 的战绩\n"
-            f"积分　　{player['total_score']}\n"
-            f"解题　　{solved} 题\n"
-            f"首次通过率　{rate}\n"
-            f"提交　　{attempts} 次\n"
-            f"放弃　　{gave_up} 次\n"
-            f"有记录的AC：主动请求提示后 {hint_stats['requested']} 次，未主动请求 {hint_stats['unrequested']} 次，旧版未知 {hint_stats['unknown']} 次\n"
-            "提示群内公开，未主动请求不代表独立完成。详情：history"
+            f"🏆 {title}\n━━━━━━━━━━━━━━━━\n"
+            f"⭐ 累计积分：{player['total_score']}\n"
+            f"✅ 解题：{solved} 题\n"
+            f"🎯 首次通过率：{rate}\n\n"
+            "📝 作答统计\n━━━━━━━━━━━━━━━━\n"
+            f"› 提交：{attempts} 次\n"
+            f"› 放弃：{gave_up} 次\n\n"
+            "💡 已 AC 题目的提示记录\n━━━━━━━━━━━━━━━━\n"
+            f"› 主动请求提示后：{hint_stats['requested']} 次\n"
+            f"› 未主动请求：{hint_stats['unrequested']} 次\n"
+            f"› 旧版记录未知：{hint_stats['unknown']} 次\n\n"
+            "📌 提示群内公开，未主动请求不代表独立完成。\n"
+            "📖 history · 查看按题汇总的历史"
         )
 
     # -- 管理员 --------------------------------------------------------
@@ -1715,9 +1722,14 @@ class KouHuOJ(Star):
         if arg is None:
             state = self._store.state(scope)
             yield event.plain_result(
-                f"当前难度档 CF {state['current_tier']}（每题 {scoring.points_for(state['current_tier'])} 分）\n"
-                f"本档已派 {state['tier_issued']} 道，解出 {state['tier_solved']} 次\n"
-                f"每派满 {scoring.ROUNDS_PER_TIER} 道自动评估升降档"
+                "🎚 群难度\n━━━━━━━━━━━━━━━━\n"
+                f"› 当前难度档：CF {state['current_tier']}\n"
+                f"› 档位基准分：{scoring.points_for(state['current_tier'])} 分\n"
+                f"› 本档已派：{state['tier_issued']} 道\n"
+                f"› 本档解出：{state['tier_solved']} 次\n\n"
+                f"📌 每派满 {scoring.ROUNDS_PER_TIER} 道自动评估升降档。\n"
+                "🎯 new [1200-1600] · 指定 rating 区间\n"
+                "🔐 tier 数字 · 管理员调整群档位"
             )
             return
         if not self._is_admin(event):
@@ -1743,20 +1755,29 @@ class KouHuOJ(Star):
         state = self._store.state(scope)
         current = self._store.current(scope)
         stats = self._store.stats()
+        status_label = {STATUS_OPEN:'🟡 进行中',STATUS_AC:'🟢 已通过',STATUS_GAVE_UP:'⚪ 已放弃'}.get(current['status'] if current else '', '暂无题目')
+        identity = '进行中（结束后揭晓题号）' if current and current['status']==STATUS_OPEN else current['cf_key'] if current else '无'
         lines = [
-            f"口胡 OJ {PLUGIN_VERSION}",
-            f"已运行 {_fmt_uptime(time.monotonic() - self._started_at)}",
-            f"群难度 CF {state['current_tier']}，本档已派 {state['tier_issued']} 道",
-            f"当前题：{'进行中（结束后揭晓题号）' if current and current['status'] == STATUS_OPEN else current['cf_key'] if current else '无'}（{current['status'] if current else '-'}）",
-            f"题库缓存 {self._cache.ready_count() if self._cache else 0} 道",
-            f"报名 {stats.get('报名人数', 0)} 人 · 累计解题 {stats.get('累计解题', 0)} 次",
+            f"📡 口胡 OJ · 运行状态\n━━━━━━━━━━━━━━━━",
+            f"› 版本：{PLUGIN_VERSION}",
+            f"› 已运行：{_fmt_uptime(time.monotonic() - self._started_at)}",
+            "\n🎯 本群练习\n━━━━━━━━━━━━━━━━",
+            f"› 群难度：CF {state['current_tier']}",
+            f"› 本档已派：{state['tier_issued']} 道",
+            f"› 当前题：{identity}",
+            f"› 状态：{status_label}",
+            "\n📚 数据统计\n━━━━━━━━━━━━━━━━",
+            f"› 题面缓存：{self._cache.ready_count() if self._cache else 0} 道",
+            f"› 报名人数：{stats.get('报名人数', 0)} 人",
+            f"› 累计解题：{stats.get('累计解题', 0)} 次",
         ]
         if self._last_fetch_ok:
             lines.append(f"上次抓题 {_fmt_uptime(time.time() - self._last_fetch_ok)}前")
         if self._last_fetch_error:
             lines.append("上次抓题失败，请管理员查看日志")
+        lines.append('\n🖥 系统资源\n━━━━━━━━━━━━━━━━')
         for key, value in _system_info().items():
-            lines.append(f"{key}：{value}")
+            lines.append(f"› {key}：{value}")
         yield event.plain_result("\n".join(lines))
 
     # -- 坑点题 --------------------------------------------------------
@@ -2316,6 +2337,10 @@ class KouHuOJ(Star):
             return
         yield event.plain_result(f"{head}\n\n{body}\n\n历史版本：ver list"[:1800])
 
+    @staticmethod
+    def _verdict_label(verdict: str) -> str:
+        return {'AC':'🟢 AC · 通过','WA':'🔴 WA · 未通过','GIVEUP':'⚪ GIVEUP · 放弃','GAVE_UP':'⚪ GIVEUP · 放弃', 'ERROR':'🟠 ERROR · 异常'}.get(str(verdict).upper(), '🟠 ' + str(verdict))
+
     def _review_hidden(self, scope: str, entry: dict) -> bool:
         current = self._store.current(scope)
         return entry.get("status") == STATUS_OPEN or bool(
@@ -2393,7 +2418,7 @@ class KouHuOJ(Star):
                 return
             yield event.plain_result(f'📖 {key} · 我的作答 · {page}/{pages} 页')
             for row in rows:
-                yield event.plain_result(f"提交 #{row['id']} · {row['verdict']}\n作答：\n{row['submission'][:2000]}\n判词：\n{row['comment'][:1200]}")
+                yield event.plain_result(f"{self._verdict_label(row['verdict'])}\n━━━━━━━━━━━━━━━━\n📝 提交 #{row['id']}\n🕒 {time.strftime('%m-%d %H:%M',time.localtime(row['at']))}\n\n✍️ 我的作答\n{row['submission'][:2000]}\n\n⚖️ 判词\n{row['comment'][:1200]}")
             return
         if len(parts) == 2 and parts[0].lower() == "show" and parts[1].isdigit() and len(parts[1]) <= 18:
             entry = self._store.review_entry(scope, user, int(parts[1]))
@@ -2421,7 +2446,7 @@ class KouHuOJ(Star):
         if page > pages:
             yield event.plain_result(f"只有 {pages} 页，发 history{' grm' if grammar else ''} {pages}")
             return
-        lines = [f"我的{'坑点' if grammar else '正题'}记录 · {page}/{pages} 页 · {total} 题"]
+        lines = [f"📖 我的{'坑点' if grammar else '正题'}记录\n━━━━━━━━━━━━━━━━\n📄 {page}/{pages} 页 · 共 {total} 题"]
         for row in rows:
             hidden = self._review_hidden(scope, row)
             identity = "进行中（结束后揭晓）" if hidden else row['cf_key']
@@ -2429,11 +2454,11 @@ class KouHuOJ(Star):
             stamp = time.strftime("%m-%d %H:%M", time.localtime(row['at']))
             points = "得分旧版未保存" if row['hint_level'] < 0 else f"+{row['points']}分"
             points = '含旧版未知得分' if row['legacy_unknown'] else f"+{row['total_points']}分"
-            verdicts = ' / '.join(row['verdicts'])
-            lines.append(f"📌 {identity} · {row['submission_count']}次记录 · {verdicts}\n   {stamp} · {points} · {hints}")
+            verdicts = '\n'.join('› ' + self._verdict_label(v) for v in row['verdicts'])
+            lines.append(f"\n📌 {identity} · {row['submission_count']} 次记录\n{verdicts}\n🕒 最近：{stamp}\n⭐ 得分：{points}\n💡 提示：{hints}")
         if not rows:
             lines.append("还没有记录，提交或放弃后会记录。旧版未保存的内容无法恢复。")
-        lines.append(f"题面：{prefix} problem 题号\n作答：{prefix} show 题号\n" + ("" if grammar else "解析：sol 题号\n") + "提示群内公开，未主动请求不代表独立完成。")
+        lines.append(f"\n🧭 回看入口\n━━━━━━━━━━━━━━━━\n› {prefix} problem 题号 · 题面\n› {prefix} show 题号 · 每次作答\n" + ("" if grammar else "› sol 题号 · 解析\n") + "\n📌 提示群内公开，未主动请求不代表独立完成。")
         yield event.plain_result("\n".join(lines))
 
     @filter.regex(RE_SOL)
