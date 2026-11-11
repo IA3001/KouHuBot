@@ -5,6 +5,12 @@
     "hint": "留空则用当前会话的默认模型。判题和题面翻译都走这个模型，建议单独指定一个稳定且便宜的。翻译要求模型能正常处理英文题面。",
     "default": ""
   },
+  "grm_growth_timeout_seconds": {
+    "description": "坑点题生成与复核单阶段超时（秒）",
+    "type": "int",
+    "hint": "独立于群聊判题。默认180秒，范围30–240秒；生成与复核各使用一次，不自动重复生成。模型服务自身超时仍可能更短。",
+    "default": 180
+  },
   "max_submission_chars": {
     "description": "单次提交的字数上限",
     "type": "int",
