@@ -511,6 +511,9 @@ class CodeforcesSource:
             raise RuntimeError(f"CF 接口返回异常：{payload.get('comment')}")
         out: list[dict] = []
         for p in payload["result"]["problems"]:
+            # Quantum/Q# output-only tasks are not ordinary algorithm solutions.
+            if '*special' in (p.get('tags') or []) or p.get('type','PROGRAMMING')!='PROGRAMMING':
+                continue
             rating = p.get("rating")
             if not rating:
                 continue          # 没标难度的题不参与派题
@@ -686,6 +689,21 @@ class CodeforcesSource:
                 raise RuntimeError('中文题面翻译未配置；英文原文已缓存，不占用当前题位')
             else:
                 protected, tex = protect_tex(problem["statement_en"])
+                translation_deadline=time.monotonic()+200
+                timeout_retries=0
+                async def translate_piece(text):
+                    nonlocal timeout_retries
+                    while True:
+                        remaining=translation_deadline-time.monotonic()
+                        if remaining<=0:
+                            raise TimeoutError('整题翻译超过200秒预算')
+                        try:
+                            return await asyncio.wait_for(self._translate(text),timeout=remaining)
+                        except (asyncio.TimeoutError,TimeoutError,ConnectionError):
+                            if timeout_retries>=1 or translation_deadline-time.monotonic()<10:
+                                raise
+                            timeout_retries+=1
+                            logger.info(f'[KouHuOJ] {cf_key} 翻译服务暂时失败，预算内重试一次')
                 try:
                     for attempt in range(2):
                         # Image tokens never reach the translation model: translate
@@ -700,7 +718,7 @@ class CodeforcesSource:
                                 translated_parts.append(paragraph)
                             else:
                                 expected_tokens = re.findall(r'⟦\d+⟧',paragraph)
-                                result = await self._translate(paragraph)
+                                result = await translate_piece(paragraph)
                                 actual_tokens = re.findall(r'[⟦\[［【]+\s*(\d+)\s*[⟧\]］】]+',result)
                                 expected_ids = [re.search(r'\d+',x).group() for x in expected_tokens]
                                 if (actual_tokens != expected_ids or translation_incomplete(result)
@@ -714,7 +732,7 @@ class CodeforcesSource:
                                     for fragment_attempt in range(2):
                                         if not pending:
                                             break
-                                        raw=await self._translate('KOUHU_TRANSLATION_BATCH\n'+json.dumps(pending,ensure_ascii=False))
+                                        raw=await translate_piece('KOUHU_TRANSLATION_BATCH\n'+json.dumps(pending,ensure_ascii=False))
                                         raw=re.sub(r'^```(?:json)?\s*|\s*```$','',raw.strip())
                                         try:
                                             batch=json.loads(raw)

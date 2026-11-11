@@ -98,6 +98,39 @@ class RatingRangeTest(unittest.TestCase):
         self.assertEqual(source._translate.await_count,3)
         self.assertNotIn('"2"',source._translate.await_args_list[-1].args[0])
 
+    def test_catalog_excludes_special_and_output_only_tasks(self):
+        from unittest.mock import Mock,patch
+        payload={'status':'OK','result':{'problems':[
+            dict(contestId=1002,index='D2',rating=1400,tags=['*special'],type='PROGRAMMING'),
+            dict(contestId=1,index='A',rating=800,tags=[],type='PROGRAMMING'),
+            dict(contestId=2,index='A',rating=1200,tags=[],type='QUESTION')]}}
+        self.source._timeout=15
+        response=Mock();response.json.return_value=payload
+        with patch('curl_cffi.requests.get',return_value=response):
+            entries=self.source._fetch_catalog_sync()
+        self.assertEqual([e['cf_key'] for e in entries],['1A'])
+
+    def test_transient_translation_timeout_retries_once(self):
+        import asyncio
+        from unittest.mock import Mock,AsyncMock
+        source=self.source;source._cache=Mock()
+        source._cache.get.return_value=dict(cf_key='1A',statement_en='Find the sum.',statement_cn=None)
+        source._translate=AsyncMock(side_effect=[TimeoutError(), '求和。'])
+        result=asyncio.run(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',rating=800)))
+        self.assertEqual(result['statement_cn'],'求和。')
+        self.assertEqual(source._translate.await_count,2)
+
+    def test_repeated_translation_timeout_stops_after_one_retry(self):
+        import asyncio
+        from unittest.mock import Mock,AsyncMock
+        source=self.source;source._cache=Mock()
+        source._cache.get.return_value=dict(cf_key='1A',statement_en='Find the sum.',statement_cn=None)
+        source._translate=AsyncMock(side_effect=TimeoutError())
+        with self.assertRaises(RuntimeError):
+            asyncio.run(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',rating=800)))
+        self.assertEqual(source._translate.await_count,2)
+        source._cache.save.assert_not_called()
+
     def test_short_english_echo_uses_batch_recovery(self):
         import asyncio
         from unittest.mock import Mock, AsyncMock
