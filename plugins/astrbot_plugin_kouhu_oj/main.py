@@ -993,6 +993,7 @@ class KouHuOJ(Star):
         self._growth_lock = asyncio.Lock()
         self._translation_event = ContextVar('translation_event',default=None)
         self._pending_preparations = {}
+        self._preparation_deliveries = set()
         self._editorial_cache = {}
         self._failed_submissions = {}
 
@@ -1024,7 +1025,7 @@ class KouHuOJ(Star):
         )
 
     async def terminate(self) -> None:
-        pending_tasks=[p['task'] for p in self._pending_preparations.values()]
+        pending_tasks=[p['task'] for p in self._pending_preparations.values()]+list(self._preparation_deliveries)
         for task in pending_tasks:
             task.cancel()
         if pending_tasks:
@@ -1256,6 +1257,22 @@ class KouHuOJ(Star):
             "answer": pitfall.get("answer", ""),
         }
 
+    async def _deliver_prepared(self, event, scope, pending):
+        """Finish the retained request and reply through its original QQ event."""
+        try:
+            await asyncio.shield(pending['task'])
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            pass  # cmd_new consumes the failure and builds the user-facing reply.
+        if self._pending_preparations.get(scope) is not pending:
+            return  # A manual cur/new already claimed this exact task.
+        try:
+            async for result in self.cmd_new(event):
+                await event.send(result)
+        except Exception as exc:
+            logger.error(f'[KouHuOJ] 后台题面自动发送失败 scope={scope} type={type(exc).__name__}: {exc}；题目可用cur重发')
+
     # -- 指令：派题 ----------------------------------------------------
     @filter.regex(RE_NEW)
     @_consumes
@@ -1268,7 +1285,7 @@ class KouHuOJ(Star):
         if pending:
             task=pending['task']
             if not task.done():
-                yield event.plain_result('中文题面仍在准备，任务没有丢失。稍后发 cur 领取；不需要反复 new。')
+                yield event.plain_result('中文题面仍在后台准备，完成后会自动发到这里，不需要重复操作。')
                 return
             self._pending_preparations.pop(pending_scope,None)
             try:
@@ -1380,7 +1397,12 @@ class KouHuOJ(Star):
                 self._translation_event.reset(token)
         except asyncio.TimeoutError:
             logger.info(f"[KouHuOJ] {entry['cf_key']} 前台等待 {min(25,prepare_timeout):g} 秒结束，后台准备继续（总上限240秒）")
-            yield event.plain_result('题面仍在后台准备（最多4分钟），任务已保留。稍后发 cur 领取中文题面，不要反复 new；当前题目未被替换。')
+            pending=self._pending_preparations.get(scope)
+            if pending:
+                delivery=asyncio.create_task(self._deliver_prepared(event,scope,pending))
+                self._preparation_deliveries.add(delivery)
+                delivery.add_done_callback(self._preparation_deliveries.discard)
+            yield event.plain_result('题面仍在后台准备（最多4分钟），完成后会自动发到这里；当前题目未被替换，无需额外操作。')
             return
         except Exception as exc:  # noqa: BLE001
             self._pending_preparations.pop(scope,None)

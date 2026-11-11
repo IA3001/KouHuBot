@@ -956,12 +956,26 @@ async def main() -> int:
     pending_future=asyncio.get_running_loop().create_future()
     plugin._pending_preparations[range_scope]={'task':pending_future,'sender':'1001'}
     out=await runner.says(E('cur',**range_user),'cmd_problem')
-    runner.check('慢速准备cur显示任务保留','任务没有丢失' in out,out)
+    runner.check('慢速准备cur显示任务保留','完成后会自动发' in out,out)
     plugin._last_fetch_error='previous failed fetch'
     pending_future.set_result(dict(plugin._cf.problems[requested_key]))
     out=await runner.says(E('cur',**range_user),'cmd_problem')
     runner.check('cur领取后台完成中文题',plugin._store.current(range_scope)['status']=='open' and range_scope not in plugin._pending_preparations,out)
     runner.check('后台领取成功清除旧抓题错误',not plugin._last_fetch_error and plugin._last_fetch_ok>0)
+    plugin._store.close_problem(range_scope,'gave_up','1001')
+    from unittest.mock import AsyncMock
+    automatic_event=E('new 2',**range_user)
+    automatic_event.send=AsyncMock()
+    automatic_future=asyncio.get_running_loop().create_future()
+    automatic_pending={'task':automatic_future,'sender':'1001'}
+    plugin._pending_preparations[range_scope]=automatic_pending
+    delivery=asyncio.create_task(plugin._deliver_prepared(automatic_event,range_scope,automatic_pending))
+    automatic_future.set_result(dict(plugin._cf.problems[requested_key]))
+    await delivery
+    runner.check('后台完成无需cur自动发题',automatic_event.send.await_count>0 and plugin._store.current(range_scope)['status']=='open' and range_scope not in plugin._pending_preparations)
+    sent_count=automatic_event.send.await_count
+    await plugin._deliver_prepared(automatic_event,range_scope,automatic_pending)
+    runner.check('同一后台任务不会重复自动发送',automatic_event.send.await_count==sent_count)
     plugin._store.close_problem(range_scope,'gave_up','1001')
     calls_before=ctx.call_count
     out=await runner.says(E('ask 什么时候上难度',**range_user),'cmd_ask')
