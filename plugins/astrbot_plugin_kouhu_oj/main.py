@@ -249,6 +249,7 @@ RE_VER = re.compile(r"^\s*/?\s*(?:ver|version|changelog|更新|更新日志)(?:\
 RE_SKIP = re.compile(r"^\s*/?\s*skip\s*$", re.I)
 RE_TIER = re.compile(r"^\s*/?\s*tier(?:\s+(\d+))?\s*$", re.I)
 RE_STATUS = re.compile(r"^\s*/?\s*status\s*$", re.I)
+RE_PING = re.compile(r"^\s*/?\s*ping(?:\s+(?:模型|model))?\s*$", re.I)
 
 HELP_TEXT = """╭── 📚 口胡 OJ · 指令菜单 ──╮
   群内练算法 · 思路判题 · 题后复盘
@@ -261,6 +262,7 @@ HELP_TEXT = """╭── 📚 口胡 OJ · 指令菜单 ──╮
 › new CF123B · 指定 CF 题号派题
 › new · 按群难度档位抽题
 › cur · 重看当前题面与样例
+› ping · 测试当前判题模型连接与耗时
 › sub 思路 · 提交思路、伪代码或代码
 › hint 1 / 2 / 3 · 方向 / 观察 / 框架
 › giveup · 放弃全群当前正题
@@ -994,6 +996,8 @@ class KouHuOJ(Star):
         self._translation_event = ContextVar('translation_event',default=None)
         self._pending_preparations = {}
         self._preparation_deliveries = set()
+        self._ping_lock = asyncio.Lock()
+        self._ping_last = {}
         self._editorial_cache = {}
         self._failed_submissions = {}
 
@@ -1097,6 +1101,51 @@ class KouHuOJ(Star):
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[KouHuOJ] 获取当前会话模型失败：{exc}")
             return None
+
+    @filter.regex(RE_PING)
+    @_consumes
+    async def cmd_ping(self, event: AstrMessageEvent):
+        """ping —— perform one bounded real request to the judging provider."""
+        provider=await self._provider_id(event)
+        if not provider:
+            yield event.plain_result('❌ 未配置可用模型，请在WebUI配置判题模型或当前会话默认模型。')
+            return
+        scope=self._scope_of(event)
+        if self._ping_lock.locked():
+            yield event.plain_result('已有模型连接测试在运行，请稍后再试。')
+            return
+        previous=self._ping_last.get(scope)
+        if previous is not None and time.monotonic()-previous<15:
+            yield event.plain_result('连接测试间隔15秒，请稍后再试。')
+            return
+        async with self._ping_lock:
+            if len(self._ping_last)>=256:
+                self._ping_last.pop(next(iter(self._ping_last)))
+            self._ping_last[scope]=time.monotonic()
+            yield event.plain_result('正在测试当前判题模型（真实请求，最多30秒）……')
+            started=time.monotonic()
+            try:
+                response=await asyncio.wait_for(self.context.llm_generate(
+                    chat_provider_id=provider,prompt='连接测试。只回复 PONG，不调用工具，不解释。'),timeout=30)
+                text=(getattr(response,'completion_text',None) or '').strip()
+                elapsed=time.monotonic()-started
+                if text:
+                    status='✅ 模型响应正常' if text.upper()=='PONG' else '✅ 已收到模型响应（未按约定回复PONG）'
+                    message=f'{status}\n模型：{provider}\n耗时：{elapsed:.2f}秒\n短请求成功不代表长题面或判题一定能及时完成。'
+                else:
+                    message=f'⚠️ 请求已返回，但正文为空\n模型：{provider}\n耗时：{elapsed:.2f}秒'
+            except (asyncio.TimeoutError,TimeoutError):
+                elapsed=time.monotonic()-started
+                message=f'❌ 模型响应超时\n模型：{provider}\n等待：{elapsed:.2f}秒\n可能是服务排队、网络延迟或模型响应慢；本次未自动重试。'
+            except Exception as exc:
+                elapsed=time.monotonic()-started
+                logger.warning(f'[KouHuOJ] 模型ping失败 provider={provider} type={type(exc).__name__}')
+                code=getattr(exc,'status_code',None)
+                detail={401:'鉴权失败，请检查模型密钥',403:'访问被拒绝，请检查服务权限',429:'服务限流或额度不足'}.get(code,'模型服务或网络请求失败')
+                message=f'❌ {detail}\n模型：{provider}\n耗时：{elapsed:.2f}秒\n错误类型：{type(exc).__name__}'
+                if isinstance(code,int):
+                    message+=f'\nHTTP状态：{code}'
+            yield event.plain_result(message)
 
     async def _translate_statement(self, text: str) -> str:
         """把英文题面翻成中文。给 CodeforcesSource 当回调用。"""

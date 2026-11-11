@@ -964,6 +964,24 @@ async def main() -> int:
     runner.check('后台领取成功清除旧抓题错误',not plugin._last_fetch_error and plugin._last_fetch_ok>0)
     plugin._store.close_problem(range_scope,'gave_up','1001')
     from unittest.mock import AsyncMock
+    ping_event=E('ping',**range_user)
+    with patch.object(plugin,'_provider_id',new=AsyncMock(return_value='test-model')), patch.object(ctx,'llm_generate',new=AsyncMock(return_value=SimpleNamespace(completion_text='PONG'))) as ping_model:
+        out=await runner.says(ping_event,'cmd_ping')
+        runner.check('ping真实短请求显示耗时','模型响应正常' in out and '耗时' in out and ping_model.await_count==1,out)
+        out=await runner.says(ping_event,'cmd_ping')
+        runner.check('ping冷却阻止重复调用','间隔15秒' in out and ping_model.await_count==1,out)
+    plugin._ping_last.clear()
+    with patch.object(plugin,'_provider_id',new=AsyncMock(return_value='test-model')), patch.object(ctx,'llm_generate',new=AsyncMock(side_effect=TimeoutError())):
+        out=await runner.says(ping_event,'cmd_ping')
+        runner.check('ping超时可诊断','模型响应超时' in out,out)
+    plugin._ping_last.clear()
+    with patch.object(plugin,'_provider_id',new=AsyncMock(return_value='test-model')), patch.object(ctx,'llm_generate',new=AsyncMock(return_value=SimpleNamespace(completion_text=''))):
+        out=await runner.says(ping_event,'cmd_ping')
+        runner.check('ping空正文不报正常','正文为空' in out,out)
+    plugin._ping_last.clear()
+    with patch.object(plugin,'_provider_id',new=AsyncMock(return_value=None)):
+        out=await runner.says(ping_event,'cmd_ping')
+        runner.check('ping无模型明确提示','未配置可用模型' in out,out)
     automatic_event=E('new 2',**range_user)
     automatic_event.send=AsyncMock()
     automatic_future=asyncio.get_running_loop().create_future()
