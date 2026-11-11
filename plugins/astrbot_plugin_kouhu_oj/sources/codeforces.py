@@ -526,6 +526,7 @@ class CodeforcesSource:
                 "contest_id": cid,
                 "idx": idx,
                 "name": p.get("name") or "",
+                "tags": sorted(set(p.get('tags') or [])),
                 "rating": int(rating),
                 "tier": scoring.tier_of(rating),
             })
@@ -546,6 +547,22 @@ class CodeforcesSource:
         excluded = exclude or set()
         pool = list({p['cf_key']: p for p in self._catalog if isinstance(p.get('rating'), int)
                      and low <= p['rating'] <= high and p['cf_key'] not in excluded}.values())
+        return secrets.choice(pool) if pool else None
+
+    def tag_counts(self) -> dict[str, int]:
+        counts={}
+        for problem in {p['cf_key']:p for p in self._catalog}.values():
+            for tag in set(problem.get('tags') or []):
+                counts[tag]=counts.get(tag,0)+1
+        return dict(sorted(counts.items()))
+
+    def pick_tags(self, tags: list[str], low: int = 800, high: int = 3500) -> dict | None:
+        """Match all requested tags and sample unique problem ids uniformly."""
+        import secrets
+        required=set(tags)
+        pool=list({p['cf_key']:p for p in self._catalog
+                   if isinstance(p.get('rating'),int) and low<=p['rating']<=high
+                   and required.issubset(p.get('tags') or [])}.values())
         return secrets.choice(pool) if pool else None
 
     # -- 题面 ----------------------------------------------------------

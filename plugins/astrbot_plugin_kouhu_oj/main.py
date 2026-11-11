@@ -44,6 +44,7 @@ from astrbot.api.star import Context, Star
 
 try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
     from . import scoring
+    from .cf_tags import parse_tag_query
     from .review_store import ReviewStoreMixin
     from .feedback_store import FeedbackStoreMixin
     from .capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
@@ -66,6 +67,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import scoring  # type: ignore
+    from cf_tags import parse_tag_query
     from review_store import ReviewStoreMixin
     from feedback_store import FeedbackStoreMixin
     from capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
@@ -85,7 +87,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.18.2"
+PLUGIN_VERSION = "0.19.0"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -257,6 +259,8 @@ HELP_TEXT = """╭── 📚 口胡 OJ · 指令菜单 ──╮
 
 🎯 正题练习
 ━━━━━━━━━━━━━━━━
+› new tags · CF完整算法标签与题数
+› new dp+trees [1200-1600] · 多标签同时满足，可加Div预设
 › new 1/2/3/4 · Div难度快捷预设
 › new [1200-1600] · 按 CF rating 区间抽题
 › new CF123B · 指定 CF 题号派题
@@ -1329,6 +1333,32 @@ class KouHuOJ(Star):
         """new [l-r] —— 按群档位或指定 CF rating 区间派题"""
         match = RE_NEW.match(event.message_str or '')
         arg = (match.group(1) or '').strip() if match else ''
+        if arg.casefold() in ('tags','tag','标签','算法标签'):
+            if not self._cf:
+                yield event.plain_result('题库尚未初始化，请稍后再试。')
+                return
+            try:
+                await self._cf.refresh_catalog()
+            except Exception as exc:
+                logger.warning(f'[KouHuOJ] 获取标签失败：{type(exc).__name__}')
+                if not self._cf._catalog:
+                    yield event.plain_result('暂时无法获取CF标签，请稍后再试。')
+                    return
+            counts=self._cf.tag_counts()
+            lines=[f'CF全部可抽标签（{len(counts)}种，括号内为题数）',
+                   '用法：new dp；new 图论 2；new binary search 1200-1600；new dp+trees（同时满足）。',
+                   '只指定标签时不限群档位，范围800–3500；可组合Div预设或rating区间。']
+            for tag,count in counts.items():
+                lines.append(f'› {tag}（{count}）')
+            page=''
+            for line in lines:
+                if len(page)+len(line)>1400:
+                    yield event.plain_result(page)
+                    page=''
+                page+=line+'\n'
+            if page:
+                yield event.plain_result(page.rstrip())
+            return
         pending_scope=self._scope_of(event)
         pending=self._pending_preparations.get(pending_scope)
         if pending:
@@ -1360,6 +1390,7 @@ class KouHuOJ(Star):
         division_ranges={'1':(1900,3500),'2':(1400,2100),'3':(1000,1600),'4':(800,1200)}
         rating_range = division_ranges.get(arg)
         requested_key = None
+        tag_query = None
         if arg and re.fullmatch(r'(?:CF)?[1-9]\d{0,5}[A-Za-z]\d?',arg,re.I):
             requested_key=re.sub(r'^CF','',arg,flags=re.I).upper()
         if arg and not requested_key and rating_range is None:
@@ -1369,8 +1400,10 @@ class KouHuOJ(Star):
                 if 800 <= low <= high <= 3500:
                     rating_range = (low,high)
             if rating_range is None:
-                yield event.plain_result('用法：new、new 1/2/3/4（Div练习预设）、new CF123B、new [1200-1600]。预设1=1900–3500，2=1400–2100，3=1000–1600，4=800–1200；非官方Div划分。')
-                return
+                if bounds or re.fullmatch(r'[\[\]\d\s-]+',arg):
+                    yield event.plain_result('rating范围须满足800 ≤ 左端 ≤ 右端 ≤ 3500。标签选题示例：new dp 1200-1600；完整标签：new tags。')
+                    return
+                tag_query=arg
         if not self._store or not self._cf:
             yield event.plain_result("插件还没初始化完，稍等几秒再试")
             return
@@ -1408,7 +1441,18 @@ class KouHuOJ(Star):
                 yield event.plain_result("拉不到 Codeforces 的题库，稍后再试（看日志）")
                 return
 
-        if requested_key:
+        if tag_query:
+            try:
+                selected_tags,tag_bounds=parse_tag_query(tag_query,self._cf.tag_counts())
+            except ValueError as exc:
+                yield event.plain_result(str(exc))
+                return
+            low,high=tag_bounds or (800,3500)
+            entry=self._cf.pick_tags(selected_tags,low,high)
+            if entry is None:
+                yield event.plain_result(f'没有同时满足 {" + ".join(selected_tags)}、rating {low}–{high} 的题目；不扩大条件，当前题目未改变。')
+                return
+        elif requested_key:
             entry=next((dict(p) for p in self._cf._catalog if p.get('cf_key','').upper()==requested_key),None)
             if entry is None:
                 yield event.plain_result(f'CF题库中没有找到 {requested_key}，请检查题号（例如 new CF123B）。当前题目未改变。')

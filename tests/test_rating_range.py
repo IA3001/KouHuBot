@@ -14,6 +14,15 @@ class RatingRangeTest(unittest.TestCase):
         self.source._catalog = [dict(cf_key=str(i), rating=r, tier=1200) for i,r in enumerate([1200,1300,1400,1500,1600])]
         self.source._catalog.append(dict(cf_key='unrated',rating=None,tier=1200))
 
+    def test_tag_intersection_range_and_unique_sampling(self):
+        self.source._catalog=[dict(cf_key='1A',rating=1200,tags=['dp','trees']),dict(cf_key='1A',rating=1200,tags=['dp','trees']),dict(cf_key='2A',rating=1800,tags=['dp']),dict(cf_key='3A',rating=1000,tags=['graphs'])]
+        self.assertEqual(self.source.tag_counts(),{'dp':2,'graphs':1,'trees':1})
+        self.assertEqual(self.source.pick_tags(['dp','trees'])['cf_key'],'1A')
+        self.assertIsNone(self.source.pick_tags(['dp','trees'],1400,2000))
+        with patch('secrets.choice',side_effect=lambda pool:pool[0]) as choice:
+            self.source.pick_tags(['dp'])
+            self.assertEqual(len(choice.call_args.args[0]),2)
+
     def test_exact_bounds_and_exclusions(self):
         self.assertEqual(self.source.pick_range(1300,1300)['rating'],1300)
         self.assertEqual(self.source.pick_range(1200,1600,{'0','1','2','3'})['rating'],1600)

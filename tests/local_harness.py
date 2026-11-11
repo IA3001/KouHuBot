@@ -159,6 +159,12 @@ class FakeCfSource:
     def pick_range(self, low, high, exclude=None):
         return next((dict(p) for p in self.problems.values() if low <= p['rating'] <= high and p['cf_key'] not in (exclude or set())), None)
 
+    def tag_counts(self):
+        return {'dp':len(self.problems),'trees':len(self.problems)}
+
+    def pick_tags(self,tags,low=800,high=3500):
+        return self.pick_range(low,high) if set(tags).issubset({'dp','trees'}) else None
+
     async def fetch(self, entry: dict) -> dict:
         if self.fail_fetch:
             raise RuntimeError("模拟抓取失败（CF 403）")
@@ -916,7 +922,12 @@ async def main() -> int:
     range_scope = plugin._scope_of(E('new',**range_user))
     for bad in ('new [1600-1200]','new [700-900]','new [800-3600]','new [1-2','new abc'):
         out = await runner.says(E(bad,**range_user),'cmd_new')
-        runner.check('错误区间不改状态 '+bad, '用法' in out and plugin._store.current(range_scope) is None,out)
+        runner.check('错误区间不改状态 '+bad, ('范围' in out or '未知CF标签' in out) and plugin._store.current(range_scope) is None,out)
+    out=await runner.says(E('new tags',**range_user),'cmd_new')
+    runner.check('完整标签列表不派题','dp' in out and 'trees' in out and plugin._store.current(range_scope) is None,out)
+    out=await runner.says(E('new 动态规划+树',**range_user),'cmd_new')
+    runner.check('标签组合可派题',plugin._store.current(range_scope)['status']=='open',out)
+    plugin._store.close_problem(range_scope,'gave_up','1001')
     target_rating = next(iter(plugin._cf.problems.values()))['rating']
     tier_before = plugin._store.state(range_scope)['current_tier']
     out = await runner.says(E(f'new [{target_rating}-{target_rating}]',**range_user),'cmd_new')
