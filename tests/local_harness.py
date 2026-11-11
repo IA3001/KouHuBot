@@ -980,6 +980,13 @@ async def main() -> int:
     out=await runner.says(E('sub retry',**range_user),'cmd_submit')
     runner.check('retry拒绝旧轮提交','没有可重试' in out,out)
     plugin._store.close_problem(range_scope,'gave_up','1001')
+    original_growth,original_pitfalls=plugin._growth,plugin._pitfalls
+    diagnostic_growth=SimpleNamespace(state={'last_attempt':0},save=lambda:None,material=AsyncMock(side_effect=TimeoutError('test failure')))
+    plugin._growth=diagnostic_growth;plugin._pitfalls=SimpleNamespace()
+    with patch.object(plugin,'_provider_id',new=AsyncMock(return_value='test')):
+        await plugin._grow_pitfalls(E('grm grow',**range_user))
+    runner.check('坑点增长失败显示阶段和类型',diagnostic_growth.state['last_result']=='采集资料失败：TimeoutError')
+    plugin._growth,plugin._pitfalls=original_growth,original_pitfalls
     async def slow_valid_judgment(**kwargs):
         await asyncio.sleep(0.06)
         return SimpleNamespace(completion_text=json.dumps({'verdict':'AC','comment':'正确'}))
