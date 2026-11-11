@@ -15,6 +15,15 @@ sys.modules[_SPEC.name] = renderer
 _SPEC.loader.exec_module(renderer)
 
 
+class MathCompatibilityTests(unittest.TestCase):
+    def test_cf_six_dollar_display_is_single_token(self):
+        tokens=renderer.tokenize_math(r'before $$$$$$\sum_{i=1}^n i$$$$$$ after')
+        math=[t for t in tokens if t.kind=='math']
+        self.assertEqual(len(math),1)
+        self.assertTrue(math[0].display)
+        self.assertEqual(math[0].text,r'\sum_{i=1}^n i')
+
+
 class BrowserDiscoveryTests(unittest.TestCase):
     def test_venv_local_matching_revision_without_environment(self):
         from types import SimpleNamespace

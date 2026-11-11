@@ -48,7 +48,7 @@ API_URL = "https://codeforces.com/api/problemset.problems"
 PROBLEM_URL = "https://codeforces.com/problemset/problem/{contest}/{index}"
 
 # CF 用 $$$...$$$ 包 LaTeX，和标准 $...$ 不同
-_TEX_BLOCK = re.compile(r"\$\$\$(.+?)\$\$\$", re.S)
+_TEX_BLOCK = re.compile(r"(?<!\$)(\${6}(?!\$).+?(?<!\$)\${6}(?!\$)|\${3}(?!\$).+?(?<!\$)\${3}(?!\$))", re.S)
 
 
 # ----------------------------------------------------------------------
@@ -82,6 +82,14 @@ def _extract_div(html: str, start: int) -> str:
     return ""
 
 
+def _pre_text(fragment: str) -> str:
+    """Preserve CF's modern div-per-line samples as well as legacy br lines."""
+    text=re.sub(r'<br\s*/?>','\n',fragment,flags=re.I)
+    text=re.sub(r'</div\s*>','\n',text,flags=re.I)
+    text=html_mod.unescape(re.sub(r'<[^>]+>','',text))
+    return text.replace('\r\n','\n').strip('\n\r')
+
+
 def _text_of(fragment: str, image_urls: list[str] | None = None) -> str:
     """把 HTML 转成文本，图片原位替换为不可变 token。"""
     if image_urls is None:
@@ -100,8 +108,7 @@ def _text_of(fragment: str, image_urls: list[str] | None = None) -> str:
     fragment = re.sub(r'''<img\b(?:[^>"']|"[^"]*"|'[^']*')*>''', save_image, fragment, flags=re.I)
     code_blocks = []
     def save_pre(match):
-        code = re.sub(r'<br\s*/?>', '\n', match.group(1), flags=re.I)
-        code = html_mod.unescape(re.sub(r'<[^>]+>', '', code))
+        code = _pre_text(match.group(1))
         code_blocks.append(code)
         return '\n\nKOUHUPREBLOCK' + str(len(code_blocks)-1) + '\n\n'
     text = re.sub(r'<pre[^>]*>([\s\S]*?)</pre>', save_pre, fragment, flags=re.I)
@@ -223,12 +230,9 @@ def parse_statement(html: str) -> dict[str, Any]:
             content = _extract_div(sample, start)
             pre = re.search(r"<pre[^>]*>([\s\S]*?)</pre>", content)
             if pre:
-                text = re.sub(r"<br\s*/?>", "\n", pre.group(1))
-                text = re.sub(r"<[^>]+>", "", text)
-                text = html_mod.unescape(text)
+                text = _pre_text(pre.group(1))
             else:
-                text = _text_of(content)
-            text = re.sub(r"^\s*(Input|Output)\s*", "", text).strip()
+                text = _strip_section_title(_text_of(content))
             blocks.append((kind, text))
         for i in range(0, len(blocks) - 1, 2):
             if blocks[i][0] == "input" and blocks[i + 1][0] == "output":
@@ -296,7 +300,7 @@ def restore_tex(text: str, found: list[str]) -> str:
     """
     def _sub(m: re.Match[str]) -> str:
         idx = int(m.group(1))
-        return f"$$${found[idx]}$$$" if 0 <= idx < len(found) else m.group(0)
+        return found[idx] if 0 <= idx < len(found) else m.group(0)
 
     return re.sub(r"[⟦\[［【]+\s*(\d+)\s*[⟧\]］】]+", _sub, text)
 
@@ -318,7 +322,9 @@ def strip_tex(text: str, render: Callable[[str], str] | None = None) -> str:
     render 给了就用它（渲染成图片占位），没给就退化成普通文本。
     """
     def _sub(m: re.Match[str]) -> str:
-        tex = m.group(1)
+        raw = m.group(1)
+        delimiter = 6 if raw.startswith('$$$$$$') else 3
+        tex = raw[delimiter:-delimiter]
         if render is not None:
             return render(tex)
         return tex.strip()
@@ -329,6 +335,8 @@ def strip_tex(text: str, render: Callable[[str], str] | None = None) -> str:
 # ----------------------------------------------------------------------
 # 缓存库
 # ----------------------------------------------------------------------
+_SAMPLE_PARSER_VERSION = 2
+
 _DDL = """
     CREATE TABLE IF NOT EXISTS cf_problems (
         cf_key        TEXT PRIMARY KEY,
@@ -341,6 +349,7 @@ _DDL = """
         statement_en  TEXT,
         statement_cn  TEXT,
         examples_json TEXT,
+        sample_parser_version INTEGER DEFAULT 1,
         images_json   TEXT,
         time_limit    REAL,
         memory_limit  INTEGER,
@@ -363,6 +372,10 @@ class CfCache:
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(cf_problems)")}
         if "images_json" not in columns:
             self._conn.execute("ALTER TABLE cf_problems ADD COLUMN images_json TEXT")
+        if "sample_parser_version" not in columns:
+            self._conn.execute(
+                "ALTER TABLE cf_problems ADD COLUMN sample_parser_version INTEGER DEFAULT 1"
+            )
         self._conn.commit()
 
     def get(self, cf_key: str) -> dict | None:
@@ -377,8 +390,9 @@ class CfCache:
             INSERT INTO cf_problems (
                 cf_key, contest_id, idx, rating, tier, points, title,
                 statement_en, statement_cn, examples_json, images_json,
-                time_limit, memory_limit, fetched_at, translated_at, used_count
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                time_limit, memory_limit, fetched_at, translated_at, used_count,
+                sample_parser_version
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(cf_key) DO UPDATE SET
                 rating = excluded.rating,
                 tier = excluded.tier,
@@ -395,21 +409,34 @@ class CfCache:
                 time_limit = COALESCE(excluded.time_limit, cf_problems.time_limit),
                 memory_limit = COALESCE(excluded.memory_limit, cf_problems.memory_limit),
                 fetched_at = excluded.fetched_at,
-                translated_at = COALESCE(excluded.translated_at, cf_problems.translated_at)
+                translated_at = COALESCE(excluded.translated_at, cf_problems.translated_at),
+                sample_parser_version = COALESCE(?, cf_problems.sample_parser_version)
             """,
             (
                 problem["cf_key"], problem.get("contest_id"), problem.get("idx"),
                 problem.get("rating"), problem.get("tier"), problem.get("points"),
                 problem.get("title"), problem.get("statement_en"),
                 problem.get("statement_cn"),
-                json.dumps(problem.get("examples") or [], ensure_ascii=False),
+                (json.dumps(problem["examples"] or [], ensure_ascii=False)
+                 if "examples" in problem else problem.get("examples_json")),
                 (json.dumps(problem["statement_images"], ensure_ascii=False)
                  if "statement_images" in problem else problem.get("images_json")),
                 problem.get("time_limit"), problem.get("memory_limit"),
                 problem.get("fetched_at") or time.time(),
                 problem.get("translated_at"),
                 0,
+                problem.get("sample_parser_version", 1),
+                problem.get("sample_parser_version"),
             ),
+        )
+        self._conn.commit()
+
+    def save_samples(self, cf_key: str, examples: list[dict[str, str]]) -> None:
+        """只升级样例，不改题面、翻译、图片或使用记录。"""
+        self._conn.execute(
+            "UPDATE cf_problems SET examples_json = ?, sample_parser_version = ? "
+            "WHERE cf_key = ?",
+            (json.dumps(examples, ensure_ascii=False), _SAMPLE_PARSER_VERSION, cf_key),
         )
         self._conn.commit()
 
@@ -544,6 +571,50 @@ class CodeforcesSource:
             raise RuntimeError(f"抓取题面失败 HTTP {resp.status_code}（{cf_key}）")
         return parse_statement(resp.text)
 
+    async def _repair_sample_row(self, cached: dict) -> dict:
+        # Real SQLite rows always carry the marker after the additive migration.
+        # Partial cache adapters/test doubles without it make no legacy-version claim.
+        version = cached.get("sample_parser_version", _SAMPLE_PARSER_VERSION)
+        if isinstance(version, int) and version >= _SAMPLE_PARSER_VERSION:
+            return cached
+        cf_key = cached["cf_key"]
+        try:
+            contest_id, idx = cached.get("contest_id"), cached.get("idx")
+            if not contest_id or not idx:
+                match = re.fullmatch(r"(\d+)([A-Za-z][A-Za-z0-9]*)", cf_key)
+                if not match:
+                    raise ValueError("无法从题号解析比赛和题目编号")
+                contest_id, idx = int(match.group(1)), match.group(2)
+            parsed = await asyncio.to_thread(self._scrape_sync, cf_key, contest_id, idx)
+            examples = parsed.get("examples")
+            # An empty/challenge page or incomplete parse must not erase old samples
+            # or suppress a later repair attempt.
+            if (not parsed.get("statement_en") or not isinstance(examples, list)
+                    or not examples or not all(
+                        isinstance(example, dict)
+                        and isinstance(example.get("input"), str)
+                        and isinstance(example.get("output"), str)
+                        for example in examples)):
+                raise ValueError("重新解析的题面或样例为空/不完整")
+            self._cache.save_samples(cf_key, examples)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[KouHuOJ] {cf_key} 样例缓存升级失败，保留旧缓存：{exc}")
+            return cached
+        repaired = dict(cached)
+        repaired.update(examples=examples, sample_parser_version=_SAMPLE_PARSER_VERSION)
+        repaired["examples_json"] = json.dumps(examples, ensure_ascii=False)
+        return repaired
+
+    async def repair_samples(self, cf_key: str) -> dict | None:
+        """升级旧样例并返回可渲染题目；失败返回原缓存，未缓存返回 None。
+
+        供 cur 等直接读取当前题目的路径调用；不翻译题面、不重新下载图片。
+        """
+        cached = self._cache.get(cf_key)
+        if not cached:
+            return None
+        return self._row_to_problem(await self._repair_sample_row(cached))
+
     async def fetch(self, entry: dict) -> dict:
         """拿到一道完整可用的题（题面 + 中文译文），优先用缓存。"""
         cf_key = entry["cf_key"]
@@ -561,10 +632,16 @@ class CodeforcesSource:
                 metadata_ok = False
             if "〔图〕" in text or not metadata_ok:
                 cached = None  # Legacy image placeholders require a fresh source scrape.
+        if cached and cached.get("statement_en"):
+            cached = await self._repair_sample_row(cached)
         if cached and cached.get("statement_en") and cached.get("statement_cn"):
             _, formulas = protect_tex(cached['statement_en'])
             translated_formulas = _TEX_BLOCK.findall(cached['statement_cn'])
-            if (translated_formulas == formulas and not translation_incomplete(cached['statement_cn'])
+            source_prose=_TEX_BLOCK.sub('',cached['statement_en'])
+            translated_prose=_TEX_BLOCK.sub('',cached['statement_cn'])
+            has_translation=(not re.search(r'[A-Za-z]{3,}',source_prose)
+                             or bool(re.search(r'[\u3400-\u9fff]',translated_prose)))
+            if (has_translation and translated_formulas == formulas and not translation_incomplete(cached['statement_cn'])
                     and _IMAGE_TOKEN.findall(cached['statement_cn']) == _IMAGE_TOKEN.findall(cached['statement_en'])):
                 return self._row_to_problem(cached)
             cached = dict(cached)
@@ -597,6 +674,7 @@ class CodeforcesSource:
                 "title": parsed["title"] or entry.get("name") or cf_key,
                 "statement_en": statement,
                 "examples": parsed["examples"],
+                "sample_parser_version": _SAMPLE_PARSER_VERSION,
                 "time_limit": parsed["time_limit"],
                 "memory_limit": parsed["memory_limit"],
                 "fetched_at": time.time(),
@@ -605,8 +683,7 @@ class CodeforcesSource:
 
         if not problem.get("statement_cn"):
             if self._translate is None:
-                problem["statement_cn"] = problem["statement_en"]
-                self._cache.save(problem)
+                raise RuntimeError('中文题面翻译未配置；英文原文已缓存，不占用当前题位')
             else:
                 protected, tex = protect_tex(problem["statement_en"])
                 try:
@@ -626,28 +703,36 @@ class CodeforcesSource:
                                 result = await self._translate(paragraph)
                                 actual_tokens = re.findall(r'[⟦\[［【]+\s*(\d+)\s*[⟧\]］】]+',result)
                                 expected_ids = [re.search(r'\d+',x).group() for x in expected_tokens]
-                                if actual_tokens != expected_ids or translation_incomplete(result):
+                                if (actual_tokens != expected_ids or translation_incomplete(result)
+                                        or (re.search(r'[A-Za-z]{3,}',paragraph) and not re.search(r'[\u3400-\u9fff]',result))):
                                     # Keep formula placeholders in Python; translate only prose
                                     # fragments so a model cannot renumber/drop math tokens.
                                     pieces = re.split(r'(⟦\d+⟧)',paragraph)
-                                    safe_parts=[]
-                                    for piece in pieces:
-                                        if not piece or re.fullmatch(r'⟦\d+⟧',piece) or not re.search(r'[A-Za-z]{2}',piece):
-                                            safe_parts.append(piece)
+                                    pending={str(i):piece for i,piece in enumerate(pieces)
+                                             if piece and not re.fullmatch(r'⟦\d+⟧',piece) and re.search(r'[A-Za-z]{2}',piece)}
+                                    recovered={}
+                                    for fragment_attempt in range(2):
+                                        if not pending:
+                                            break
+                                        raw=await self._translate('KOUHU_TRANSLATION_BATCH\n'+json.dumps(pending,ensure_ascii=False))
+                                        raw=re.sub(r'^```(?:json)?\s*|\s*```$','',raw.strip())
+                                        try:
+                                            batch=json.loads(raw)
+                                        except (ValueError,TypeError):
                                             continue
-                                        for fragment_attempt in range(3):
-                                            fragment=await self._translate(piece)
-                                            # A literal [1] in a valid Chinese translation
-                                            # is not automatically a fabricated math token.
-                                            # Only our reserved Unicode marker is forbidden.
-                                            if (not translation_incomplete(fragment)
+                                        if not isinstance(batch,dict) or set(batch)!=set(pending):
+                                            continue
+                                        for key,piece in list(pending.items()):
+                                            fragment=batch[key]
+                                            if (isinstance(fragment,str) and fragment.strip()
+                                                    and not translation_incomplete(fragment)
                                                     and not re.search(r'⟦\s*\d+\s*⟧',fragment)
                                                     and (not re.search(r'[A-Za-z]{3,}',piece) or re.search(r'[\u3400-\u9fff]',fragment))):
-                                                break
-                                        else:
-                                            raise ValueError('正文片段翻译未完成：三次重试仍有长英文、无中文或多余公式标记')
-                                        safe_parts.append(fragment)
-                                    result=''.join(safe_parts)
+                                                recovered[int(key)]=fragment
+                                                del pending[key]
+                                    if pending:
+                                        raise ValueError('批量正文翻译未完成：编号缺失、正文未译或多余公式标记')
+                                    result=''.join(recovered.get(i,piece) for i,piece in enumerate(pieces))
                                 translated_parts.append(result)
                         translated = ''.join(translated_parts)
                         tokens = [int(x) for x in re.findall(r'[⟦\[［【]+\s*(\d+)\s*[⟧\]］】]+', translated)]
@@ -659,20 +744,14 @@ class CodeforcesSource:
                     else:
                         raise ValueError('译文公式占位符丢失、重复、顺序错误或正文未译完整')
                 except Exception as exc:  # noqa: BLE001
-                    # 翻译挂了不能连题一起废掉：先发英文题面。
-                    # 关键：这时**不写 statement_cn 到缓存**，让它保持「未翻译」状态，
-                    # 否则这道题会永远停在英文上，以后也不会再尝试翻译。
+                    # Preserve source only; failed translations never become a
+                    # Chinese cache entry or replace the group's current problem.
                     reason=f'{type(exc).__name__}: {exc}'
                     logger.warning(f"[KouHuOJ] {cf_key} 中文题面翻译未完成：{reason}")
                     raise RuntimeError('中文题面翻译未完成（'+reason+'）；英文原文已缓存，不占用当前题位') from exc
                 restored = restore_tex(translated, tex)
                 if not tex_intact(restored, len(tex)):
-                    # 译文把公式弄丢或弄多了，宁可退回英文也不发一份坏题面
-                    logger.warning(
-                        f"[KouHuOJ] {cf_key} 译文公式数量不符"
-                        f"（期望 {len(tex)}，实得 {len(_TEX_BLOCK.findall(restored))}），退回英文"
-                    )
-                    restored = problem["statement_en"]
+                    raise RuntimeError('中文题面翻译公式数量不符；保留英文缓存等待重试')
                 problem["statement_cn"] = restored
                 problem["translated_at"] = time.time()
                 self._cache.save(problem)

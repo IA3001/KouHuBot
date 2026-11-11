@@ -20,7 +20,7 @@ ASSET_DIR = Path(__file__).resolve().parent / "assets" / "katex"
 MAX_HEIGHT = 30_000
 _RENDER_LOCK = threading.Lock()
 _RENDERER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kouhu-browser")
-_DELIMITERS = (("$$$", "$$$", False), ("$$", "$$", True),
+_DELIMITERS = (("$$$$$$", "$$$$$$", True), ("$$$", "$$$", False), ("$$", "$$", True),
                ("$", "$", False), (r"\(", r"\)", False),
                (r"\[", r"\]", True))
 
@@ -208,6 +208,7 @@ for (const element of document.querySelectorAll('[data-tex]')) {
     katex.render(element.getAttribute('data-tex'), element, {
       displayMode: element.dataset.display === 'true',
       throwOnError: true, strict: 'ignore', trust: false,
+      macros: {"\\\\mbox": "\\\\text{#1}"},
       maxExpand: 1000, maxSize: 20
     });
     if (element.querySelector('.katex-error')) {

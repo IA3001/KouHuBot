@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'plugins/astrbot_plugin_kouhu_oj'))
 with patch.dict(sys.modules, {'astrbot': types.ModuleType('astrbot'), 'astrbot.api': types.SimpleNamespace(logger=logging.getLogger('image-test'))}):
-    from sources.codeforces import CfCache, CodeforcesSource, _text_of, parse_statement, _DDL
+    from sources.codeforces import CfCache, CodeforcesSource, _text_of, parse_statement, _DDL, protect_tex, restore_tex
     from sources import statement_images as images
 
 
@@ -31,6 +31,19 @@ def response(data=b'', status=200, headers=None):
 
 
 class StatementImagesTest(unittest.TestCase):
+    def test_modern_sample_lines_and_literal_output_are_preserved(self):
+        parsed=parse_statement('<div class="problem-statement"><div class="sample-tests"><div class="input"><div class="title">Input</div><pre><div class="test-example-line">2</div><div class="test-example-line">  1 2</div></pre></div><div class="output"><div class="title">Output</div><pre>Output is correct<br/>YES</pre></div></div></div>')
+        self.assertEqual(parsed['examples'],[{'input':'2\n  1 2','output':'Output is correct\nYES'}])
+
+    def test_display_and_inline_formulas_restore_exact_delimiters(self):
+        text=r'计算 $$$x$$$ 与 $$$$$$\sum_i x_i$$$$$$。'
+        protected,formulas=protect_tex(text)
+        self.assertEqual(len(formulas),2)
+        self.assertEqual(restore_tex(protected,formulas),text)
+
+    def test_pre_code_div_lines_are_preserved(self):
+        self.assertIn('first\nsecond',_text_of('<pre><div>first</div><div>second</div></pre>'))
+
     def test_text_images_keep_positions_and_attributes(self):
         urls = []
         text = _text_of('Before<img alt="a > b" src="/userpic/a.png">middle<img src=\'https://codeforces.org/userpic/b.png?x=1&amp;y=2\'>after', urls)
@@ -147,13 +160,13 @@ class StatementImagesTest(unittest.TestCase):
         self.assertEqual([call.args[0] for call in source._translate.await_args_list], ['Before', 'After'])
 
     def test_old_placeholder_refetches_and_failure_is_visible(self):
-        source = CodeforcesSource(Mock())
+        source = CodeforcesSource(Mock(),translate=AsyncMock(side_effect=['前面','后面']))
         source._cache.get.return_value = dict(cf_key='1A', statement_en='Old〔图〕', statement_cn='旧〔图〕')
         source._scrape_sync = Mock(return_value=dict(title='new', statement_en='BeforeKOUHUIMAGE0ENDAfter', image_urls=['https://evil.test/a'], examples=[], time_limit=2, memory_limit=256))
         problem = asyncio.run(source.fetch(dict(cf_key='1A', contest_id=1, idx='A', rating=800)))
         source._scrape_sync.assert_called_once()
-        self.assertIn('Before〔图片加载失败', problem['statement_cn'])
-        self.assertTrue(problem['statement_cn'].endswith('〕After'))
+        self.assertIn('前面〔图片加载失败', problem['statement_cn'])
+        self.assertTrue(problem['statement_cn'].endswith('〕后面'))
         self.assertEqual(problem['statement_images'][0]['src'], '')
 
 

@@ -899,7 +899,8 @@ async def main() -> int:
     ctx.reply_queue.clear()
     ctx.reply_queue.append("")
     out = await runner.says(E("sol", **alice), "cmd_solution")
-    runner.check("解析空响应明确失败且可重试", "生成失败" in out, out)
+    runner.check("解析空响应明确失败且可重试", "整理失败" in out and '官方原文已保留' in out, out)
+    plugin._editorial_cache.clear()
     from unittest.mock import AsyncMock
     calls_before = ctx.call_count
     with patch.object(mod,'fetch_official_editorial',new=AsyncMock(return_value=None)):
@@ -936,6 +937,14 @@ async def main() -> int:
     out = await runner.says(E(f'new [{empty_rating}-{empty_rating}]',**range_user),'cmd_new')
     runner.check('真实空区间不跨范围派题', '区间没有' in out and plugin._store.current(range_scope)['status']=='gave_up',out)
 
+    for preset,bounds in {'1':(1900,3500),'2':(1400,2100),'3':(1000,1600),'4':(800,1200)}.items():
+        with patch.object(plugin._cf,'pick_range',wraps=plugin._cf.pick_range) as picker:
+            out=await runner.says(E('new '+preset,**range_user),'cmd_new')
+            runner.check('Div快捷预设'+preset,picker.call_args is not None and picker.call_args.args==bounds,out)
+        current_preset=plugin._store.current(range_scope)
+        if current_preset and current_preset['status']=='open':
+            plugin._store.close_problem(range_scope,'gave_up','1001')
+    runner.check('十题评估常量',mod.scoring.ROUNDS_PER_TIER==10)
     requested_key=next(iter(plugin._cf.problems))
     out=await runner.says(E('new CF'+requested_key,**range_user),'cmd_new')
     runner.check('按指定CF题号派题',plugin._store.current(range_scope)['cf_key']==requested_key and plugin._store.current(range_scope)['status']=='open',out)
@@ -948,10 +957,43 @@ async def main() -> int:
     plugin._pending_preparations[range_scope]={'task':pending_future,'sender':'1001'}
     out=await runner.says(E('cur',**range_user),'cmd_problem')
     runner.check('慢速准备cur显示任务保留','任务没有丢失' in out,out)
+    plugin._last_fetch_error='previous failed fetch'
     pending_future.set_result(dict(plugin._cf.problems[requested_key]))
     out=await runner.says(E('cur',**range_user),'cmd_problem')
     runner.check('cur领取后台完成中文题',plugin._store.current(range_scope)['status']=='open' and range_scope not in plugin._pending_preparations,out)
+    runner.check('后台领取成功清除旧抓题错误',not plugin._last_fetch_error and plugin._last_fetch_ok>0)
     plugin._store.close_problem(range_scope,'gave_up','1001')
+    calls_before=ctx.call_count
+    out=await runner.says(E('ask 什么时候上难度',**range_user),'cmd_ask')
+    runner.check('升难度询问直接读取进度不调用模型','还差' in out and '30%' in out and ctx.call_count==calls_before,out)
+    from unittest.mock import AsyncMock
+    plugin._store.open_problem(range_scope,dict(plugin._cf.problems[requested_key]),'1001')
+    plugin._store.ensure_player(range_scope,'1001','tester')
+    previous_attempts=plugin._store.player(range_scope,'1001')['attempts']
+    with patch.object(plugin,'_judge',new=AsyncMock(return_value=None)):
+        out=await runner.says(E('sub 临时答案',**range_user),'cmd_submit')
+    runner.check('服务失败暂存答案且不计次数','sub retry' in out and plugin._store.player(range_scope,'1001')['attempts']==previous_attempts,out)
+    with patch.object(plugin,'_judge',new=AsyncMock(return_value={'verdict':'WA','comment':'需补充'})) as retry_judge:
+        out=await runner.says(E('sub retry',**range_user),'cmd_submit')
+    runner.check('retry使用同轮保存答案',retry_judge.await_args.args[2]=='临时答案' and (range_scope,'1001') not in plugin._failed_submissions,out)
+    plugin._failed_submissions[(range_scope,'1001')]={'cf_key':requested_key,'opened_at':-1,'text':'旧轮答案'}
+    out=await runner.says(E('sub retry',**range_user),'cmd_submit')
+    runner.check('retry拒绝旧轮提交','没有可重试' in out,out)
+    plugin._store.close_problem(range_scope,'gave_up','1001')
+    async def slow_valid_judgment(**kwargs):
+        await asyncio.sleep(0.06)
+        return SimpleNamespace(completion_text=json.dumps({'verdict':'AC','comment':'正确'}))
+    from unittest.mock import AsyncMock
+    slow_model=AsyncMock(side_effect=slow_valid_judgment)
+    with patch.object(ctx,'llm_generate',new=slow_model):
+        result=await plugin._judge(E('sub test',**range_user),plugin._cf.problems[requested_key],'test',timeout=0.1)
+    runner.check('慢响应超过旧半时限仍单次成功',result and result['verdict']=='AC' and slow_model.await_count==1)
+    async def stuck_judgment(**kwargs):
+        await asyncio.Event().wait()
+    stuck_model=AsyncMock(side_effect=stuck_judgment)
+    with patch.object(ctx,'llm_generate',new=stuck_model):
+        result=await plugin._judge(E('sub test',**range_user),plugin._cf.problems[requested_key],'test',timeout=0.01)
+    runner.check('判题达到总时限不重复请求',result is None and stuck_model.await_count==1)
     saved_provider=plugin.config.get('judge_provider_id')
     plugin.config['judge_provider_id']=''
     ctx.reply_queue.append('给定整数数组，求最大值。')

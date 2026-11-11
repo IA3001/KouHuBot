@@ -80,11 +80,11 @@ class RatingRangeTest(unittest.TestCase):
         source=self.source
         source._cache=Mock()
         source._cache.get.return_value=dict(cf_key='1A',contest_id=1,idx='A',statement_en='Find the maximum value of $$$x$$$ in the array.',statement_cn=None,examples='[]')
-        source._translate=AsyncMock(side_effect=['求数组最大值。','求最大值','在数组中。'])
+        source._translate=AsyncMock(side_effect=['求数组最大值。','{"0":"求最大值","2":"在数组中。"}'])
         result=asyncio.run(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',title='test',rating=800,tier=800)))
         self.assertIn('$$$x$$$',result['statement_cn'])
         self.assertIn('求最大值',result['statement_cn'])
-        self.assertEqual(source._translate.await_count,3)
+        self.assertEqual(source._translate.await_count,2)
         self.assertTrue(all('⟦' not in call.args[0] for call in source._translate.await_args_list[1:]))
 
     def test_fragment_english_echo_retries_before_failing(self):
@@ -92,10 +92,21 @@ class RatingRangeTest(unittest.TestCase):
         from unittest.mock import Mock, AsyncMock
         source=self.source; source._cache=Mock()
         source._cache.get.return_value=dict(cf_key='1A',contest_id=1,idx='A',statement_en='Find the maximum value of $$$x$$$ in the array.',statement_cn=None,examples='[]')
-        source._translate=AsyncMock(side_effect=['求最大值。','Find the maximum value of','求最大值','在数组中。'])
+        source._translate=AsyncMock(side_effect=['求最大值。','{"0":"Find the maximum value of","2":"在数组中。"}','{"0":"求最大值"}'])
         result=asyncio.run(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',title='test',rating=800,tier=800)))
         self.assertIn('求最大值$$$x$$$',result['statement_cn'])
-        self.assertEqual(source._translate.await_count,4)
+        self.assertEqual(source._translate.await_count,3)
+        self.assertNotIn('"2"',source._translate.await_args_list[-1].args[0])
+
+    def test_short_english_echo_uses_batch_recovery(self):
+        import asyncio
+        from unittest.mock import Mock, AsyncMock
+        source=self.source;source._cache=Mock()
+        source._cache.get.return_value=dict(cf_key='1A',contest_id=1,idx='A',statement_en='Find the sum.',statement_cn='Find the sum.',examples='[]')
+        source._translate=AsyncMock(side_effect=['Find the sum.','{"0":"求和。"}'])
+        result=asyncio.run(source.fetch(dict(cf_key='1A',contest_id=1,idx='A',rating=800)))
+        self.assertEqual(result['statement_cn'],'求和。')
+        self.assertEqual(source._translate.await_count,2)
 
     def test_complete_cache_avoids_scraping(self):
         import asyncio
