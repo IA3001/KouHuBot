@@ -52,7 +52,7 @@ def _checked(result: int, operation: str) -> int:
     return result
 
 
-def _landlock(libc: ctypes.CDLL, workdir: Path) -> None:
+def _landlock(libc: ctypes.CDLL, workdir: Path) -> int:
     # These syscall numbers are shared by the supported Linux architectures.
     # Unknown architectures fail closed rather than risking a different syscall.
     if platform.system() != "Linux" or platform.machine() not in ("x86_64", "aarch64"):
@@ -62,9 +62,10 @@ def _landlock(libc: ctypes.CDLL, workdir: Path) -> None:
     abi = _checked(syscall(444, 0, 0, 1), "Landlock ABI probe")
     # ABI 2 adds REFER; ABI 3 adds TRUNCATE. Without the latter, an existing
     # forbidden file could be truncated without WRITE_FILE permission.
-    if abi < 3:
-        raise SandboxUnavailable("Landlock ABI 3 or newer is required")
-    handled = (1 << 15) - 1  # EXECUTE through TRUNCATE, including all MAKE_*.
+    if abi < 2:
+        raise SandboxUnavailable("Landlock ABI 2 or newer is required")
+    # ABI2 truncation gaps are closed by seccomp below before exec.
+    handled = (1 << (15 if abi >= 3 else 14)) - 1
     if abi >= 5:
         handled |= 1 << 15  # IOCTL_DEV: deny device ioctls as well.
     ruleset = _Ruleset(handled)
@@ -98,9 +99,15 @@ def _landlock(libc: ctypes.CDLL, workdir: Path) -> None:
         _checked(syscall(446, ruleset_fd, 0), "Landlock restrict_self")
     finally:
         os.close(ruleset_fd)
+    return abi
 
 
-def _seccomp() -> None:
+class _ArgCompare(ctypes.Structure):
+    _fields_ = [('arg',ctypes.c_uint),('op',ctypes.c_int),
+                ('datum_a',ctypes.c_uint64),('datum_b',ctypes.c_uint64)]
+
+
+def _seccomp(abi: int = 3) -> None:
     try:
         lib = ctypes.CDLL("libseccomp.so.2", use_errno=True)
     except OSError as exc:
@@ -142,7 +149,27 @@ def _seccomp() -> None:
         "shmget", "shmat", "shmctl", "msgget", "msgsnd", "msgrcv", "msgctl",
         "semget", "semop", "semtimedop", "semctl",
     )
+    if abi < 3:
+        # Path truncation is not mediated before ABI3. openat2's pointed-to
+        # flags cannot be filtered by seccomp; deny it so libc uses openat.
+        denied += ('truncate','truncate64','ftruncate','ftruncate64','openat2')
     try:
+        if abi < 3:
+            lib.seccomp_rule_add_array.argtypes=[ctypes.c_void_p,ctypes.c_uint32,ctypes.c_int,ctypes.c_uint,ctypes.POINTER(_ArgCompare)]
+            lib.seccomp_rule_add_array.restype=ctypes.c_int
+            for name,arg in (('open',1),('openat',2)):
+                number=lib.seccomp_syscall_resolve_name(name.encode('ascii'))
+                if number<0:
+                    continue
+                # O_RDONLY|O_TRUNC bypasses WRITE_FILE on ABI2; writable
+                # opens remain confined by Landlock, including normal gcc output.
+                for mode in (0,os.O_ACCMODE):
+                    # Linux access mode 3 grants neither READ nor WRITE and can
+                    # bypass ABI2's WRITE_FILE check just like read-only open.
+                    comparison=_ArgCompare(arg,7,os.O_ACCMODE|os.O_TRUNC,os.O_TRUNC|mode)
+                    status=lib.seccomp_rule_add_array(context,0x00050000|errno.EPERM,number,1,ctypes.byref(comparison))
+                    if status!=0:
+                        raise SandboxUnavailable(f'seccomp truncation {name}: {status}')
         for name in denied:
             number = lib.seccomp_syscall_resolve_name(name.encode("ascii"))
             # libseccomp returns negative pseudo-numbers for calls absent on the
@@ -181,8 +208,8 @@ def _run(workdir: Path, argv: list[str]) -> None:
     os.environ.clear()
     os.environ.update(PATH="/usr/bin:/bin", LANG="C", TMPDIR=str(workdir),
                       HOME=str(workdir))
-    _landlock(libc, workdir)
-    _seccomp()
+    abi = _landlock(libc, workdir)
+    _seccomp(abi)
     os.execvpe(argv[0], argv, dict(os.environ))
 
 

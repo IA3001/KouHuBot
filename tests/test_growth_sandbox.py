@@ -56,12 +56,38 @@ class SandboxContractTests(unittest.TestCase):
     def test_old_landlock_abi_rejected_before_creating_ruleset(self):
         from unittest.mock import Mock
         libc = Mock()
-        libc.syscall.return_value = 2
+        libc.syscall.return_value = 1
         with patch.object(sandbox.platform, "system", return_value="Linux"), \
                 patch.object(sandbox.platform, "machine", return_value="x86_64"):
-            with self.assertRaisesRegex(sandbox.SandboxUnavailable, "ABI 3"):
+            with self.assertRaisesRegex(sandbox.SandboxUnavailable, "ABI 2"):
                 sandbox._landlock(libc, Path("/tmp"))
         libc.syscall.assert_called_once_with(444, 0, 0, 1)
+
+    def test_abi2_seccomp_blocks_truncation_modes_without_landlock(self):
+        # Run the ABI2 compensating filter alone, so newer host Landlock cannot
+        # mask a missing seccomp rule. Files here are disposable test fixtures.
+        script = '''import importlib.util,os,sys,ctypes,errno
+spec=importlib.util.spec_from_file_location('helper',sys.argv[1])
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+libc=ctypes.CDLL(None,use_errno=True)
+assert libc.prctl(38,1,0,0,0)==0
+m._seccomp(2)
+for mode in (0,3):
+ for direct in (False,True):
+  try:
+   if direct: os.close(os.open(sys.argv[2],os.O_TRUNC|mode))
+   else: os.close(os.open(sys.argv[2],os.O_TRUNC|mode,dir_fd=-100))
+  except OSError as e: assert e.errno==errno.EPERM,e
+  else: raise AssertionError('truncation escaped')
+try: os.truncate(sys.argv[2],0)
+except OSError as e: assert e.errno==errno.EPERM,e
+else: raise AssertionError('truncate escaped')
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            target=Path(directory)/'outside';target.write_text('KEEP')
+            result=subprocess.run([sys.executable,'-c',script,sandbox.__file__,str(target)],capture_output=True,text=True,timeout=10)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(target.read_text(),'KEEP')
 
     def test_missing_seccomp_library_rejected(self):
         with patch.object(sandbox.ctypes, "CDLL", side_effect=OSError("missing")):
