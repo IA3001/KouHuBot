@@ -78,6 +78,8 @@ class GrowthBank:
         self.directory=Path(directory); self.directory.mkdir(parents=True,exist_ok=True)
         self.path=self.directory/'growth.json'
         self.state=self.load()
+        # Runtime ownership is deliberately not persisted across plugin restarts.
+        self.running=None
     def load(self):
         if not self.path.exists(): return {'revision':1,'approved':[],'candidates':[],'queue':list(SEEDS),'visited':[], 'last_attempt':0,'last_result':'尚未采集'}
         state=json.loads(self.path.read_text(encoding='utf-8'))
@@ -88,8 +90,20 @@ class GrowthBank:
         with temporary.open('w',encoding='utf-8') as stream:
             json.dump(self.state,stream,ensure_ascii=False,indent=2); stream.flush(); os.fsync(stream.fileno())
         temporary.replace(self.path)
-    def status(self):
-        return f"🌱 自动题库\n━━━━━━━━━━━━━━━━\n› 已入库：{len(self.state['approved'])} 题\n› 待校验/未通过：{len(self.state['candidates'])} 题\n› 已采集页面：{len(self.state['visited'])}\n› 最近结果：{self.state['last_result']}"
+    def cooldown_remaining(self, interval=21600, *, retry=False):
+        last=max(self.state.get('last_finished',0),self.state.get('last_attempt',0))
+        if not last:
+            return 0
+        # Older files have no outcome: allow recovery after the same short backoff.
+        delay=interval if self.state.get('last_outcome')=='success' and not retry else 60
+        return max(0, last+delay-time.time())
+    def status(self, interval=21600):
+        running=self.running
+        elapsed=max(0,time.time()-running['started_at']) if running else self.state.get('last_elapsed',0)
+        remaining=self.cooldown_remaining(interval)
+        phase=running['phase'] if running else '空闲'
+        cooldown='任务完成后计算' if running else (f'{int(remaining+0.999)} 秒' if remaining else '可采集')
+        return f"🌱 自动题库\n━━━━━━━━━━━━━━━━\n› 已入库：{len(self.state['approved'])} 题\n› 待校验/未通过：{len(self.state['candidates'])} 题\n› 已采集页面：{len(self.state['visited'])}\n› 当前阶段：{phase}\n› {'本轮' if running else '最近一轮'}耗时：{int(elapsed)} 秒\n› 剩余冷却：{cooldown}\n› 最近结果：{self.state['last_result']}\n› 管理员重试：grm grow retry（保留60秒最小间隔）"
     async def material(self):
         queue=self.state['queue']
         if not queue: queue.extend(SEEDS)

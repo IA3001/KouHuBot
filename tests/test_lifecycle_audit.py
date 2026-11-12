@@ -44,7 +44,7 @@ class LifecycleTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_growth_status_aliases_and_help(self):
         self.bot._pitfalls = object()
-        self.bot._growth = type('Growth', (), {'status': lambda self: '已入库：1 题'})()
+        self.bot._growth = type('Growth', (), {'status': lambda self, interval=21600: '已入库：1 题'})()
         for command in ('grm status', 'grm growth', 'grm 状态'):
             event = stub.AstrMessageEvent(command, group_id='100200300', sender_id='1001')
             out = '\n'.join([item.text async for item in self.bot.cmd_pitfall(event)])
@@ -115,6 +115,23 @@ class LifecycleTest(unittest.IsolatedAsyncioTestCase):
         entries = self.bot._store._conn.execute('SELECT COUNT(*) FROM review_entries').fetchone()[0]
         self.assertEqual(entries, 1)
 
+    async def test_late_judgement_stays_with_original_problem(self):
+        self._open()
+        original = self.bot._judge
+        async def judge_then_replace(*args, **kwargs):
+            self.bot._store.close_problem(self.scope, self.mod.STATUS_GAVE_UP, '1002')
+            other = {**self.problem, 'cf_key': '5A', 'contest_id': 5}
+            self.bot._store.open_problem(self.scope, other, '1002')
+            return await original(*args, **kwargs)
+        self.bot._judge = judge_then_replace
+        out = await self.submit('sub 旧题的分析')
+        self.assertIn('本次不计分', out)
+        rows, total = self.bot._store.review_problem_entries(self.scope, '1001', '4A', 1)
+        self.assertEqual(total, 1)
+        self.assertEqual(rows[0]['submission'], '旧题的分析')
+        _, new_total = self.bot._store.review_problem_entries(self.scope, '1001', '5A', 1)
+        self.assertEqual(new_total, 0)
+
     async def test_leaderboard_marks_ties_with_the_same_rank(self):
         self.bot._store.ensure_player(self.scope, '1002', 'Bob')
         for user in ('1001', '1002'):
@@ -150,7 +167,7 @@ class GrowthLoopTest(unittest.IsolatedAsyncioTestCase):
 
         self.bot._sleep = fake_sleep
         self.bot._grow_pitfalls = fake_grow
-        self.bot._growth = type('G', (), {'state': {'last_attempt': 0}, 'save': lambda self: None})()
+        self.bot._growth = type('G', (), {'state': {'last_attempt': 0}, 'save': lambda self: None, 'cooldown_remaining': lambda self, interval: 0})()
         self.bot._pitfalls = type('P', (), {'count': lambda self: 1})()
         with self.assertRaises(__import__('asyncio').CancelledError):
             await self.bot._growth_loop()
@@ -173,7 +190,7 @@ class GrowthLoopTest(unittest.IsolatedAsyncioTestCase):
         self.bot.config['grm_auto_growth'] = False
         self.bot._sleep = fake_sleep
         self.bot._grow_pitfalls = fake_grow
-        self.bot._growth = type('G', (), {'state': {'last_attempt': 0}, 'save': lambda self: None})()
+        self.bot._growth = type('G', (), {'state': {'last_attempt': 0}, 'save': lambda self: None, 'cooldown_remaining': lambda self, interval: 0})()
         self.bot._pitfalls = type('P', (), {'count': lambda self: 1})()
         with self.assertRaises(__import__('asyncio').CancelledError):
             await self.bot._growth_loop()

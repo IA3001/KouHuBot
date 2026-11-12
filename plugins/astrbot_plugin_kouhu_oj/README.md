@@ -1,101 +1,88 @@
 # 口胡 OJ（astrbot_plugin_kouhu_oj）
 
-群内即兴做题：`q` 抽题（题目实时从 LeetCode 拉取并渲染成图片）、`s` 提交后由大模型判题锐评、`g` 给原题链接、`r` 看排行榜。
+在群里练算法：从 Codeforces 抽题，提交思路、伪代码或代码，由模型判题；也可以独立练 C++ 坑点题。CF 正题与坑点题各有自己的当前题，互不替换。题目答对或放弃后才能继续抽取该线路的新题。
 
 ## 指令
 
-加不加 `/` 都可以，大小写不敏感。
+可带 `/` 或全角 `／` 前缀，英文大小写不敏感。支持 `new图论`、`sub这题用二分` 等中文参数紧贴指令；`new！`、`help？` 等尾部标点也能识别。`newbie`、`subscribe` 等普通单词不会触发命令。
 
 | 指令 | 作用 |
 |---|---|
-| `q` / `n` / `new` | 抽一道算法题：先回一句「正在抽题」，再发图片 |
-| `q e` / `q m` / `q h` | 指定难度（也可写 `简单` / `中等` / `困难`） |
-| `s <解答>` | 提交，模型判分并锐评 |
-| `grm` | 抽一道 C++ 算竞坑点题（看代码找 bug） |
-| `p` | 重看当前题 |
-| `g` | 放弃，给原题链接 |
-| `r` | 本群排行榜 |
-| `me` | 查看自己的过题记录（逐题明细） |
-| `h` | 帮助 |
+| `new` | 按本群当前难度档抽一道 CF 正题 |
+| `new 1` / `new 2` / `new 3` / `new 4` | 按 Div 预设抽题 |
+| `new [1200-1600]` | 指定 rating 区间，也支持 `1200到1600` |
+| `new CF123B` | 指定 CF 题号 |
+| `new dp` / `new dp+trees` | 按标签抽题，支持中文，多标签同时满足 |
+| `new tags` | 查看标签与题数 |
+| `cur` / `problem` | 重看当前 CF 正题 |
+| `sub 思路` / `submit 思路` | 提交文字，支持多行代码，保留正文末尾标点与运算符 |
+| `sub retry` | 判题失败后重试当前题暂存的提交 |
+| 引用图片或附图发送 `sub` | 转写并预览作答后判题，最多 3 张；可同时附文字 |
+| `hint 1` / `hint 2` / `hint 3` | 逐级查看方向、关键观察、解法框架 |
+| `giveup` | 放弃当前 CF 正题并查看解析 |
+| `grm new [分类] [难度]` | 抽坑点题；分类、难度各最多一个，位置可互换，难度为 1/2/3 |
+| `grm list` | 查看坑点分类与题数 |
+| `grm cur` / `grm problem` | 重看当前坑点题 |
+| `grm sub 分析` / `grm submit 分析` | 提交坑点分析，支持多行文字；暂不支持图片 |
+| `grm giveup` | 放弃坑点题并查看答案 |
+| `grm growth` / `grm status` | 查看自动题库采集进度、冷却和最近结果 |
+| `history [页码]` / `history grm` | 查看自己的 CF / 坑点历史 |
+| `history problem 628B` | 回看历史题面 |
+| `history show 628B [记录页]` | 按题号分页查看历史作答记录 |
+| `history show 提交编号 [内容页]` | 按提交编号分页查看完整作答与判词 |
+| `history grm show 提交编号 [内容页]` | 坑点历史使用同样的分页方式，在 `history` 后加 `grm` |
+| `sol` / `sol 628B` | 查看已结束题目的解析 |
+| `rank [页码]` / `me` | 本群积分榜分页 / 我的战绩 |
+| `tier` | 查看群难度档 |
+| `ask 问题` | 自由问答，支持多行文字 |
+| `help` / `rules` / `about` | 指令菜单 / 计分规则 / 功能介绍 |
+| `ver` / `ver list` / `ver 0.6.0` | 当前版本 / 版本列表 / 指定版本更新日志 |
+| `ping` | 检查判题模型 |
 
-指令用 `^...$` 全串锚定，`quit`、`qq`、`go`、`no`、`news` 这类普通聊天不会误触；`s` 必须带解答内容才算提交。
+管理员可用 `skip` 关闭 CF 当前题、`tier 数字` 调整群难度、`status` 查看运行信息，以及 `grm grow` 触发坑点采集。错误的档位或坑点参数会给出说明，不会静默忽略重复或多余参数。单字母 `q`、`s`、`p`、`g`、`r`、`h` 不是顶层命令。
 
-抽题会先秒回一句「正在抽题，题面马上发出。」——拉题加渲染要几秒，没反馈用户会以为机器人挂了。这句可通过 `ack_message` 配置，留空则关闭。
+首个 AC 后全群该题结束，答错不扣分；坑点题不计 CF 积分。提示在群内可见，查看历史不会切换当前判题线路。模型判题和解析可能出错。
 
-## 题目从哪来
+## 题目来源与判题
 
-**没有预置题库。** 每次 `q` 才去 LeetCode 中文站拉，拉完渲染成图片。
+CF 正题来自 Codeforces，题面抓取、翻译成功后缓存到本地。正题和样例使用 Chromium 与 KaTeX 渲染；排行榜、坑点等图片使用 Pillow。题面无法准备完整时会提示失败，不会用不完整内容替换当前题。
 
-为什么走 LeetCode 的 GraphQL 而不是爬 HTML：Codeforces 的题面页会被 Cloudflare 拦（403），
-洛谷有反爬会 302 死循环，LeetCode 的 GraphQL 是前端自己在用的接口，字段稳定。
+坑点题使用随插件提供的 `pitfalls.json`，包含代码、参考答案和修复方式。可用分类以 `grm list` 实际显示为准，例如 `grm new 浮点数 1`。后台默认每 6 小时尝试补充一道候选，经过资料采集、模型生成、模型复核和隔离代码验证后才进入可抽题库。失败保留原题库，可用 `grm growth` 查看结果。部署环境需支持隔离验证；无法验证的候选不会进入可抽题库。
 
-抽题只发 2 个请求：先拿总数 → 随机偏移拉一页 50 条 → 页内随机挑一道非会员题。
+判题要求模型输出结构化结果，并处理 JSON 围栏、格式异常与超时。提交内容作为不可信数据传给模型。图片交题先转写，再走文字判题；转写失败或超限会说明原因。
 
-## 坑点题（grm）
+## 配置
 
-`pitfalls.json` 里是 40 条人工整理的 C++ 算竞坑点，玩法是「找茬」：
-发一段有 bug 的代码，群友说出错在哪，模型对着标准答案判分。
-
-因为**有标准答案**，这条判题路径比算法题稳得多（实测 6/6 判定符合预期）。
-
-每条结构：
-
-```json
-{
-  "id": "sort-comparator",
-  "category": "排序与比较器",
-  "title": "比较器用了 <=",
-  "question": "加了自定义比较器之后，sort 偶尔崩溃或结果乱序。",
-  "buggy_code": "sort(v.begin(), v.end(), [](int a, int b) {\n    return a <= b;\n});",
-  "answer": "std::sort 要求比较器满足严格弱序……",
-  "fix": "return a < b;",
-  "source": "https://oi-wiki.org/contest/common-mistakes/"
-}
-```
-
-想加坑点直接往这个 JSON 里追加，重启插件即可，不用改代码。
-
-## 图片是怎么画的
-
-纯 Pillow 绘制，**不用无头浏览器**（那玩意儿要 300MB+ 内存，2C2G 扛不住）。
-
-- 中文字体自动探测（Noto Sans CJK / 文泉驿 / 微软雅黑 / 苹方）
-- 代码块里含中文的行会自动切回中文字体，避免豆腐块
-- 中文排版做了基础禁则：标点不出现在行首
-- 题面超过 3200px 自动截断，并提示去看原题链接
-
-服务器没装中文字体时不会崩，会退化成纯文本消息。
-
-## 判题
-
-没有标准答案可对照，所以让模型按题面判断思路是否正确。三道防线：
-
-1. **结构化输出**：强制返回 `{"verdict","score","comment"}` JSON
-2. **解析容错**：剥代码围栏、正则抓 JSON、关键字兜底，彻底失败就明确告知而不是瞎判
-3. **注入防护**：提交内容包在 `<student_answer>` 里，提示词声明该区域是不可信数据
-
-提示词里还有一条硬规则：题面明确要求复杂度的（如「必须 O(1)」），达不到直接判 WA，不给 PARTIAL。
-
-## 配置项
+完整配置与默认值见 [_conf_schema.json](_conf_schema.json)，常用项如下：
 
 | 配置 | 默认 | 说明 |
 |---|---|---|
-| `judge_provider_id` | 空 | 判题模型，留空用当前会话默认模型 |
-| `max_submission_chars` | 2000 | 提交字数上限 |
-| `issue_cooldown_seconds` | 15 | 同群抽题冷却 |
-| `ack_message` | 正在抽题，题面马上发出。 | 抽题时的即时回复，留空则不回 |
+| `judge_provider_id` | 空 | 判题与翻译模型，留空使用会话默认模型 |
+| `max_submission_chars` | 2000 | 纯文字提交字数上限 |
+| `new_cooldown_seconds` | 5 | 同群派题冷却秒数 |
+| `tags_cooldown_seconds` | 10 | 标签列表冷却秒数 |
 | `leaderboard_size` | 10 | 排行榜显示人数 |
-| `difficulty_filter` | 空 | 不带参数抽题时的默认难度 |
-| `image_width` | 900 | 题目图片宽度 |
-| `source_timeout_seconds` | 20 | 拉题超时 |
+| `image_width` | 900 | 图片宽度 |
+| `fetch_timeout_seconds` | 40 | CF 抓取超时秒数 |
+| `prepare_timeout_seconds` | 60 | 题面准备总时限 |
+| `translate_timeout_seconds` | 90 | 单次翻译超时，仍受准备总时限限制 |
+| `judge_timeout_seconds` | 90 | 判题超时秒数 |
+| `judge_ack_delay_seconds` | 5 | 判题等待多久后发进度回复 |
+| `image_submission_enabled` | true | 开启正题图片交题 |
+| `vision_provider_id` | 空 | 转写模型，留空依次使用判题或会话模型；需支持图片 |
+| `max_submission_images` | 3 | 每次最多图片数，上限 3 |
+| `image_submission_max_chars` | 6000 | 图片转写与附带文字总字数上限 |
+| `image_submission_timeout_seconds` | 60 | 图片加载与转写总时限 |
+| `grm_auto_growth` | true | 开启后台坑点题库补充 |
+| `grm_growth_interval_seconds` | 21600 | 全局补题冷却，最小 300 秒 |
+| `grm_growth_timeout_seconds` | 180 | 生成与模型复核各自的时限，范围 30–240 秒 |
+| `ask_cooldown_seconds` | 8 | 同群问答冷却秒数 |
+| `ask_max_chars` | 500 | 问答字数上限 |
+| `ask_timeout_seconds` | 60 | 问答超时秒数 |
+| `ask_ack_message` | 让我看看…… | 问答即时回复，留空关闭 |
 
-## 数据
+## 数据与安装
 
-`data/plugin_data/astrbot_plugin_kouhu_oj/`
+插件数据位于 AstrBot 数据目录下的 `plugin_data/astrbot_plugin_kouhu_oj/`，包括 SQLite 计分、题面缓存、图片和 `pitfall_growth/` 下的题库生长记录。备份时应保留整个目录。
 
-- `kouhu_oj.db`：当前题、进度、计分（SQLite）
-- `images/`：渲染出来的题目图片，超过一天的会自动清理
-
-## 依赖
-
-无额外依赖。`aiohttp` 和 `Pillow` 由 AstrBot 自带。
+依赖见 [requirements.txt](requirements.txt)。手动安装时在 AstrBot 的 Python 环境安装依赖，并执行 `python -m playwright install --with-deps chromium` 准备题面渲染浏览器；还需安装可用的中文字体。隔离代码验证的部署要求以项目根目录文档为准。

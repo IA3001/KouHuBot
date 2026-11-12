@@ -529,7 +529,7 @@ async def main() -> int:
     out = await runner.says(E('sol 5', **alice), 'cmd_solution')
     runner.check('旧sol数字入口明确迁移指引', '不再表示提交记录号' in out and '628B' in out, out)
     out = await runner.says(E('help', **alice), 'cmd_help')
-    runner.check('菜单分类齐全', all(x in out for x in ('🎯 正题','🧩 C++ 坑点','📖 历史与复盘','🏆 积分与帮助','🔐 管理员','› history problem 628B')), out)
+    runner.check('菜单分类齐全', all(x in out for x in ('🎯 正题','🧩 C++ 坑点','📖 历史与复盘','🏆 积分与帮助','🔐 管理员','history problem 628B')), out)
     runner.check('菜单不臃肿', len(out) <= 1000 and out.count('\n') <= 34, f'{len(out)} 字 / {out.count(chr(10))} 行')
     runner.check('菜单列出全部指令', all(cmd in out for cmd in ('new tags','sub retry','grm growth','grm grow','history show','sol 628B','ver list','tier','status')), out)
 
@@ -1090,7 +1090,7 @@ async def main() -> int:
     runner.check('retry拒绝旧轮提交','没有可重试' in out,out)
     plugin._store.close_problem(range_scope,'gave_up','1001')
     original_growth,original_pitfalls=plugin._growth,plugin._pitfalls
-    diagnostic_growth=SimpleNamespace(state={'last_attempt':0},save=lambda:None,material=AsyncMock(side_effect=TimeoutError('test failure')))
+    diagnostic_growth=SimpleNamespace(state={'last_attempt':0},save=lambda:None,cooldown_remaining=lambda interval, retry=False:0,material=AsyncMock(side_effect=TimeoutError('test failure')))
     plugin._growth=diagnostic_growth;plugin._pitfalls=SimpleNamespace()
     with patch.object(plugin,'_provider_id',new=AsyncMock(return_value='test')):
         await plugin._grow_pitfalls(E('grm grow',**range_user))

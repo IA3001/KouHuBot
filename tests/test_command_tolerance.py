@@ -3,6 +3,7 @@ import re
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import AsyncMock, patch
 
 import _astrbot_stub as stub
 
@@ -18,6 +19,7 @@ class CommandToleranceTest(unittest.IsolatedAsyncioTestCase):
         self.bot = await self._build({})
 
     async def asyncTearDown(self):
+        await self.bot.terminate()
         self.tmp.cleanup()
 
     async def _build(self, config):
@@ -89,6 +91,70 @@ class CommandToleranceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('浮点数', out)
         out = await self.drive('cmd_pitfall', 'grm new 4')
         self.assertIn('难度只有 1/2/3', out)
+
+    async def test_submissions_keep_multiline_body_and_trailing_operators(self):
+        body = '先判断边界：\nif (x != 0) return !x;\n最终取 n!'
+        problem = {'cf_key': '4A', 'contest_id': 4, 'idx': 'A', 'tier': 800,
+                   'points': 100, 'statement_en': 'Find max', 'statement_cn': '求最大值'}
+        self.bot._cache.save(problem)
+        self.bot._store.open_problem('group:1', problem, '1001')
+        self.bot._judge = AsyncMock(return_value={'verdict': 'WA', 'comment': '继续分析'})
+        for prefix in ('sub', '／SUB', 'submit'):
+            text = prefix + ' ' + body
+            self.assertIsNotNone(self.bot.cmd_submit._kouhu_regex.match(text))
+            self.assertIn('WA', await self.drive('cmd_submit', text))
+            self.assertEqual(self.bot._judge.await_args.args[2], body)
+        await self.drive('cmd_pitfall', 'grm new')
+        for prefix in ('grm sub', 'grammar submit', '／GRM sub'):
+            text = prefix + ' ' + body
+            self.assertIsNotNone(self.bot.cmd_pitfall._kouhu_regex.match(text))
+            self.assertIn('WA', await self.drive('cmd_pitfall', text))
+            self.assertEqual(self.bot._judge.await_args.args[2], body)
+
+    async def test_ask_keeps_trailing_punctuation_in_model_prompt(self):
+        question = '请解释下面的运算：\nx!'
+        generate = AsyncMock(return_value=type('Response', (), {'completion_text': '这是阶乘。'})())
+        self.ctx.llm_generate = generate
+        await self.drive('cmd_ask', 'ask ' + question)
+        self.assertIn(question, generate.await_args.kwargs['prompt'])
+
+    async def test_tier_invalid_arguments_reply_without_changing_state(self):
+        initial = self.bot._store.state('group:1')['current_tier']
+        for arg in ('abc', '-1', '1.5', '1200 extra', '1200 1600'):
+            text = 'tier ' + arg
+            self.assertIsNotNone(self.bot.cmd_tier._kouhu_regex.match(text), text)
+            event = stub.AstrMessageEvent(text, group_id='1', role='admin')
+            out = '\n'.join([item.text async for item in self.bot.cmd_tier(event)])
+            self.assertIn('用法', out, text)
+            self.assertEqual(self.bot._store.state('group:1')['current_tier'], initial)
+        self.assertIn('群难度', await self.drive('cmd_tier', 'tier！'))
+
+    async def test_grm_new_rejects_invalid_duplicate_and_extra_arguments(self):
+        cases = {
+            '浮点数 4': '难度只有 1/2/3', '1 4': '难度只有 1/2/3',
+            '浮点数 -1': '难度只有 1/2/3', '浮点数 1.5': '难度只有 1/2/3',
+            '1 2': '难度参数重复', '浮点数 1 1': '难度参数重复',
+            '浮点数 浮点数': '分类参数重复', '浮点数 1 extra': '多余参数',
+        }
+        async def unexpected_draw(event, arg):
+            self.fail('非法参数不能抽题')
+            yield event.plain_result('unexpected')
+        with patch.object(self.bot, '_grammar_new', unexpected_draw):
+            for arg, expected in cases.items():
+                self.assertIn(expected, await self.drive('cmd_pitfall', 'grm new ' + arg), arg)
+                self.assertIsNone(self.bot._store.current('group:1:grammar'))
+        self.assertEqual(self.bot._grammar_parse_arg('浮点数 1'), ('浮点数', 1))
+        self.assertEqual(self.bot._grammar_parse_arg('1 浮点数'), ('浮点数', 1))
+
+    async def test_punctuation_only_new_commands_keep_empty_argument(self):
+        calls = []
+        async def draw(event, arg):
+            calls.append(arg)
+            yield event.plain_result('正常抽题')
+        with patch.object(self.bot, '_grammar_new', draw):
+            self.assertIn('正常抽题', await self.drive('cmd_pitfall', 'grm new！'))
+        self.assertEqual(calls, [''])
+        self.assertEqual(self.mod.RE_NEW.match('new！').group(1), '')
 
     async def test_cf_lane_points_at_grm_when_only_pitfall_is_open(self):
         await self.drive('cmd_pitfall', 'grm new')
