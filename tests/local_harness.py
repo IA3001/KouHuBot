@@ -159,8 +159,21 @@ class FakeCfSource:
     def pick_range(self, low, high, exclude=None):
         return next((dict(p) for p in self.problems.values() if low <= p['rating'] <= high and p['cf_key'] not in (exclude or set())), None)
 
+    def catalog_size(self):
+        return len(self._catalog)
+
+    def catalog_ready(self):
+        return bool(self._catalog)
+
+    def catalog_age(self):
+        return 0.0
+
     def tag_counts(self):
         return {'dp':len(self.problems),'trees':len(self.problems)}
+
+    def tag_counts_in_range(self,tags,low,high):
+        return {tag:sum(1 for p in self.problems.values() if low<=p['rating']<=high)
+                for tag in tags}
 
     def pick_tags(self,tags,low=800,high=3500):
         return self.pick_range(low,high) if set(tags).issubset({'dp','trees'}) else None
@@ -925,6 +938,14 @@ async def main() -> int:
         runner.check('错误区间不改状态 '+bad, ('范围' in out or '未知CF标签' in out) and plugin._store.current(range_scope) is None,out)
     out=await runner.says(E('new tags',**range_user),'cmd_new')
     runner.check('完整标签列表不派题','dp' in out and 'trees' in out and plugin._store.current(range_scope) is None,out)
+    runner.check('标签列表带中文别名','动态规划' in out,out)
+    out=await runner.says(E('new tags',**range_user),'cmd_new')
+    runner.check('标签列表有冷却','刚发过' in out,out)
+    with patch.object(plugin._cf,'pick_tags',wraps=plugin._cf.pick_tags) as picker:
+        out=await runner.says(E('new动态规划',**range_user),'cmd_new')
+        runner.check('new与中文标签连写可路由',plugin._store.current(range_scope)['status']=='open',out)
+        runner.check('标签默认按群档位',picker.call_args is not None and picker.call_args.args[1:]==(1200,1399),out)
+    plugin._store.close_problem(range_scope,'gave_up','1001')
     out=await runner.says(E('new 动态规划+树',**range_user),'cmd_new')
     runner.check('标签组合可派题',plugin._store.current(range_scope)['status']=='open',out)
     plugin._store.close_problem(range_scope,'gave_up','1001')

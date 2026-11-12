@@ -23,6 +23,12 @@
     "hint": "同一个群两次 new 之间的最小间隔，防止刷屏。",
     "default": 5
   },
+  "tags_cooldown_seconds": {
+    "description": "标签列表冷却（秒）",
+    "type": "int",
+    "hint": "同一个群两次 new tags 之间的最小间隔。标签列表可能分页发送，单独限速防刷屏；0 表示不限。",
+    "default": 10
+  },
   "leaderboard_size": {
     "description": "排行榜显示人数",
     "type": "int",

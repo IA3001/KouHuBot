@@ -337,6 +337,14 @@ def strip_tex(text: str, render: Callable[[str], str] | None = None) -> str:
 # ----------------------------------------------------------------------
 _SAMPLE_PARSER_VERSION = 2
 
+_DDL_CATALOG = """
+    CREATE TABLE IF NOT EXISTS cf_catalog (
+        id         INTEGER PRIMARY KEY CHECK (id = 1),
+        payload    TEXT NOT NULL,
+        updated_at REAL NOT NULL
+    )
+"""
+
 _DDL = """
     CREATE TABLE IF NOT EXISTS cf_problems (
         cf_key        TEXT PRIMARY KEY,
@@ -369,6 +377,7 @@ class CfCache:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_DDL)
+        self._conn.execute(_DDL_CATALOG)
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(cf_problems)")}
         if "images_json" not in columns:
             self._conn.execute("ALTER TABLE cf_problems ADD COLUMN images_json TEXT")
@@ -450,6 +459,30 @@ class CfCache:
             args.append(tier)
         return int(self._conn.execute(sql, args).fetchone()[0])
 
+    def load_catalog(self) -> tuple[list[dict], float]:
+        """读出上次的题目总表；重启后即使 CF 暂时不可用也能按标签抽题。"""
+        row = self._conn.execute(
+            "SELECT payload, updated_at FROM cf_catalog WHERE id = 1"
+        ).fetchone()
+        if not row:
+            return [], 0.0
+        try:
+            data = json.loads(row["payload"])
+        except (TypeError, ValueError):
+            return [], 0.0
+        if not isinstance(data, list):
+            return [], 0.0
+        return data, float(row["updated_at"] or 0.0)
+
+    def save_catalog(self, data: list[dict]) -> None:
+        self._conn.execute(
+            "INSERT INTO cf_catalog (id, payload, updated_at) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, "
+            "updated_at = excluded.updated_at",
+            (json.dumps(data, ensure_ascii=False), time.time()),
+        )
+        self._conn.commit()
+
     def known_keys(self) -> set[str]:
         rows = self._conn.execute("SELECT cf_key FROM cf_problems").fetchall()
         return {r["cf_key"] for r in rows}
@@ -482,6 +515,15 @@ class CodeforcesSource:
         self._timeout = timeout
         self._catalog: list[dict] = []
         self._catalog_at = 0.0
+        try:
+            cached, cached_at = cache.load_catalog()
+            data = list(cached) if cached else []
+            if data:
+                self._catalog = data
+                self._catalog_at = cached_at
+                logger.info(f"[KouHuOJ] 已载入本地CF题目总表，共 {len(data)} 道")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[KouHuOJ] 读取本地CF题目总表失败：{type(exc).__name__}")
         self._scraper = None
         self._lock = asyncio.Lock()
 
@@ -496,6 +538,10 @@ class CodeforcesSource:
             data = await asyncio.to_thread(self._fetch_catalog_sync)
             self._catalog = data
             self._catalog_at = time.time()
+            try:
+                self._cache.save_catalog(data)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[KouHuOJ] 保存CF题目总表失败：{type(exc).__name__}")
             logger.info(f"[KouHuOJ] CF 题目总表已更新，共 {len(data)} 道")
             return len(data)
 
@@ -509,8 +555,9 @@ class CodeforcesSource:
         payload = resp.json()
         if payload.get("status") != "OK":
             raise RuntimeError(f"CF 接口返回异常：{payload.get('comment')}")
+        problems = payload["result"].get("problems") or []
         out: list[dict] = []
-        for p in payload["result"]["problems"]:
+        for p in problems:
             # Quantum/Q# output-only tasks are not ordinary algorithm solutions.
             if '*special' in (p.get('tags') or []) or p.get('type','PROGRAMMING')!='PROGRAMMING':
                 continue
@@ -530,6 +577,16 @@ class CodeforcesSource:
                 "rating": int(rating),
                 "tier": scoring.tier_of(rating),
             })
+        # 正常总表有一万多道；数量骤降说明接口返回不完整或字段变了，
+        # 宁可保留旧目录，也不要用残缺数据把标签列表清空。
+        if len(problems) > 1000:
+            if len(out) < 500:
+                raise RuntimeError(f"CF 题目总表异常：{len(problems)} 道原始数据只解析出 {len(out)} 道")
+            tagged = sum(1 for p in out if p["tags"])
+            if tagged < len(out) * 0.5:
+                raise RuntimeError("CF 题目总表标签字段异常，暂不替换本地目录")
+        if not out:
+            raise RuntimeError("CF 题目总表为空")
         return out
 
     def pick(self, tier: int, exclude: set[str] | None = None) -> dict | None:
@@ -549,6 +606,34 @@ class CodeforcesSource:
                      and low <= p['rating'] <= high and p['cf_key'] not in excluded}.values())
         return secrets.choice(pool) if pool else None
 
+    def catalog_size(self) -> int:
+        return len(self._catalog)
+
+    def catalog_ready(self) -> bool:
+        return bool(self._catalog)
+
+    def catalog_age(self) -> float:
+        return max(0.0, time.time() - self._catalog_at) if self._catalog_at else 0.0
+
+    def tag_counts_in_range(self, tags: list[str], low: int, high: int) -> dict[str, int]:
+        """每个标签单独落在 rating 区间里的题数，用来解释“组合为空”。"""
+        wanted = list(dict.fromkeys(tags))
+        counts = {tag: 0 for tag in wanted}
+        seen: set[str] = set()
+        for problem in self._catalog:
+            key = problem.get("cf_key")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            rating = problem.get("rating")
+            if not isinstance(rating, int) or not low <= rating <= high:
+                continue
+            own = set(problem.get("tags") or [])
+            for tag in wanted:
+                if tag in own:
+                    counts[tag] += 1
+        return counts
+
     def tag_counts(self) -> dict[str, int]:
         counts={}
         for problem in {p['cf_key']:p for p in self._catalog}.values():
@@ -559,6 +644,8 @@ class CodeforcesSource:
     def pick_tags(self, tags: list[str], low: int = 800, high: int = 3500) -> dict | None:
         """Match all requested tags and sample unique problem ids uniformly."""
         import secrets
+        if not tags:
+            raise ValueError("pick_tags 需要至少一个标签")
         required=set(tags)
         pool=list({p['cf_key']:p for p in self._catalog
                    if isinstance(p.get('rating'),int) and low<=p['rating']<=high

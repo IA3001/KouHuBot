@@ -760,7 +760,8 @@ astrbot/core/zip_updater.py → httpx.ReadTimeout → Failed to parse release in
 ## Roadmap
 
 - [ ] 判题结果加缓存，同一份解答不重复调用模型（省 token）
-- [ ] 题目源支持多站点（Codeforces / 洛谷 / 牛客）与按标签筛选
+- [x] Codeforces 按算法标签抽题（0.20.0，支持中文别名/多标签/难度组合）
+- [ ] 题目源支持多站点（Codeforces / 洛谷 / 牛客）
 - [ ] `skip` 指令与连错惩罚机制
 - [ ] 赛季制排行榜与周榜
 - [ ] 支持模型「二次复议」（对 WA 提出申诉）

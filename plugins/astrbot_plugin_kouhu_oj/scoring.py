@@ -31,6 +31,7 @@ TIER_POINTS: dict[int, int] = {
 TIERS: tuple[int, ...] = tuple(sorted(TIER_POINTS))
 LOWEST_TIER = TIERS[0]
 HIGHEST_TIER = TIERS[-1]
+RATING_CEIL = 3500
 DEFAULT_TIER = 1200
 
 # 每个档位派满多少道题之后评估一次升降
@@ -67,6 +68,13 @@ def tier_of(cf_rating: int | None, default: int = DEFAULT_TIER) -> int:
 def points_for(tier: int) -> int:
     """档位对应的每题分值。传入非标准档位时先归一到最近的档位。"""
     return TIER_POINTS[tier_of(tier)]
+
+
+def tier_bounds(tier: int) -> tuple[int, int]:
+    """档位覆盖的 rating 闭区间（与 pick() 的 tier_of 归档一致）。"""
+    low = tier_of(tier)
+    high = RATING_CEIL if low == HIGHEST_TIER else min(low + 199, RATING_CEIL)
+    return low, high
 
 
 def tier_index(tier: int) -> int:

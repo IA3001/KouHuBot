@@ -44,7 +44,7 @@ from astrbot.api.star import Context, Star
 
 try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
     from . import scoring
-    from .cf_tags import parse_tag_query
+    from .cf_tags import chinese_aliases, parse_tag_query
     from .review_store import ReviewStoreMixin
     from .feedback_store import FeedbackStoreMixin
     from .capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
@@ -67,7 +67,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import scoring  # type: ignore
-    from cf_tags import parse_tag_query
+    from cf_tags import chinese_aliases, parse_tag_query
     from review_store import ReviewStoreMixin
     from feedback_store import FeedbackStoreMixin
     from capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
@@ -87,7 +87,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.19.0"
+PLUGIN_VERSION = "0.20.0"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -228,7 +228,11 @@ def _consumes(handler):
 # ----------------------------------------------------------------------
 # 指令正则：一律完整英文单词，允许带 / 前缀，大小写不敏感
 # ----------------------------------------------------------------------
-RE_NEW = re.compile(r"^\s*/?\s*new(?:\s+([^\r\n]+?))?\s*$", re.I)
+# 群友常把 new 和中文标签连在一起（new图论），也要能进 new 处理器；
+# 但不能吞掉 newbie 这类普通英文，所以只放行中文、空白或行尾。
+RE_NEW = re.compile(
+    r"^\s*/?\s*new(?=$|[\s\u3000]|[\u4e00-\u9fff])\s*([^\r\n]*?)\s*$", re.I
+)
 RE_SUBMIT = re.compile(r"^\s*/?\s*(?:sub|submit)\s+([\s\S]+?)\s*$", re.I)
 RE_GIVEUP = re.compile(r"^\s*/?\s*giveup\s*$", re.I)
 RE_RANK = re.compile(r"^\s*/?\s*rank\s*$", re.I)
@@ -259,8 +263,8 @@ HELP_TEXT = """╭── 📚 口胡 OJ · 指令菜单 ──╮
 
 🎯 正题练习
 ━━━━━━━━━━━━━━━━
-› new tags · CF完整算法标签与题数
-› new dp+trees [1200-1600] · 多标签同时满足，可加Div预设
+› new tags · CF完整标签与题数（含中文别名）
+› new dp / new dp+trees · 标签抽题默认按本群档位，可加 1/2/3/4 或 rating
 › new 1/2/3/4 · Div难度快捷预设
 › new [1200-1600] · 按 CF rating 区间抽题
 › new CF123B · 指定 CF 题号派题
@@ -990,6 +994,7 @@ class KouHuOJ(Star):
         self._pitfalls: PitfallSource | None = None
         self._image_dir: Path | None = None
         self._last_new: dict[str, float] = {}
+        self._last_tags: dict[str, float] = {}
         self._last_ask: dict[str, float] = {}
         self._judge_locks: dict[str, asyncio.Lock] = {}
         self._started_at: float = time.monotonic()
@@ -1337,27 +1342,49 @@ class KouHuOJ(Star):
             if not self._cf:
                 yield event.plain_result('题库尚未初始化，请稍后再试。')
                 return
+            scope=self._scope_of(event)
+            tag_cooldown=float(self.config.get('tags_cooldown_seconds',10))
+            if tag_cooldown>0:
+                left=tag_cooldown-(time.monotonic()-self._last_tags.get(scope,0.0))
+                if left>0:
+                    yield event.plain_result(f'标签列表刚发过，{int(left)+1} 秒后再看')
+                    return
+            if not self._cf.catalog_ready():
+                yield event.plain_result('正在读取CF标签，最多等几十秒……')
             try:
                 await self._cf.refresh_catalog()
             except Exception as exc:
                 logger.warning(f'[KouHuOJ] 获取标签失败：{type(exc).__name__}')
-                if not self._cf._catalog:
+                if not self._cf.catalog_ready():
                     yield event.plain_result('暂时无法获取CF标签，请稍后再试。')
                     return
             counts=self._cf.tag_counts()
-            lines=[f'CF全部可抽标签（{len(counts)}种，括号内为题数）',
-                   '用法：new dp；new 图论 2；new binary search 1200-1600；new dp+trees（同时满足）。',
-                   '只指定标签时不限群档位，范围800–3500；可组合Div预设或rating区间。']
+            if not counts:
+                yield event.plain_result('CF标签目录为空，暂时无法列出标签；稍后再试。')
+                return
+            tier=scoring.DEFAULT_TIER
+            if self._store:
+                try:
+                    tier=scoring.tier_of(self._store.state(scope)['current_tier'])
+                except Exception:
+                    pass
+            low,high=scoring.tier_bounds(tier)
+            lines=[f'CF可抽算法标签（{len(counts)}种，共{self._cf.catalog_size()}道已评级题）',
+                   f'本群档位 CF {tier}：new dp 默认在 {low}–{high} 抽题；想全难度用 new dp 800-3500。',
+                   '用法：new dp；new 图论 2；new binary search 1200-1600；new dp+trees（同时满足，空格/逗号也可）。']
             for tag,count in counts.items():
-                lines.append(f'› {tag}（{count}）')
+                aliases=chinese_aliases(tag)
+                suffix=(' · ' + '/'.join(aliases[:2])) if aliases else ''
+                lines.append(f'› {tag}（{count}）{suffix}')
             page=''
             for line in lines:
-                if len(page)+len(line)>1400:
-                    yield event.plain_result(page)
+                if page and len(page)+len(line)>1400:
+                    yield event.plain_result(page.rstrip())
                     page=''
                 page+=line+'\n'
             if page:
                 yield event.plain_result(page.rstrip())
+            self._last_tags[scope]=time.monotonic()
             return
         pending_scope=self._scope_of(event)
         pending=self._pending_preparations.get(pending_scope)
@@ -1443,14 +1470,23 @@ class KouHuOJ(Star):
 
         if tag_query:
             try:
-                selected_tags,tag_bounds=parse_tag_query(tag_query,self._cf.tag_counts())
+                selected_tags,tag_bounds,tag_note=parse_tag_query(tag_query,self._cf.tag_counts())
             except ValueError as exc:
                 yield event.plain_result(str(exc))
                 return
-            low,high=tag_bounds or (800,3500)
+            # 只写标签时按本群档位抽，跟 new 的练习难度一致；
+            # 想跨难度练习再显式写区间或 Div。
+            low,high=tag_bounds or scoring.tier_bounds(state['current_tier'])
             entry=self._cf.pick_tags(selected_tags,low,high)
             if entry is None:
-                yield event.plain_result(f'没有同时满足 {" + ".join(selected_tags)}、rating {low}–{high} 的题目；不扩大条件，当前题目未改变。')
+                counts=self._cf.tag_counts_in_range(selected_tags,low,high)
+                detail='，'.join(f'{tag} {counts.get(tag,0)}道' for tag in selected_tags)
+                sample='+'.join(selected_tags)
+                yield event.plain_result(
+                    f'没有同时满足 {" + ".join(selected_tags)}、rating {low}–{high} 的题目'
+                    f'（本档各标签：{detail}）；不扩大条件，当前题目未改变。'
+                    f'可发 new {sample} 800-3500 试全难度，或 new tags 看全部标签。'
+                )
                 return
         elif requested_key:
             entry=next((dict(p) for p in self._cf._catalog if p.get('cf_key','').upper()==requested_key),None)
@@ -1474,7 +1510,13 @@ class KouHuOJ(Star):
             yield event.plain_result("题库里没有可派的题了，管理员可以调整档位（tier 数字）")
             return
 
-        yield event.plain_result("正在选题并准备题面（优先复用缓存），稍等……")
+        notice="正在选题并准备题面（优先复用缓存），稍等……"
+        if tag_query:
+            notice=f'已按「{" + ".join(selected_tags)}」、CF {low}–{high} 选题'
+            if tag_note:
+                notice+=f'（{tag_note}）'
+            notice+='，正在准备题面（优先复用缓存），稍等……'
+        yield event.plain_result(notice)
 
         try:
             token=self._translation_event.set(event)

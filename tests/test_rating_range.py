@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'plugins/astrbot_plugin_kouhu_oj'))
@@ -6,7 +7,7 @@ import types
 import logging
 from unittest.mock import patch
 with patch.dict(sys.modules, {'astrbot':types.ModuleType('astrbot'), 'astrbot.api':types.SimpleNamespace(logger=logging.getLogger('range-test'))}):
-    from sources.codeforces import CodeforcesSource
+    from sources.codeforces import CfCache, CodeforcesSource
 
 class RatingRangeTest(unittest.TestCase):
     def setUp(self):
@@ -162,5 +163,39 @@ class RatingRangeTest(unittest.TestCase):
         problem = asyncio.run(source.fetch(cached))
         self.assertEqual(problem['statement_cn'],'求 $$$x$$$。')
         source._scrape_sync.assert_not_called()
+
+    def test_pick_tags_rejects_empty_list(self):
+        with self.assertRaises(ValueError):
+            self.source.pick_tags([])
+
+    def test_tag_counts_in_range_explains_empty_intersection(self):
+        self.source._catalog=[dict(cf_key='1A',rating=1200,tags=['dp','trees']),
+                              dict(cf_key='2A',rating=1800,tags=['dp']),
+                              dict(cf_key='3A',rating=1800,tags=['trees'])]
+        self.assertEqual(self.source.tag_counts_in_range(['dp','trees'],1400,1900),
+                         {'dp':1,'trees':1})
+        self.assertEqual(self.source.tag_counts_in_range(['dp','graphs'],1400,1900),
+                         {'dp':1,'graphs':0})
+
+class CatalogCacheTest(unittest.TestCase):
+    def test_catalog_roundtrip_and_preload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = CfCache(Path(tmp) / 'cf_cache.db')
+            data = [dict(cf_key='1A', rating=800, tier=800, tags=['dp'])]
+            cache.save_catalog(data)
+            self.assertEqual(cache.load_catalog()[0], data)
+            source = CodeforcesSource(cache)
+            self.assertEqual(source.catalog_size(), 1)
+            self.assertTrue(source.catalog_ready())
+            source._catalog = []
+            self.assertFalse(source.catalog_ready())
+            cache.close()
+
+    def test_empty_catalog_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = CfCache(Path(tmp) / 'cf_cache.db')
+            self.assertEqual(cache.load_catalog(), ([], 0.0))
+            cache.close()
+
 
 if __name__=='__main__': unittest.main()
