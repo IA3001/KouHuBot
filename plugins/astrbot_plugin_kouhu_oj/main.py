@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.8"
+PLUGIN_VERSION = "0.21.9"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -105,9 +105,25 @@ _CHANGELOG_CANDIDATES = (
 # 模型编版本历史的能力很差——它会一本正经地说「日志里没有」，
 # 而日志其实就在仓库里躺着。
 _CHANGELOG_ASK = re.compile(
-    r"更新|改动|变更|新功能|加了什么|改了什么|版本|changelog|日志|升级|what'?s?\s*new",
+    # 只认明确的“想看更新”说法；以前 bare 版本/日志/升级 会把手写问题吞掉，
+    # 比如「ask 这题对 C++ 版本有要求吗」会被答成更新日志。
+    r"更新日志|更新内容|更新了什么|更新了啥|最近更新|版本历史|历史版本|版本更新|版本号|"
+    r"改了什么|改了啥|改动了什么|加了什么功能|新功能|新增功能|"
+    r"changelog|what'?s?\s*new",
     re.I,
 )
+
+
+class _SafeConfig(dict):
+    """配置读取兜底：键存在但值为 None 时退回默认值。
+
+    AstrBot 升级后配置项可能整个变成 null，逐个 `int(self.config.get(...))`
+    会在指令里直接抛 TypeError，用户看到的是没有任何回复。
+    """
+
+    def get(self, key, default=None, *args, **kwargs):  # noqa: D401
+        value = super().get(key, default)
+        return default if value is None else value
 
 
 def _as_int(value, default: int) -> int:
@@ -219,7 +235,8 @@ def _changelog_summary(text: str, version: str) -> str:
     section = _changelog_section(text, version)
     summary = re.search(r"^摘要：(.+)$", section, re.M)
     if summary:
-        return summary.group(1).strip()
+        # 群聊不渲染 Markdown，摘要里的反引号和星号要清掉。
+        return re.sub(r"[*`#]", "", summary.group(1)).strip()
     paragraphs = re.split(r"\n\s*\n", section)
     first = next((p for p in paragraphs[1:] if p.strip() and p.strip() != "---"), "暂无摘要")
     return re.sub(r"[*`#]", "", " ".join(first.split()))[:100]
@@ -277,34 +294,47 @@ def _consumes(handler):
 # ----------------------------------------------------------------------
 # 指令正则：一律完整英文单词，允许带 / 前缀，大小写不敏感
 # ----------------------------------------------------------------------
-# 群友常把 new 和中文标签连在一起（new图论），也要能进 new 处理器；
-# 但不能吞掉 newbie 这类普通英文，所以只放行中文、空白或行尾。
-RE_NEW = re.compile(
-    r"^\s*/?\s*new(?=$|[\s\u3000]|[\u4e00-\u9fff])\s*([^\r\n]*?)\s*$", re.I
-)
-RE_SUBMIT = re.compile(r"^\s*/?\s*(?:sub|submit)(?:\s+([\s\S]+?))?\s*$", re.I)
-RE_GIVEUP = re.compile(r"^\s*/?\s*giveup\s*$", re.I)
-RE_RANK = re.compile(r"^\s*/?\s*rank\s*$", re.I)
-RE_PROBLEM = re.compile(r"^\s*/?\s*(?:cur|problem)\s*$", re.I)
-RE_ME = re.compile(r"^\s*/?\s*me\s*$", re.I)
+# 群里输入很随意：new图论、sub这题用二分、new！、／new 都得认。
+# 统一规则：指令后面允许紧跟参数（只要不是英文字母，避免吞掉 newbie、subscribe），
+# 结尾允许带中文标点；斜杠支持全角。
+_CMD_TAIL = r"[。！？!?，,、；;：:…~～]*\s*$"
+_CMD_WORD_END = r"(?![A-Za-z_])"
+
+
+def _cmd_re(word_pattern: str, arg: str = "", *, sep: str = r"[\s\u3000]*") -> re.Pattern:
+    """构造一条指令正则：`指令 + 可选参数 + 可选中文标点`。"""
+    return re.compile(
+        rf"^\s*[／/]?\s*(?:{word_pattern}){_CMD_WORD_END}{sep}{arg}{_CMD_TAIL}", re.I
+    )
+
+
+_TEXT_ARG = r"([^\r\n]*?)"
+REQUIRED_ARG = r"([\s\S]+?)"
+
+RE_NEW = _cmd_re("new", _TEXT_ARG)
+RE_SUBMIT = _cmd_re("submit|sub", rf"(?:{_TEXT_ARG})?")
+RE_GIVEUP = _cmd_re("giveup")
+RE_RANK = _cmd_re("rank")
+RE_PROBLEM = _cmd_re("problem|cur")
+RE_ME = _cmd_re("me")
 # grammar 是一个命名空间：grammar [new|problem|submit …|giveup]
 # 抽坑点题和 CF 正题是两条完全独立的线，指令上也必须分开，
-# 否则「同时开着一道正题和一道坑点题」时 submit 该判哪道就说不清了。
-RE_GRM = re.compile(r"^\s*/?\s*(?:grm|grammar)(?:\s+([\s\S]+?))?\s*$", re.I)
-RE_HELP = re.compile(r"^\s*/?\s*help\s*$", re.I)
-RE_HISTORY = re.compile(r"^\s*/?\s*history(?:\s+([^\r\n]+?))?\s*$", re.I)
-RE_SOL = re.compile(r"^\s*/?\s*sol(?:\s+([^\r\n]+?))?\s*$", re.I)
-RE_RULES = re.compile(r"^\s*/?\s*(?:rules|规则)\s*$", re.I)
-RE_ABOUT = re.compile(r"^\s*/?\s*(?:about|自我介绍|功能介绍)\s*$", re.I)
-RE_HINT = re.compile(r"^\s*/?\s*hint(?:\s+([^\r\n]+?))?\s*$", re.I)
-RE_ASK = re.compile(r"^\s*/?\s*ask\s+([\s\S]+?)\s*$", re.I)
+# 否则「同时开着一道正题和一道坑点题」时 submit 该判哪道就说不清。
+RE_GRM = _cmd_re("grammar|grm", rf"(?:{_TEXT_ARG})?")
+RE_HELP = _cmd_re("help")
+RE_HISTORY = _cmd_re("history", rf"(?:{_TEXT_ARG})?")
+RE_SOL = _cmd_re("sol", rf"(?:{_TEXT_ARG})?")
+RE_RULES = _cmd_re("rules|规则")
+RE_ABOUT = _cmd_re("about|自我介绍|功能介绍")
+RE_HINT = _cmd_re("hint", rf"(?:{_TEXT_ARG})?")
+RE_ASK = _cmd_re("ask", rf"(?:{REQUIRED_ARG})?")
 # 更新日志单独一条指令：ask 要过意图匹配，匹配不上就退回模型；
 # 而「想看日志」是最确定的需求，不该靠猜。
-RE_VER = re.compile(r"^\s*/?\s*(?:ver|version|changelog|更新|更新日志)(?:\s+([^\r\n]+?))?\s*$", re.I)
-RE_SKIP = re.compile(r"^\s*/?\s*skip\s*$", re.I)
-RE_TIER = re.compile(r"^\s*/?\s*tier(?:\s+(\d+))?\s*$", re.I)
-RE_STATUS = re.compile(r"^\s*/?\s*status\s*$", re.I)
-RE_PING = re.compile(r"^\s*/?\s*ping(?:\s+(?:模型|model))?\s*$", re.I)
+RE_VER = _cmd_re("更新日志|changelog|version|更新|ver", rf"(?:{_TEXT_ARG})?")
+RE_SKIP = _cmd_re("skip")
+RE_TIER = _cmd_re("tier", r"(\d+)?")
+RE_STATUS = _cmd_re("status")
+RE_PING = _cmd_re("ping", r"(?:模型|model)?")
 
 HELP_TEXT = """📚 口胡 OJ · 指令菜单
 群内练算法 · 思路判题 · 题后复盘
@@ -1137,7 +1167,7 @@ class OjStore(ReviewStoreMixin, FeedbackStoreMixin):
 class KouHuOJ(Star):
     def __init__(self, context: Context, config: dict | None = None) -> None:
         super().__init__(context, config)
-        self.config = config or {}
+        self.config = _SafeConfig(config or {})
         self._store: OjStore | None = None
         self._cf: CodeforcesSource | None = None
         self._cache: CfCache | None = None
@@ -1617,7 +1647,9 @@ class KouHuOJ(Star):
         if arg and re.fullmatch(r'(?:CF)?[1-9]\d{0,5}[A-Za-z]\d?',arg,re.I):
             requested_key=re.sub(r'^CF','',arg,flags=re.I).upper()
         if arg and not requested_key and rating_range is None:
-            bounds = re.fullmatch(r'\[\s*(\d{1,4})\s*-\s*(\d{1,4})\s*\]|(\d{1,4})\s*-\s*(\d{1,4})', arg)
+            # 群友常写 1200到1600 / 1200–1600 / 1200～1600，先归一成半角减号再解析。
+            normalized = re.sub(r'\s*[到至~～—–−]\s*', '-', arg)
+            bounds = re.fullmatch(r'\[\s*(\d{1,4})\s*-\s*(\d{1,4})\s*\]|(\d{1,4})\s*-\s*(\d{1,4})', normalized)
             if bounds:
                 low, high = map(int, (bounds.group(1) or bounds.group(3), bounds.group(2) or bounds.group(4)))
                 if 800 <= low <= high <= 3500:
@@ -1784,7 +1816,7 @@ class KouHuOJ(Star):
             return
         current = self._store.current(scope)
         if not current:
-            yield event.plain_result("还没派题，发 new 抽一道")
+            yield event.plain_result(self._pitfall_lane_hint(scope) or "还没派题，发 new 抽一道")
             return
 
         cached = self._cache.get(current["cf_key"]) if self._cache else None
@@ -1844,7 +1876,9 @@ class KouHuOJ(Star):
         scope = self._scope_of(event)
         current = self._store.current(scope)
         if not current:
-            yield event.plain_result("还没派正题，发 new 抽一道；hint 只提示正题")
+            yield event.plain_result(
+                self._pitfall_lane_hint(scope) or "还没派正题，发 new 抽一道；hint 只提示正题"
+            )
             return
         if current.get("status") != STATUS_OPEN:
             yield event.plain_result("这道正题已经结束了，发 new 抽下一道")
@@ -1964,7 +1998,7 @@ class KouHuOJ(Star):
         # 是路由把两道题搞混了。
         current = self._store.current(scope)
         if not current:
-            yield event.plain_result("还没派题，发 new 抽一道")
+            yield event.plain_result(self._pitfall_lane_hint(scope) or "还没派题，发 new 抽一道")
             return
         if current.get("status") != STATUS_OPEN:
             yield event.plain_result("这道题已经结束了，发 new 抽下一道")
@@ -2108,7 +2142,7 @@ class KouHuOJ(Star):
 
         current = self._store.current(scope)
         if not current or current.get("status") != STATUS_OPEN:
-            yield event.plain_result("当前没有正在做的题")
+            yield event.plain_result(self._pitfall_lane_hint(scope) or "当前没有正在做的题")
             return
 
         self._store.ensure_player(scope, sender_id, sender_name)
@@ -2254,7 +2288,7 @@ class KouHuOJ(Star):
         scope = self._scope_of(event)
         current = self._store.current(scope)
         if not current or current.get("status") != STATUS_OPEN:
-            yield event.plain_result("当前没有正在做的题")
+            yield event.plain_result(self._pitfall_lane_hint(scope) or "当前没有正在做的题")
             return
         self._store.close_problem(scope, STATUS_GAVE_UP, self._sender(event)[0])
         state = self._store.note_abandoned(scope)
@@ -2397,6 +2431,21 @@ class KouHuOJ(Star):
                     return ''
                 return '🌱 本轮自动采集未完成，继续使用已验证题库；grm growth 查看状态。'
 
+    def _pitfall_lane_hint(self, scope: str) -> str:
+        """CF 线没题、但坑点线开着时，把话说清楚，别让人再发一次 new。"""
+        if not self._store:
+            return ""
+        try:
+            pitfall = self._store.current(scope + GRAMMAR_SUFFIX)
+        except Exception:  # noqa: BLE001
+            return ""
+        if pitfall and pitfall.get("status") == STATUS_OPEN:
+            return (
+                "现在开着的是一道坑点题，不是正题。发 grm sub 你的分析；想看答案发 grm giveup。\n"
+                "想练 CF 正题，先结束这道坑点题再发 new。"
+            )
+        return ""
+
     # -- 坑点题 --------------------------------------------------------
     @filter.regex(RE_GRM)
     @_consumes
@@ -2464,7 +2513,7 @@ class KouHuOJ(Star):
         yield event.plain_result(
             "grm 后面要跟子命令：\n"
             "grm new                抽一道新的坑点题（上一道答对或放弃后才能抽）\n"
-            "grm new 分类 [难度]     按分类抽，如 grm new 二分 / grm new 二分 1\n"
+            "grm new 分类 [难度]     按分类抽，如 grm new 浮点数 / grm new 浮点数 1\n"
             "grm list               看有哪些分类和难度\n"
             "grm cur                重看当前这道\n"
             "grm sub 分析            提交你的分析\n"
@@ -2486,12 +2535,23 @@ class KouHuOJ(Star):
 
     def _grammar_arg_error(self, arg: str) -> str:
         """分类打错时给出推荐，别等采完新题才告诉人家分类不存在。"""
-        category, _ = self._grammar_parse_arg(arg)
-        if not category or self._pitfalls.resolve_category(category):
+        category, level_token = self._grammar_parse_arg(arg)
+        if category and category.isdigit() and level_token is None:
+            return "坑点难度只有 1/2/3 三档，例如 grm new 浮点数 1。"
+        if not category:
             return ""
-        names = self._pitfalls.categories()
+        resolved = self._pitfalls.resolve_category(category)
+        counts = self._pitfalls.category_counts()
+        if resolved and resolved in counts:
+            return ""
+        # 别名表里有几个分类题库根本没题（如「二分」），不能只说“没有这个分类”，
+        # 否则按文档示例 grm new 二分 的人会一直抽不到题。
+        names = list(counts)
         near = difflib.get_close_matches(category.lower(), names, n=3, cutoff=0.3)
-        hint = f"没有「{category}」这个分类。"
+        hint = (
+            f"「{category}」这个分类暂时没有题目。" if resolved
+            else f"没有「{category}」这个分类。"
+        )
         if near:
             hint += "\n你是不是想找：" + "、".join(near)
         hint += "\n\n" + self._pitfalls.category_summary()
@@ -2885,7 +2945,7 @@ class KouHuOJ(Star):
             return
 
         match = RE_ASK.match(event.message_str or "")
-        question = (match.group(1) if match else "").strip()
+        question = ((match.group(1) if match else "") or "").strip()
         if not question:
             yield event.plain_result("问点什么吧，比如：ask 题库现在有多少道")
             return

@@ -65,6 +65,14 @@ class PitfallSource:
                 return item
         return None
 
+    def category_counts(self) -> dict[str, int]:
+        """{分类: 题数}，只含题库里真实存在的分类。"""
+        out: dict[str, int] = {}
+        for item in self._load():
+            cat = item.get("category") or "其他"
+            out[cat] = out.get(cat, 0) + 1
+        return dict(sorted(out.items(), key=lambda kv: (-kv[1], kv[0])))
+
     def levels(self) -> dict[int, int]:
         """{难度: 条数}，给 status / 帮助提示用。"""
         out: dict[int, int] = {}
