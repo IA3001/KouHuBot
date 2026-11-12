@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.6"
+PLUGIN_VERSION = "0.21.7"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -167,6 +167,22 @@ def _changelog_section(text: str, version: str) -> str:
     )
     m = pattern.search(text)
     return m.group(0).strip() if m else ""
+
+
+CLIP_NOTE = "…（回答较长，已截断；想看完整内容可换更具体的问题）"
+
+
+def _clip_text(text: str, limit: int, note: str = CLIP_NOTE) -> str:
+    """按句子/换行边界截断，别把话截在半句里。"""
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    window = text[:limit]
+    for mark in ("\n", "。", "！", "？", "；", ". ", "! ", "? "):
+        cut = window.rfind(mark)
+        if cut >= limit * 0.6:
+            return window[:cut + len(mark)].rstrip() + "\n" + note
+    return window.rstrip() + "\n" + note
 
 
 def _plain_changelog(text: str, version: str, *, show_version: bool = True,
@@ -2290,7 +2306,7 @@ class KouHuOJ(Star):
             lines.append(f"› {key}：{value}")
         yield event.plain_result("\n".join(lines))
 
-    async def _grow_pitfalls(self, event: AstrMessageEvent) -> str:
+    async def _grow_pitfalls(self, event: AstrMessageEvent, *, quiet: bool = False) -> str:
         if not self._growth or not self._pitfalls:
             return '自动题库尚未初始化'
         if self._growth_lock.locked():
@@ -2345,6 +2361,9 @@ class KouHuOJ(Star):
                     if reason.startswith(('候选字段不合法：','难度须为','C++标准不支持：','与现有题目代码重复')):
                         self._growth.state['last_result']+='（'+reason[:120]+'）'
                 self._growth.save()
+                # 自动补充失败只是没抽到新题，不该在群里刷一条失败提示。
+                if quiet:
+                    return ''
                 return '🌱 本轮自动采集未完成，继续使用已验证题库；grm growth 查看状态。'
 
     # -- 坑点题 --------------------------------------------------------
@@ -2379,11 +2398,18 @@ class KouHuOJ(Star):
             yield event.plain_result(await self._grow_pitfalls(event))
             return
         if sub == "new":
+            # 分类写错时先回答，别为了一次错拼去触发一次模型采集。
+            invalid = self._grammar_arg_error(rest or "")
+            if invalid:
+                yield event.plain_result(invalid)
+                return
             if self.config.get('grm_auto_growth',True) and self._growth and not self._growth_lock.locked():
                 interval=max(300,_as_int(self.config.get('grm_growth_interval_seconds'),21600))
                 if time.time()-self._growth.state.get('last_attempt',0)>=interval:
                     yield event.plain_result('🌱 正在尝试补充一道新坑点，完成后继续抽题……')
-                    yield event.plain_result(await self._grow_pitfalls(event))
+                    grown = await self._grow_pitfalls(event, quiet=True)
+                    if grown:
+                        yield event.plain_result(grown)
             # grm new [分类] [难度]
             async for r in self._grammar_new(event, rest or ""):
                 yield r
@@ -2415,6 +2441,31 @@ class KouHuOJ(Star):
         )
 
     # -- 坑点题：抽新题 -------------------------------------------------
+    @staticmethod
+    def _grammar_parse_arg(arg: str):
+        """参数里分类和难度位置随意：grm new 二分 1 / grm new 1 二分。"""
+        category = None
+        level = None
+        for token in (arg or "").split():
+            if token.isdigit() and 1 <= int(token) <= 3:
+                level = int(token)
+            else:
+                category = category or token
+        return category, level
+
+    def _grammar_arg_error(self, arg: str) -> str:
+        """分类打错时给出推荐，别等采完新题才告诉人家分类不存在。"""
+        category, _ = self._grammar_parse_arg(arg)
+        if not category or self._pitfalls.resolve_category(category):
+            return ""
+        names = self._pitfalls.categories()
+        near = difflib.get_close_matches(category.lower(), names, n=3, cutoff=0.3)
+        hint = f"没有「{category}」这个分类。"
+        if near:
+            hint += "\n你是不是想找：" + "、".join(near)
+        hint += "\n\n" + self._pitfalls.category_summary()
+        return hint
+
     async def _grammar_new(self, event: AstrMessageEvent, arg: str = ""):
         scope = self._scope_of(event) + GRAMMAR_SUFFIX
         sender_id, _ = self._sender(event)
@@ -2431,26 +2482,11 @@ class KouHuOJ(Star):
             )
             return
 
-        # 参数里可以混着写分类和难度，位置随意：grm new 二分 1 / grm new 1 二分
-        category = None
-        level = None
-        for token in arg.split():
-            if token.isdigit() and 1 <= int(token) <= 3:
-                level = int(token)
-            else:
-                category = category or token
-
-        # 分类打错时直接在回复里推荐，别让人再发一条 grm list
-        if category and not self._pitfalls.resolve_category(category):
-            names = self._pitfalls.categories()
-            near = difflib.get_close_matches(category.lower(), names, n=3, cutoff=0.3)
-            hint = f"没有「{category}」这个分类。"
-            if near:
-                hint += "\n你是不是想找：" + "、".join(near)
-            hint += "\n\n" + self._pitfalls.category_summary()
-            yield event.plain_result(hint)
+        category, level = self._grammar_parse_arg(arg)
+        invalid = self._grammar_arg_error(arg)
+        if invalid:
+            yield event.plain_result(invalid)
             return
-
         if category:
             category = self._pitfalls.resolve_category(category)
 
@@ -2892,7 +2928,7 @@ class KouHuOJ(Star):
         if not answer:
             yield event.plain_result("答不上来（模型没响应），稍后再试")
             return
-        yield event.plain_result(answer[:1200])
+        yield event.plain_result(_clip_text(answer, 1200))
 
     @filter.regex(RE_VER)
     @_consumes
@@ -3027,7 +3063,7 @@ class KouHuOJ(Star):
                 return
             yield event.plain_result(f'📖 {key} · 我的作答 · {page}/{pages} 页')
             for row in rows:
-                yield event.plain_result(f"{self._verdict_label(row['verdict'])}\n━━━━━━━━━━━━━━━━\n📝 提交 #{row['id']}\n🕒 {time.strftime('%m-%d %H:%M',time.localtime(row['at']))}\n\n✍️ 我的作答\n{row['submission'][:2000]}\n\n⚖️ 判词\n{row['comment'][:1200]}")
+                yield event.plain_result(f"{self._verdict_label(row['verdict'])}\n━━━━━━━━━━━━━━━━\n📝 提交 #{row['id']}\n🕒 {time.strftime('%m-%d %H:%M',time.localtime(row['at']))}\n\n✍️ 我的作答\n{_clip_text(row['submission'], 2000, '…（作答较长，已截断）')}\n\n⚖️ 判词\n{_clip_text(row['comment'], 1200, '…（判词较长，已截断）')}")
             return
         if len(parts) == 2 and parts[0].lower() == "show" and parts[1].isdigit() and len(parts[1]) <= 18:
             entry = self._store.review_entry(scope, user, int(parts[1]))
@@ -3039,7 +3075,7 @@ class KouHuOJ(Star):
                 return
             yield event.plain_result(
                 f"记录 #{entry['id']} · {entry['cf_key']} · {entry['verdict']}\n"
-                f"作答：\n{entry['submission'][:2000]}\n\n判词：\n{entry['comment'][:1200]}\n"
+                f"作答：\n{_clip_text(entry['submission'], 2000, '…（作答较长，已截断）')}\n\n判词：\n{_clip_text(entry['comment'], 1200, '…（判词较长，已截断）')}\n"
                 f"本次得分：{'旧版未保存' if entry['hint_level'] < 0 else entry['points']}"
             )
             return

@@ -626,6 +626,36 @@ async def main() -> int:
     out = await runner.says(E("grm new 浮点数 1", **alice), "cmd_pitfall")
     runner.check("带分类也不能顶掉未结束的题", "还没结束" in out, out)
 
+    # 分类打错时不该触发一次模型采集，也不该刷两条「补充题库」消息
+    saved_attempt = plugin._growth.state.get('last_attempt', 0)
+    try:
+        plugin._growth.state['last_attempt'] = 0
+        grown = []
+        async def _spy(event, *, quiet=False):
+            grown.append(quiet)
+            return ''
+        saved_grow = plugin._grow_pitfalls
+        plugin._grow_pitfalls = _spy
+        out = await runner.says(E("grm new 不存在的分类", **alice), "cmd_pitfall")
+        runner.check("错分类只回提示，不刷采集消息", "没有「不存在的分类」" in out and "正在尝试补充" not in out, out)
+        runner.check("错分类不触发自动采集", grown == [], str(grown))
+    finally:
+        plugin._grow_pitfalls = saved_grow
+        plugin._growth.state['last_attempt'] = saved_attempt
+
+    # 自动补充失败时保持安静，只从已验证题库抽题
+    try:
+        async def _fail(event, *, quiet=False):
+            return '' if quiet else '🌱 本轮自动采集未完成，继续使用已验证题库；grm growth 查看状态。'
+        plugin._grow_pitfalls = _fail
+        plugin._growth.state['last_attempt'] = 0
+        out = await runner.says(E("grm new 浮点数", **alice), "cmd_pitfall")
+        runner.check("自动采集失败不刷失败提示", "本轮自动采集未完成" not in out, out)
+        runner.check("自动采集失败仍按题库作答", "还没结束" in out or "找 bug" in out, out)
+    finally:
+        plugin._grow_pitfalls = saved_grow
+        plugin._growth.state['last_attempt'] = saved_attempt
+
     before = plugin._store.current(scope + mod.GRAMMAR_SUFFIX)
     runner.check("当前坑点题没被换掉", before is not None and before["status"] == "open")
 

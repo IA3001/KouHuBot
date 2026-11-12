@@ -62,6 +62,18 @@ class TextBudgetTest(unittest.TestCase):
         self.assertLessEqual(len(body), 360)
         self.assertIn('完整内容见仓库', body)
 
+    def test_clip_text_cuts_on_sentence_boundary(self):
+        sentence = '这是一句用来测试截断的完整中文回答内容，长度刚好够用。'
+        text = sentence * 20
+        clipped = self.mod._clip_text(text, 300)
+        body, _, note = clipped.partition('\n')
+        self.assertLessEqual(len(body), 300)
+        self.assertTrue(body.endswith('。'), body[-12:])
+        self.assertIn('已截断', note)
+        self.assertEqual(self.mod._clip_text('短回答。', 300), '短回答。')
+        # 没有标点可切时也要给截断说明，而不是硬切
+        self.assertIn('已截断', self.mod._clip_text('字' * 500, 100))
+
 
 if __name__ == '__main__':
     unittest.main()
