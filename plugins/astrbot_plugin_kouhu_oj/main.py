@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.4"
+PLUGIN_VERSION = "0.21.5"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -167,6 +167,35 @@ def _changelog_section(text: str, version: str) -> str:
     )
     m = pattern.search(text)
     return m.group(0).strip() if m else ""
+
+
+def _plain_changelog(text: str, version: str, *, show_version: bool = True,
+                     limit: int = 1200) -> str:
+    """把 Markdown 变更日志转成群聊可读的纯文本。
+
+    QQ 不渲染 Markdown，直接贴 `## 0.21.4` 和 `- xxx` 只会显得又长又乱。
+    """
+    section = _changelog_section(text, version)
+    if not section:
+        return ""
+    title = f"📌 {version}" if show_version else ""
+    bullets: list[str] = []
+    for raw in section.splitlines():
+        line = raw.strip()
+        if not line or line == "---" or re.fullmatch(r"##\s*" + re.escape(version), line):
+            continue
+        line = re.sub(r"[`*]", "", line)
+        if line.startswith("摘要："):
+            summary = line.removeprefix("摘要：").strip()
+            title = (title + " · " + summary) if title else summary
+            continue
+        bullets.append(re.sub(r"^[-*]\s+", "· ", line))
+    output = "\n".join(part for part in (title, "\n".join(bullets)) if part)
+    if len(output) > limit:
+        cut = output[:limit]
+        cut = cut[:cut.rfind("\n")] if "\n" in cut else cut
+        output = cut + "\n…（本版条目较多，完整内容见仓库 CHANGELOG.md）"
+    return output
 
 
 def _changelog_summary(text: str, version: str) -> str:
@@ -261,69 +290,40 @@ RE_TIER = re.compile(r"^\s*/?\s*tier(?:\s+(\d+))?\s*$", re.I)
 RE_STATUS = re.compile(r"^\s*/?\s*status\s*$", re.I)
 RE_PING = re.compile(r"^\s*/?\s*ping(?:\s+(?:模型|model))?\s*$", re.I)
 
-HELP_TEXT = """╭── 📚 口胡 OJ · 指令菜单 ──╮
-  群内练算法 · 思路判题 · 题后复盘
-╰──────────────────╯
+HELP_TEXT = """📚 口胡 OJ · 指令菜单
+群内练算法 · 思路判题 · 题后复盘
 
-🎯 正题练习
-━━━━━━━━━━━━━━━━
-› new tags · CF完整标签与题数（含中文别名）
-› new dp / new dp+trees · 标签抽题默认按本群档位，可加 1/2/3/4 或 rating
-› new 1/2/3/4 · Div难度快捷预设
-› new [1200-1600] · 按 CF rating 区间抽题
-› new CF123B · 指定 CF 题号派题
-› new · 按群难度档位抽题
-› cur · 重看当前题面与样例
-› ping · 测试当前判题模型连接与耗时
-› sub 思路 · 提交思路、伪代码或代码
-› 引用作答图片发 sub · 或图片与 sub 一起发送，先识别再判题
-› sub retry · 判题服务失败后重试已暂存的文字
-› hint 1 / 2 / 3 · 方向 / 观察 / 框架
-› giveup · 放弃全群当前正题
+🎯 正题
+› new · 按群档位抽题｜new 1/2/3/4 · Div预设
+› new [1200-1600] · 指定 rating 区间｜new CF123B · 指定题号
+› new dp / new dp+trees · 按标签（可用中文，多标签须同时满足）
+› new tags · 完整标签与题数
+› cur · 重看当前题｜ping · 测判题模型
+› sub 思路 · 交思路/伪代码/代码｜sub retry · 判题失败后重试暂存文字
+› 引用图片或附图发 sub · 先转写预览再判题，最多3张
+› hint 1/2/3 · 方向/观察/框架｜giveup · 放弃全群当前题
 
-🧩 C++ 坑点
-━━━━━━━━━━━━━━━━
-› grm new [分类] [难度] · 抽一道坑点题
-› grm list · 分类与可用题数
+🧩 C++ 坑点（独立、不计分）
+› grm new [分类] [难度] · 抽题｜grm list · 分类与题数
+› grm cur · 重看｜grm sub 分析 · 提交分析｜grm giveup · 看答案
 › grm growth · 自动题库生长状态
-› grm cur · 重看当前坑点题
-› grm sub 分析 · 提交分析
-› grm giveup · 放弃并查看答案
 
 📖 历史与复盘
-━━━━━━━━━━━━━━━━
-› history [页码] · 按题查看我的历史
-› history problem 628B · 回看历史题面
-› history show 628B [页码] · 该题作答与判词
-› sol 628B · 查看已结束题目的解析
-› sol · 当前已结束题目的解析
-› history grm · 坑点历史，支持 problem / show
+› history [页码] · 我的历史｜history grm · 坑点历史
+› history problem 628B · 回看题面｜history show 628B · 作答与判词
+› sol · 当前已结束题目的解析｜sol 628B · 指定题目解析
 
-🏆 积分与规则
-━━━━━━━━━━━━━━━━
-› rank · 本群积分榜
-› me · 我的战绩与提示使用统计
-› rules · 计分、排名和升降档规则
-
-💬 帮助与更新
-━━━━━━━━━━━━━━━━
-› ask 问题 · 功能与运行情况问答
-› about · 功能介绍与上手方式
-› ver · 当前版本与更新内容
-› ver list · 历史版本列表
-› ver 版本号 · 指定版本的更新内容
-› help · 打开本菜单
+🏆 积分与帮助
+› rank · 群榜｜me · 我的战绩｜rules · 计分与升降档
+› ask 问题 · 问答｜about · 功能简介｜help · 本菜单
+› ver · 当前版本｜ver list · 历史版本｜ver 0.6.0 · 指定版本
 
 🔐 管理员
-━━━━━━━━━━━━━━━━
+› skip · 关题｜tier [档位] · 查看/调整难度｜status · 运行状态
 › grm grow · 采集并验证一道新坑点
-› skip · 关闭当前正题
-› tier [档位] · 查看 / 调整群难度
-› status · 运行状态（所有人可查）
 
-📌 正题答错不扣分，首个 AC 后全群该题结束。
-📌 两条练习线路独立；坑点不计分，提示群内可见。
-📌 历史回看只发题面，不切换当前判题。
+📌 答错不扣分，首个 AC 后全群该题结束。
+📌 两条线路独立；提示群内可见，历史回看不切换当前判题。
 📌 模型判题与解析可能出错。"""
 
 ASK_SYSTEM_PROMPT = """你是 QQ 群「口胡 OJ」机器人自带的运维助手，用自然语言回答群友关于这个机器人的问题。
@@ -2874,12 +2874,12 @@ class KouHuOJ(Star):
             # 问哪个版本就只给哪一节，没点名就给最新一版
             want = re.search(r"\d+\.\d+\.\d+", question)
             if want:
-                section = _changelog_section(changelog, want.group(0))
-                body = section or f"没找到 {want.group(0)} 的记录。当前版本 {PLUGIN_VERSION}。"
+                body = _plain_changelog(changelog, want.group(0), show_version=want.group(0) != PLUGIN_VERSION)
+                body = body or f"没找到 {want.group(0)} 的记录。当前版本 {PLUGIN_VERSION}。"
             else:
-                body = _changelog_section(changelog, PLUGIN_VERSION)
+                body = _plain_changelog(changelog, PLUGIN_VERSION, show_version=False)
                 if not body:
-                    body = changelog.split("## ", 2)[-1][:1500]
+                    body = "更新日志里没有当前版本的条目，可用 ver list 查看历史版本。"
             logger.debug(f"[KouHuOJ] 更新日志来源：{origin}")
             yield event.plain_result(f"当前版本 {PLUGIN_VERSION}。\n\n{body}"[:1800])
             return
@@ -2911,14 +2911,26 @@ class KouHuOJ(Star):
         arg = (match.group(1) or "").strip() if match else ""
         versions = re.findall(r"^##\s+(\d+\.\d+\.\d+)\s*$", changelog, re.M)
         usage = "ver 查看当前版本\nver list 查看历史版本\nver 0.6.0 查看指定版本"
-        if arg.lower() in ("list", "history", "历史", "列表"):
-            yield event.plain_result(
-                f"{head}\n\n有更新记录的版本：\n"
-                + "\n".join(
-                    f"{version} · " + _changelog_summary(changelog, version)
-                    for version in versions
+        list_match = re.fullmatch(r"(?:list|history|历史|列表)(?:\s*第?\s*(\d{1,3})\s*页?)?", arg, re.I)
+        if list_match:
+            # 一页只放 10 条：既不会一次刷屏，也保留翻页查更早版本的能力。
+            page = max(1, int(list_match.group(1) or 1))
+            per_page = 10
+            start = (page - 1) * per_page
+            page_items = versions[start:start + per_page]
+            if not page_items:
+                yield event.plain_result(
+                    f"{head}\n\n第 {page} 页没有更多版本了；共 {len(versions)} 个版本。\nver list 从最新一页看起。"
                 )
-                + "\n\n用 ver 版本号 查看详细更新，例如 ver 0.6.0"
+                return
+            lines = [f"{version} · " + _changelog_summary(changelog, version) for version in page_items]
+            total_pages = (len(versions) + per_page - 1) // per_page
+            nav = f"第 {page}/{total_pages} 页"
+            if page < total_pages:
+                nav += f" · 更早用 ver list {page + 1}"
+            yield event.plain_result(
+                f"{head}\n\n{nav}\n" + "\n".join(lines)
+                + "\n\n用 ver 版本号 查看详细更新"
             )
             return
         requested = re.fullmatch(r"v?(\d+\.\d+\.\d+)", arg, re.I) if arg else None
@@ -2926,13 +2938,13 @@ class KouHuOJ(Star):
             yield event.plain_result(f"{head}\n\n{usage}")
             return
         version = requested.group(1) if requested else PLUGIN_VERSION
-        body = _changelog_section(changelog, version)
+        body = _plain_changelog(changelog, version, show_version=version != PLUGIN_VERSION)
         if not body:
             yield event.plain_result(
                 f"{head}\n\n没有找到 {version} 的更新记录。\n用 ver list 查看有记录的版本。"
             )
             return
-        yield event.plain_result(f"{head}\n\n{body}\n\n历史版本：ver list"[:1800])
+        yield event.plain_result(f"{head}\n\n{body}\n\n历史版本：ver list")
 
     @staticmethod
     def _verdict_label(verdict: str) -> str:

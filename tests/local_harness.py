@@ -529,7 +529,9 @@ async def main() -> int:
     out = await runner.says(E('sol 5', **alice), 'cmd_solution')
     runner.check('旧sol数字入口明确迁移指引', '不再表示提交记录号' in out and '628B' in out, out)
     out = await runner.says(E('help', **alice), 'cmd_help')
-    runner.check('菜单分类和统一装饰', all(x in out for x in ('🎯 正题练习','🧩 C++ 坑点','📖 历史与复盘','🏆 积分与规则','💬 帮助与更新','🔐 管理员','› history problem 628B')), out)
+    runner.check('菜单分类齐全', all(x in out for x in ('🎯 正题','🧩 C++ 坑点','📖 历史与复盘','🏆 积分与帮助','🔐 管理员','› history problem 628B')), out)
+    runner.check('菜单不臃肿', len(out) <= 1000 and out.count('\n') <= 34, f'{len(out)} 字 / {out.count(chr(10))} 行')
+    runner.check('菜单列出全部指令', all(cmd in out for cmd in ('new tags','sub retry','grm growth','grm grow','history show','sol 628B','ver list','tier','status')), out)
 
     runner.check('反馈与申诉指令已移除', all(not hasattr(plugin,name) for name in ('cmd_report','cmd_appeal','cmd_tickets')))
     runner.check('菜单无工单入口', all(word not in mod.HELP_TEXT for word in ('report','appeal','tickets')))
@@ -724,8 +726,9 @@ async def main() -> int:
     runner.check("带了版本号", mod.PLUGIN_VERSION in out, out)
     # 别断言具体内容——版本一升，这一版的日志就换了，断言会跟着失效。
     # 判据应该是「真的贴出了日志正文」：有标题行、有列表项。
-    runner.check("贴出了日志正文", f"## {mod.PLUGIN_VERSION}" in out and "- " in out, out)
-    runner.check("包含当前版日志正文", mod._changelog_section(mod._load_changelog(), mod.PLUGIN_VERSION) in out, out)
+    runner.check("贴出了日志正文", f"{mod.PLUGIN_VERSION}" in out and "· " in out, out)
+    runner.check("日志排版去掉 Markdown 记号", "## " not in out and not re.search(r"^- ", out, re.M), out)
+    runner.check("包含当前版摘要", mod._changelog_summary(mod._load_changelog(), mod.PLUGIN_VERSION) in out, out)
     runner.check("没走大模型（省 token）", ctx.call_count == before_calls,
                  f"多调了 {ctx.call_count - before_calls} 次模型")
     runner.check("没出现「没有相关信息」", "没有" not in out[:40], out[:80])
@@ -752,20 +755,31 @@ async def main() -> int:
     for q in ("ver", "更新日志", "changelog"):
         out = await runner.says(E(q, **alice), "cmd_version")
         runner.check(f"{q} 答了版本", mod.PLUGIN_VERSION in out, out[:80])
-        runner.check(f"{q} 贴了日志正文", f"## {mod.PLUGIN_VERSION}" in out, out[:80])
+        runner.check(f"{q} 贴了日志正文", f"{mod.PLUGIN_VERSION}" in out and "## " not in out, out[:80])
 
     before_calls = ctx.call_count
     for q in ("ver list", "ver history", "更新日志 历史"):
         runner.check(f"{q} 路由匹配", bool(mod.RE_VER.fullmatch(q)))
         out = await runner.says(E(q, **alice), "cmd_version")
-        runner.check(f"{q} 列出历史", "0.5.0" in out and "0.6.0" in out, out)
+        runner.check(f"{q} 列出最近版本", mod.PLUGIN_VERSION in out and "第 1/" in out, out)
         runner.check(f"{q} 每版都有摘要", all(" · " in line for line in out.splitlines() if re.match(r"^\d+\.\d+\.\d+", line)), out)
-        runner.check(f"{q} 展示实际变化", "64 → 103" in out and "grm / sub / cur" in out and "Codeforces" in out, out)
+        runner.check(f"{q} 一页不刷屏", len(out) <= 1400 and out.count("\n") <= 14, out)
+    # 翻页能查更早的版本，并给出下一页入口
+    first = await runner.says(E("ver list", **alice), "cmd_version")
+    page2 = await runner.says(E("ver list 2", **alice), "cmd_version")
+    runner.check("翻页拿到不同版本", page2 != first and "第 2/" in page2, page2)
+    def _listed(text: str) -> list[str]:
+        return re.findall(r"^(\d+\.\d+\.\d+) · ", text, re.M)
+    runner.check("翻页是更早的版本", _listed(page2) and _listed(page2)[0] < _listed(first)[-1],
+                 f"{_listed(first)[-1]} -> {_listed(page2)[0] if _listed(page2) else '空'}")
+    runner.check("列表提示下一页", "ver list 2" in first, first)
+    out = await runner.says(E("ver list 99", **alice), "cmd_version")
+    runner.check("超出页码给提示", "没有更多版本" in out, out)
     for q in ("ver 0.6.0", "/ver v0.6.0", "更新日志 0.6.0"):
         runner.check(f"{q} 路由匹配", bool(mod.RE_VER.fullmatch(q)))
         out = await runner.says(E(q, **alice), "cmd_version")
-        runner.check(f"{q} 返回指定历史正文", "## 0.6.0" in out and "64 → 103" in out, out)
-        runner.check(f"{q} 不混入当前日志", f"## {mod.PLUGIN_VERSION}" not in out, out)
+        runner.check(f"{q} 返回指定历史正文", "0.6.0" in out and "64 → 103" in out, out)
+        runner.check(f"{q} 不混入当前日志", f"📌 {mod.PLUGIN_VERSION}" not in out, out)
     out = await runner.says(E("ver 9.9.9", **alice), "cmd_version")
     runner.check("未知版本不冒充当前日志", "没有找到 9.9.9" in out and "ver list" in out, out)
     out = await runner.says(E("ver abc", **alice), "cmd_version")
