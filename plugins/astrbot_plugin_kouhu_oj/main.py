@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.7"
+PLUGIN_VERSION = "0.21.8"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -875,11 +875,22 @@ class OjStore(ReviewStoreMixin, FeedbackStoreMixin):
         self._conn.commit()
 
     def bump_attempts(self, scope: str, user_id: str, gave_up: bool = False) -> None:
-        self._conn.execute(
-            "UPDATE players SET attempts = attempts + 1, gave_up = gave_up + ? "
-            "WHERE scope_id = ? AND user_id = ?",
-            (1 if gave_up else 0, scope, user_id),
-        )
+        """记一次提交；放弃只加放弃数，不能同时算成一次提交。
+
+        以前放弃会 attempts 和 gave_up 各加一，me 里就出现「提交 5 次 / 放弃 5 次」。
+        """
+        if gave_up:
+            self._conn.execute(
+                "UPDATE players SET gave_up = gave_up + 1 "
+                "WHERE scope_id = ? AND user_id = ?",
+                (scope, user_id),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE players SET attempts = attempts + 1 "
+                "WHERE scope_id = ? AND user_id = ?",
+                (scope, user_id),
+            )
         self._conn.commit()
 
     def leaderboard(self, scope: str, limit: int) -> list[dict]:
@@ -890,10 +901,19 @@ class OjStore(ReviewStoreMixin, FeedbackStoreMixin):
             "         WHERE a.scope_id = p.scope_id AND a.user_id = p.user_id) AS tried "
             "FROM players p "
             "WHERE p.scope_id = ? AND p.active = 1 AND p.solved > 0 "
-            "ORDER BY p.total_score DESC, p.solved DESC, p.first_try DESC LIMIT ?",
+            "ORDER BY p.total_score DESC, p.solved DESC, p.first_try DESC, "
+            "p.user_id ASC LIMIT ?",
             (scope, limit),
         ).fetchall()
-        return [dict(r) for r in rows]
+        ranked, last_key = [], None
+        for position, row in enumerate(rows, start=1):
+            # 三项全同即并列：名次不再往后顺延，显示成同一名。
+            key = (row["total"], row["solved"], row["first_try"])
+            entry = dict(row)
+            entry["rank_label"] = str(position) if key != last_key else ranked[-1]["rank_label"]
+            last_key = key
+            ranked.append(entry)
+        return ranked
 
     # -- 当前题 --------------------------------------------------------
     def current(self, scope: str) -> dict | None:
@@ -1035,6 +1055,7 @@ class OjStore(ReviewStoreMixin, FeedbackStoreMixin):
         st["current_tier"] = new_tier
         st["tier_issued"] = 0
         st["tier_solved"] = 0
+        st["tier_rounds"] = int(st.get("tier_rounds") or 0) + 1
         return st
 
     def note_solved(self, scope: str) -> dict:
@@ -1046,6 +1067,10 @@ class OjStore(ReviewStoreMixin, FeedbackStoreMixin):
             (time.time(), scope),
         )
         self._conn.commit()
+        return self._maybe_evaluate(scope)
+
+    def note_closed(self, scope: str) -> dict:
+        """题目结束但没有新增解出：仍要评估一次，否则第 10 道永远等不到评估。"""
         return self._maybe_evaluate(scope)
 
     def note_abandoned(self, scope: str) -> dict:
@@ -1093,10 +1118,10 @@ class OjStore(ReviewStoreMixin, FeedbackStoreMixin):
     def stats(self) -> dict:
         out: dict = {}
         try:
-            out["报名人数"] = self._conn.execute(
+            out["参与人数"] = self._conn.execute(
                 "SELECT COUNT(*) FROM players WHERE active = 1"
             ).fetchone()[0]
-            out["累计解题"] = self._conn.execute("SELECT COUNT(*) FROM solved").fetchone()[0]
+            out["累计 AC"] = self._conn.execute("SELECT COUNT(*) FROM solved").fetchone()[0]
             out["累计提交"] = self._conn.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
             out["派过的题"] = self._conn.execute(
                 "SELECT COUNT(*) FROM used_problems"
@@ -1764,7 +1789,7 @@ class KouHuOJ(Star):
 
         cached = self._cache.get(current["cf_key"]) if self._cache else None
         if not cached:
-            yield event.plain_result("题面缓存丢了，发 new 换一道题吧")
+            yield event.plain_result("题面缓存丢了，发 giveup 结束这道题，再 new 换一道")
             return
         if cached.get('statement_parser_version', 2) < 2:
             yield event.plain_result('正在从原题修复旧版公式缓存，请稍等……')
@@ -1954,7 +1979,7 @@ class KouHuOJ(Star):
         async with lock:
             cached = self._cache.get(current["cf_key"]) if self._cache else None
             if not cached:
-                yield event.plain_result("题面缓存丢了，发 new 换一道题吧")
+                yield event.plain_result("题面缓存丢了，发 giveup 结束这道题，再 new 换一道")
                 return
             problem = CodeforcesSource._row_to_problem(cached)   # noqa: SLF001
             cf_key = problem["cf_key"]
@@ -2022,14 +2047,19 @@ class KouHuOJ(Star):
                 return
 
             latest = self._store.current(scope)
-            if not latest or latest["opened_at"] != current["opened_at"] or latest["status"] != STATUS_OPEN:
-                yield event.plain_result("判题期间正题已结束或更换，本次不计分")
-                return
             verdict = result["verdict"]
             comment = result.get("comment") or ""
             self._failed_submissions.pop((scope,sender_id),None)
             self._store.bump_attempts(scope, sender_id)
             self._store.record_attempt(scope, cf_key, sender_id, n, verdict)
+            if not latest or latest["opened_at"] != current["opened_at"] or latest["status"] != STATUS_OPEN:
+                # 判题结果照记：这轮模型调用已经花掉了，不能什么都不留。
+                self._store.note_review(scope, latest or current, sender_id, submission, verdict, comment)
+                yield event.plain_result(
+                    f"{self._verdict_label(verdict)}\n{comment}\n\n"
+                    "判题期间这道题已结束或更换，本次不计分，但记录已保存在 history。"
+                )
+                return
 
             if verdict != VERDICT_AC:
                 self._store.note_review(scope, current, sender_id, submission, verdict, comment)
@@ -2046,7 +2076,8 @@ class KouHuOJ(Star):
             if newly:
                 self._store.add_score(scope, sender_id, points, first_try)
             self._store.close_problem(scope, STATUS_AC, sender_id)
-            state = self._store.note_solved(scope)
+            # 只给「真正加了分」的 AC 计入群解出率，重复 AC 不计分也不该推高档位。
+            state = self._store.note_solved(scope) if newly else self._store.note_closed(scope)
             self._store.note_review(scope, self._store.current(scope), sender_id, submission, verdict, comment, points if newly else 0)
 
             link = f"https://codeforces.com/problemset/problem/{problem.get('contest_id')}/{problem.get('idx')}"
@@ -2147,7 +2178,7 @@ class KouHuOJ(Star):
         lines = [f"口胡 OJ 积分榜（当前难度 CF {state['current_tier']}）"]
         for i, row in enumerate(rows, 1):
             lines.append(
-                f"{i}. {row['user_name']}  {row['total']} 分"
+                f"{row.get('rank_label') or i}. {row['user_name']}  {row['total']} 分"
                 f"（{row['solved']} 题）"
             )
         lines.append("")
@@ -2294,8 +2325,8 @@ class KouHuOJ(Star):
             f"› 状态：{status_label}",
             "\n📚 数据统计\n━━━━━━━━━━━━━━━━",
             f"› 题面缓存：{self._cache.ready_count() if self._cache else 0} 道",
-            f"› 报名人数：{stats.get('报名人数', 0)} 人",
-            f"› 累计解题：{stats.get('累计解题', 0)} 次",
+            f"› 参与人数：{stats.get('参与人数', 0)} 人",
+            f"› 累计 AC：{stats.get('累计 AC', 0)} 次",
         ]
         if self._last_fetch_ok:
             lines.append(f"上次抓题 {_fmt_uptime(time.time() - self._last_fetch_ok)}前")
@@ -2616,7 +2647,7 @@ class KouHuOJ(Star):
                 "分析好了发 grm sub 你的分析，想看答案发 grm giveup。"
             )
         else:
-            yield event.plain_result("这道坑点题已经结束了。发 new 抽下一道。")
+            yield event.plain_result("这道坑点题已经结束了。发 grm new 抽下一道。")
 
     # -- 坑点题：提交 ---------------------------------------------------
     async def _grammar_submit(self, event: AstrMessageEvent, submission: str):
@@ -2639,7 +2670,7 @@ class KouHuOJ(Star):
             yield event.plain_result("还没有坑点题。发 grm new 抽一道。")
             return
         if current.get("status") != STATUS_OPEN:
-            yield event.plain_result("这道坑点题已经结束了。发 new 抽下一道。")
+            yield event.plain_result("这道坑点题已经结束了。发 grm new 抽下一道。")
             return
 
         pitfall = self._pitfalls.get(str(current["cf_key"])[len(PITFALL_PREFIX):])
@@ -2697,7 +2728,7 @@ class KouHuOJ(Star):
             f"【这道坑点】{pitfall.get('title', '')}\n\n"
             f"{_clip(pitfall.get('answer', ''), 700)}\n\n"
             f"正确写法：{_clip(pitfall.get('fix', ''), 300)}\n\n"
-            "发 new 抽下一道。"
+            "发 grm new 抽下一道。"
         )
 
     # -- 自由问答 ------------------------------------------------------

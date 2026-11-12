@@ -633,6 +633,7 @@ def render_leaderboard(
         y += 10
 
         for index, row in enumerate(rows, start=1):
+            rank_text = str(row.get("rank_label") or index)
             if index % 2 == 0:
                 ops.append(
                     {
@@ -646,7 +647,7 @@ def render_leaderboard(
             ops.append(
                 {
                     "kind": "text",
-                    "text": f"{index}",
+                    "text": rank_text,
                     "font": row_font,
                     "x": _PADDING + 8,
                     "y": y,
