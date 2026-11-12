@@ -103,7 +103,7 @@ class GrowthBank:
         remaining=self.cooldown_remaining(interval)
         phase=running['phase'] if running else '空闲'
         cooldown='任务完成后计算' if running else (f'{int(remaining+0.999)} 秒' if remaining else '可采集')
-        return f"🌱 自动题库\n━━━━━━━━━━━━━━━━\n› 已入库：{len(self.state['approved'])} 题\n› 待校验/未通过：{len(self.state['candidates'])} 题\n› 已采集页面：{len(self.state['visited'])}\n› 当前阶段：{phase}\n› {'本轮' if running else '最近一轮'}耗时：{int(elapsed)} 秒\n› 剩余冷却：{cooldown}\n› 最近结果：{self.state['last_result']}\n› 管理员重试：grm grow retry（保留60秒最小间隔）"
+        return f"🌱 自动题库\n━━━━━━━━━━━━━━━━\n› 已入库：{len(self.state['approved'])} 题\n› 待校验/未通过：{len(self.state['candidates'])} 题\n› 已采集页面：{len(self.state['visited'])}\n› 当前阶段：{phase}\n› {'本轮' if running else '最近一轮'}耗时：{int(elapsed)} 秒\n› 后台自动更新间隔：{cooldown}\n› 最近结果：{self.state['last_result']}\n› 管理员更新：grm update（无时间冷却）"
     async def material(self):
         queue=self.state['queue']
         if not queue: queue.extend(SEEDS)

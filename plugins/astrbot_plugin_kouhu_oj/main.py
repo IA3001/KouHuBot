@@ -92,7 +92,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.16"
+PLUGIN_VERSION = "0.21.17"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -362,7 +362,7 @@ HELP_TEXT = """📚 口胡 OJ · 指令菜单
 🧩 C++ 坑点（独立、不计分）
 › grm new [分类] [难度] · 抽题｜grm list · 分类与题数
 › grm cur · 重看｜grm sub 分析 · 提交分析｜grm giveup · 看答案
-› grm status / grm growth · 补题进度与冷却
+› grm status · 更新进度与结果
 
 📖 历史与复盘
 › history [页码] / history grm · 我的历史｜history problem 628B · 题面
@@ -376,7 +376,7 @@ HELP_TEXT = """📚 口胡 OJ · 指令菜单
 
 🔐 管理员
 › skip · 关题｜tier [档位] · 查看/调整难度｜status · 运行状态
-› grm grow · 联网补题｜grm grow retry · 受控重试
+› grm update · 联网更新题库，无时间冷却
 
 📌 答错不扣分，首个 AC 后全群该题结束。
 📌 两条线路独立；提示群内可见，历史回看不切换当前判题。
@@ -2459,16 +2459,16 @@ class KouHuOJ(Star):
             lines.append(f"› {key}：{value}")
         yield event.plain_result("\n".join(lines))
 
-    async def _grow_pitfalls(self, event: AstrMessageEvent, *, quiet: bool = False, retry: bool = False) -> str:
+    async def _grow_pitfalls(self, event: AstrMessageEvent, *, quiet: bool = False, manual: bool = False) -> str:
         if not self._growth or not self._pitfalls:
             return '自动题库尚未初始化'
         if self._growth_lock.locked():
             return '🌱 已有采集任务在运行，请稍后发 grm status 查看。'
         async with self._growth_lock:
             interval=max(300,_as_int(self.config.get('grm_growth_interval_seconds'),21600))
-            remaining=self._growth.cooldown_remaining(interval, retry=retry)
+            remaining=0 if manual else self._growth.cooldown_remaining(interval)
             if remaining:
-                return f'🌱 自动采集冷却中，剩余 {int(remaining+0.999)} 秒；grm status 查看状态。管理员可用 grm grow retry 重试（仍需间隔60秒）。'
+                return f'🌱 后台更新间隔尚余 {int(remaining+0.999)} 秒；管理员可直接 grm update 立即更新。'
             started=time.time()
             phase='选择模型'
             self._growth.running={'phase':phase,'started_at':started}
@@ -2530,7 +2530,7 @@ class KouHuOJ(Star):
                 # 自动补充失败只是没抽到新题，不该在群里刷一条失败提示。
                 if quiet:
                     return ''
-                return '🌱 本轮自动采集未完成，继续使用已验证题库；60秒后可重试，grm status 查看状态。'
+                return '🌱 本次更新未完成，继续使用已验证题库；可直接再发 grm update 重试，grm status 查看详情。'
             finally:
                 self._growth.running=None
                 self._growth.state.update(last_outcome=outcome,last_finished=time.time(),last_elapsed=max(0,time.time()-started))
@@ -2579,14 +2579,14 @@ class KouHuOJ(Star):
             interval=max(300,_as_int(self.config.get('grm_growth_interval_seconds'),21600))
             yield event.plain_result(self._growth.status(interval) if self._growth else '自动题库尚未初始化')
             return
-        if sub in ('grow','采集'):
+        if sub in ('update', '更新', 'grow', '采集'):
             if not self._is_admin(event):
-                yield event.plain_result('🔐 grm grow 由管理员联网补题；后台会定时尝试补题，grm status 查看结果。')
+                yield event.plain_result('🔐 grm update 由管理员联网更新题库；grm new 抽题，grm status 查看更新进度。')
                 return
             if rest.lower() not in ('', 'retry', '重试'):
-                yield event.plain_result('用法：grm grow；管理员受控重试：grm grow retry（保留60秒最小间隔）。')
+                yield event.plain_result('用法：grm update · 联网更新题库，无时间冷却；grm status 查看进度。')
                 return
-            task=asyncio.create_task(self._grow_pitfalls(event,retry=bool(rest)))
+            task=asyncio.create_task(self._grow_pitfalls(event,manual=True))
             self._preparation_deliveries.add(task)
             task.add_done_callback(self._preparation_deliveries.discard)
             try:
@@ -2639,9 +2639,8 @@ class KouHuOJ(Star):
             "grm cur                重看当前这道\n"
             "grm sub 分析            提交你的分析\n"
             "grm giveup             放弃，看答案\n"
-            "grm status             查看联网补题结果（也可用 grm growth）\n"
-            "grm grow               管理员联网补题，通过验证后入库\n"
-            "grm grow retry         管理员跳过长冷却重试（仍需间隔60秒）"
+            "grm status             查看题库更新进度和结果\n"
+            "grm update             管理员联网更新题库，无时间冷却"
         )
 
     # -- 坑点题：抽新题 -------------------------------------------------
@@ -3033,7 +3032,7 @@ class KouHuOJ(Star):
             "grm sub <分析>": "提交坑点题的分析",
             "grm giveup": "放弃坑点题，看答案",
             "grm list": "坑点题有哪些分类、各多少道",
-            "grm grow / grm growth": "管理员grow采集C++资料并生成复核和隔离验证一道候选，通过才入库；growth所有人可查看生长状态。后台默认每6小时自动尝试补一道题，失败不影响原题库",
+            "grm update / grm status": "管理员update联网更新题库，通过复核与隔离验证才入库；手动无时间冷却，只限制同时一个更新任务，失败可直接再update。status所有人可查进度。后台默认每6小时尝试补题，grm new只抽题不等待更新",
             "ask <问题>": "就是现在这个自由问答",
             "help": "指令说明",
         }

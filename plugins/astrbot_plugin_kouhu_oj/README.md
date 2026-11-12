@@ -25,7 +25,8 @@
 | `grm cur` / `grm problem` | 重看当前坑点题 |
 | `grm sub 分析` / `grm submit 分析` | 提交坑点分析，支持多行文字；暂不支持图片 |
 | `grm giveup` | 放弃坑点题并查看答案 |
-| `grm growth` / `grm status` | 查看自动题库采集进度、冷却和最近结果 |
+| `grm growth` / `grm status` | 查看题库更新进度、后台更新间隔和最近结果 |
+| `grm update` | 管理员立即联网补题，无时间冷却；同时最多运行一个采集任务 |
 | `history [页码]` / `history grm` | 查看自己的 CF / 坑点历史 |
 | `history problem 628B` | 回看历史题面 |
 | `history show 628B [记录页]` | 按题号分页查看历史作答记录 |
@@ -39,7 +40,7 @@
 | `ver` / `ver list` / `ver 0.6.0` | 当前版本 / 版本列表 / 指定版本更新日志 |
 | `ping` | 检查判题模型 |
 
-管理员可用 `skip` 关闭 CF 当前题、`tier 数字` 调整群难度、`status` 查看运行信息，以及 `grm grow` 触发坑点采集。错误的档位或坑点参数会给出说明，不会静默忽略重复或多余参数。单字母 `q`、`s`、`p`、`g`、`r`、`h` 不是顶层命令。
+管理员可用 `skip` 关闭 CF 当前题、`tier 数字` 调整群难度、`status` 查看运行信息，以及 `grm update` 立即更新坑点题库。手动更新无时间冷却，失败后直接再次发送 `grm update` 即可；全局同时最多运行一个采集任务，已有任务时可用 `grm status` 查看进度。旧指令 `grm grow`、`grm grow retry` 仍兼容，行为与 `grm update` 相同。错误的档位或坑点参数会给出说明，不会静默忽略重复或多余参数。单字母 `q`、`s`、`p`、`g`、`r`、`h` 不是顶层命令。
 
 首个 AC 后全群该题结束，答错不扣分；坑点题不计 CF 积分。提示在群内可见，查看历史不会切换当前判题线路。模型判题和解析可能出错。
 
@@ -74,7 +75,7 @@ CF 正题来自 Codeforces，题面抓取、翻译成功后缓存到本地。正
 | `image_submission_max_chars` | 6000 | 图片转写与附带文字总字数上限 |
 | `image_submission_timeout_seconds` | 60 | 图片加载与转写总时限 |
 | `grm_auto_growth` | true | 开启后台坑点题库补充 |
-| `grm_growth_interval_seconds` | 21600 | 全局补题冷却，最小 300 秒 |
+| `grm_growth_interval_seconds` | 21600 | 后台自动补题间隔，最小 300 秒；管理员手动更新不受此限制 |
 | `grm_growth_timeout_seconds` | 180 | 生成与模型复核各自的时限，范围 30–240 秒 |
 | `ask_cooldown_seconds` | 8 | 同群问答冷却秒数 |
 | `ask_max_chars` | 500 | 问答字数上限 |

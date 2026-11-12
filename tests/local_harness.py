@@ -531,7 +531,7 @@ async def main() -> int:
     out = await runner.says(E('help', **alice), 'cmd_help')
     runner.check('菜单分类齐全', all(x in out for x in ('🎯 正题','🧩 C++ 坑点','📖 历史与复盘','🏆 积分与帮助','🔐 管理员','history problem 628B')), out)
     runner.check('菜单不臃肿', len(out) <= 1000 and out.count('\n') <= 34, f'{len(out)} 字 / {out.count(chr(10))} 行')
-    runner.check('菜单列出全部指令', all(cmd in out for cmd in ('new tags','sub retry','grm growth','grm grow','history show','sol 628B','ver list','tier','status')), out)
+    runner.check('菜单列出全部指令', all(cmd in out for cmd in ('new tags','sub retry','grm status','grm update','history show','sol 628B','ver list','tier','status')), out)
 
     runner.check('反馈与申诉指令已移除', all(not hasattr(plugin,name) for name in ('cmd_report','cmd_appeal','cmd_tickets')))
     runner.check('菜单无工单入口', all(word not in mod.HELP_TEXT for word in ('report','appeal','tickets')))
@@ -1135,8 +1135,9 @@ async def main() -> int:
     new_id=growth.state['approved'][0]['id']
     runner.check('新题可以直接被题源查询',plugin._pitfalls.get(new_id) is not None)
     calls_before=ctx.call_count
-    out=await runner.says(E('grm grow',**admin),'cmd_pitfall')
-    runner.check('自动采集冷却不重复烧模型','冷却' in out and ctx.call_count==calls_before,out)
+    with patch.object(plugin,'_grow_pitfalls',new=AsyncMock(return_value='手动更新完成')) as manual_update:
+        out=await runner.says(E('grm update',**admin),'cmd_pitfall')
+    runner.check('手动更新无时间冷却',manual_update.await_args.kwargs.get('manual') is True and '手动更新完成' in out,out)
     out=await runner.says(E('grm grow',**alice),'cmd_pitfall')
     runner.check('手动生长需要管理员','管理员' in out and ctx.call_count==calls_before,out)
     out=await runner.says(E('grm growth',**alice),'cmd_pitfall')

@@ -53,8 +53,10 @@ class LifecycleTest(unittest.IsolatedAsyncioTestCase):
             event = stub.AstrMessageEvent(command, group_id='100200300', sender_id='1001')
             out = '\n'.join([item.text async for item in self.bot.cmd_pitfall(event)])
             self.assertIn('grm status', out)
-            self.assertIn('grm grow ', out)
-            self.assertIn('冷却', out)
+            self.assertIn('grm update', out)
+            self.assertNotIn('grm grow', out)
+            self.assertNotIn('retry', out)
+            self.assertIn('无时间冷却', out)
 
     def _open(self):
         self.bot._store.open_problem(self.scope, self.problem, '1001')

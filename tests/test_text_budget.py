@@ -21,7 +21,7 @@ class TextBudgetTest(unittest.TestCase):
         self.assertLessEqual(len(text), 1000)
         self.assertLessEqual(text.count('\n'), 34)
         # Every command still documented after compaction.
-        for command in ('new tags', 'sub retry', 'grm growth', 'grm grow',
+        for command in ('new tags', 'sub retry', 'grm status', 'grm update',
                         'history show', 'sol 628B', 'ver list', 'tier', 'status'):
             self.assertIn(command, text)
 
