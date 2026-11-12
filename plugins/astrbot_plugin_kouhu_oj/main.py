@@ -45,6 +45,7 @@ from astrbot.api.star import Context, Star
 try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
     from . import scoring
     from .cf_tags import chinese_aliases, parse_tag_query
+    from .image_submission import collect_submission_images, prepare_image_urls, parse_transcription, TRANSCRIPTION_SYSTEM_PROMPT
     from .review_store import ReviewStoreMixin
     from .feedback_store import FeedbackStoreMixin
     from .capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
@@ -68,6 +69,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import scoring  # type: ignore
     from cf_tags import chinese_aliases, parse_tag_query
+    from image_submission import collect_submission_images, prepare_image_urls, parse_transcription, TRANSCRIPTION_SYSTEM_PROMPT
     from review_store import ReviewStoreMixin
     from feedback_store import FeedbackStoreMixin
     from capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
@@ -87,7 +89,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.20.0"
+PLUGIN_VERSION = "0.21.0"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -233,7 +235,7 @@ def _consumes(handler):
 RE_NEW = re.compile(
     r"^\s*/?\s*new(?=$|[\s\u3000]|[\u4e00-\u9fff])\s*([^\r\n]*?)\s*$", re.I
 )
-RE_SUBMIT = re.compile(r"^\s*/?\s*(?:sub|submit)\s+([\s\S]+?)\s*$", re.I)
+RE_SUBMIT = re.compile(r"^\s*/?\s*(?:sub|submit)(?:\s+([\s\S]+?))?\s*$", re.I)
 RE_GIVEUP = re.compile(r"^\s*/?\s*giveup\s*$", re.I)
 RE_RANK = re.compile(r"^\s*/?\s*rank\s*$", re.I)
 RE_PROBLEM = re.compile(r"^\s*/?\s*(?:cur|problem)\s*$", re.I)
@@ -272,6 +274,8 @@ HELP_TEXT = """╭── 📚 口胡 OJ · 指令菜单 ──╮
 › cur · 重看当前题面与样例
 › ping · 测试当前判题模型连接与耗时
 › sub 思路 · 提交思路、伪代码或代码
+› 引用作答图片发 sub · 或图片与 sub 一起发送，先识别再判题
+› sub retry · 判题服务失败后重试已暂存的文字
 › hint 1 / 2 / 3 · 方向 / 观察 / 框架
 › giveup · 放弃全群当前正题
 
@@ -1713,8 +1717,15 @@ class KouHuOJ(Star):
         scope = self._scope_of(event)
         sender_id, sender_name = self._sender(event)
         match = RE_SUBMIT.match(event.message_str or "")
-        submission = (match.group(1) if match else "").strip()
-        if submission.lower() in ('retry','重试'):
+        submission = ((match.group(1) or "") if match else "").strip()
+        image_limit = max(1, min(3, _as_int(self.config.get('max_submission_images'), 3)))
+        try:
+            images = collect_submission_images(event, image_limit)
+        except ValueError as exc:
+            yield event.plain_result(str(exc))
+            return
+        from_image = False
+        if submission.lower() in ('retry','重试') and not images:
             saved=self._failed_submissions.get((scope,sender_id))
             active=self._store.current(scope)
             if (not saved or not active or active.get('status')!=STATUS_OPEN
@@ -1723,11 +1734,16 @@ class KouHuOJ(Star):
                 yield event.plain_result('没有可重试的当前题提交（重启、换题或题目结束后失效）。请用 sub 写下新的思路。')
                 return
             submission=saved['text']
-        if not submission:
-            yield event.plain_result("把思路写在 sub 后面，比如：sub 用哈希表存…")
+            from_image=saved.get('from_image', False)
+        if images and not self.config.get('image_submission_enabled', True):
+            yield event.plain_result('图片交题尚未开启，请用 sub 提交文字思路。')
+            return
+        if not submission and not images:
+            yield event.plain_result("把思路写在 sub 后面，或引用作答图片发 sub；也可以图片与 sub 一起发送。")
             return
 
-        limit = int(self.config.get("max_submission_chars", 2000))
+        image_chars = max(500, min(12000, _as_int(self.config.get('image_submission_max_chars'), 6000)))
+        limit = image_chars if from_image or images else int(self.config.get("max_submission_chars", 2000))
         if len(submission) > limit:
             yield event.plain_result(f"太长了，控制在 {limit} 字以内")
             return
@@ -1762,11 +1778,48 @@ class KouHuOJ(Star):
             problem = CodeforcesSource._row_to_problem(cached)   # noqa: SLF001
             cf_key = problem["cf_key"]
 
+            if images:
+                yield event.plain_result(f'正在识别 {len(images)} 张作答图片，转写完成后进行文字判题……')
+                vision_timeout = max(5, min(180, _as_int(self.config.get('image_submission_timeout_seconds'), 60)))
+                async def transcribe():
+                    provider = str(self.config.get('vision_provider_id') or '').strip() or await self._provider_id(event)
+                    if not provider:
+                        raise ValueError('没有可用的视觉模型，请配置 vision_provider_id。')
+                    image_urls = await prepare_image_urls(images)
+                    response = await self.context.llm_generate(
+                        chat_provider_id=provider,
+                        system_prompt=TRANSCRIPTION_SYSTEM_PROMPT,
+                        prompt='按图片顺序忠实转写作答。只返回规定的 JSON，不解题、不评价正误。',
+                        image_urls=image_urls,
+                    )
+                    return parse_transcription(getattr(response, 'completion_text', '') or '', image_chars)
+                try:
+                    transcript = await asyncio.wait_for(transcribe(), timeout=vision_timeout)
+                    submission = (submission + '\n\n【图片转写】\n' + transcript).strip() if submission else transcript
+                    if len(submission) > image_chars:
+                        raise ValueError(f'图片转写与补充文字合计超过 {image_chars} 字，请精简后重交。')
+                except asyncio.TimeoutError:
+                    yield event.plain_result('图片识别超时，本次不计作答。请重新引用图片发 sub，或改交文字。')
+                    return
+                except ValueError as exc:
+                    yield event.plain_result(f'图片识别未通过，本次不计作答：{exc}')
+                    return
+                except Exception as exc:
+                    logger.warning(f'[KouHuOJ] 图片转写失败：{type(exc).__name__}')
+                    yield event.plain_result('图片识别失败，本次不计作答。请确认视觉模型支持图片后重试，或改交文字。')
+                    return
+                latest = self._store.current(scope)
+                if not latest or latest['opened_at'] != current['opened_at'] or latest['status'] != STATUS_OPEN:
+                    yield event.plain_result('图片识别期间正题已结束或更换，本次不计作答')
+                    return
+                from_image = True
+                yield event.plain_result('图片转写预览（识别可能有误）：\n' + _clip(submission, 1100) + '\n\n正在按此文字判题；若识别有误，可用 sub 提交修正后的完整文字。')
+
             n = self._store.next_attempt_no(scope, cf_key, sender_id)
 
             if len(self._failed_submissions)>=256:
                 self._failed_submissions.pop(next(iter(self._failed_submissions)))
-            self._failed_submissions[(scope,sender_id)]={'cf_key':cf_key,'opened_at':current['opened_at'],'text':submission}
+            self._failed_submissions[(scope,sender_id)]={'cf_key':cf_key,'opened_at':current['opened_at'],'text':submission,'from_image':from_image}
             judge_timeout = float(self.config.get("judge_timeout_seconds", 90))
             ack_delay = float(self.config.get("judge_ack_delay_seconds", 5))
             judge_task = asyncio.create_task(
@@ -2527,7 +2580,8 @@ class KouHuOJ(Star):
             "new CF123B": "按指定CF题号派题，也支持new 123B；必须存在于CF题库，当前有开放题时需先结束，计分和首次AC规则照常",
             "new [l-r]": "new 按群档位派题；new [1200-1600] 或 new 1200-1600 按实际CF rating闭区间对所有唯一题号等概率随机抽样，允许重复且不受做题历史或缓存影响，支持800–3500；不改变群档位，无题不扩范围，仍参与群解出率统计",
             "cur": "重看当前题",
-            "sub <思路>": "提交作答",
+            "sub <思路>": "提交文字；也可引用作答图片发 sub，或当前消息图片与 sub 一起发送，可附补充文字。先视觉转写预览，再按文字判题；识别失败不计作答。仅正题支持图片。",
+            "sub retry": "判题服务失败后重试暂存文字，图片提交不重复识图；识别失败需重新发图片，重启或换轮后失效。",
             "hint 1/2/3": "当前正题的三级提示：方向、关键观察、解法框架；模型生成，群内可见，不扣分",
             "giveup": "放弃当前题",
             "rank": "积分榜",

@@ -5,6 +5,36 @@
     "hint": "留空则用当前会话的默认模型。判题和题面翻译都走这个模型，建议单独指定一个稳定且便宜的。翻译要求模型能正常处理英文题面。",
     "default": ""
   },
+  "image_submission_enabled": {
+    "description": "正题图片交题",
+    "type": "bool",
+    "hint": "允许引用图片后发送 sub，或在同一条消息中附图并发送 sub，可附文字。先转写并预览，再走原有文字判题；仅支持普通 sub，不支持 grm sub。",
+    "default": true
+  },
+  "vision_provider_id": {
+    "description": "图片作答转写模型",
+    "type": "string",
+    "hint": "留空则依次使用判题模型配置、当前会话模型。所选模型必须支持图片输入（image 模态）；只负责转写，判定仍由原有文字判题模型完成。",
+    "default": ""
+  },
+  "max_submission_images": {
+    "description": "单次图片交题张数上限",
+    "type": "int",
+    "hint": "默认 3 张，最多允许 3 张；引用消息和当前消息中的图片合并计算。",
+    "default": 3
+  },
+  "image_submission_max_chars": {
+    "description": "图片作答合并字数上限",
+    "type": "int",
+    "hint": "附带文字与图片转写合并后的总字数上限，默认 6000。超限不进入判题、不计提交次数。纯文字提交仍使用 max_submission_chars。",
+    "default": 6000
+  },
+  "image_submission_timeout_seconds": {
+    "description": "图片加载与转写总超时（秒）",
+    "type": "int",
+    "hint": "图片加载和视觉模型转写共用的总时限，默认 60 秒，不包含后续文字判题。转写失败或置信度不足不计提交次数；请补发清晰图片或改用文字。",
+    "default": 60
+  },
   "grm_growth_timeout_seconds": {
     "description": "坑点题生成与复核单阶段超时（秒）",
     "type": "int",
