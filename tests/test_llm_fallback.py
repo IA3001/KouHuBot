@@ -158,6 +158,25 @@ class FallbackTest(unittest.IsolatedAsyncioTestCase):
                                                image_urls=['image'])
         self.assertFalse(ctx.calls)
 
+    async def test_primary_gets_the_lions_share_of_the_deadline(self):
+        # 90s 预算 + 2 个备用时，主模型必须拿到 60s，而不是平均的 30s。
+        self.assertEqual(module._attempt_budget(90, 3), 60)
+        self.assertEqual(module._attempt_budget(30, 2), 15)
+        self.assertEqual(module._attempt_budget(15, 1), 15)
+        # 备用最多占一半预算，避免预算很小时主模型只剩零头。
+        self.assertEqual(module._attempt_budget(20, 3), 10)
+
+    async def test_primary_can_finish_past_an_equal_split(self):
+        ctx = Context(['backup', 'last'])
+        async def slow_but_valid():
+            await asyncio.sleep(.04)
+            return response('ok')
+        ctx.actions['primary'] = slow_but_valid
+        # 均匀分配时主模型只有 .03s，会被误杀；按新预算它有 .045s。
+        got = await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=.09)
+        self.assertEqual(got.completion_text, 'ok')
+        self.assertEqual([x[0] for x in ctx.calls], ['primary'])
+
 
 if __name__ == '__main__':
     unittest.main()

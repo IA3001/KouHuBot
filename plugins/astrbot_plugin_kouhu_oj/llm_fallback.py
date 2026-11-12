@@ -6,6 +6,22 @@ import time
 
 from astrbot.api import logger
 
+FALLBACK_RESERVE_SECONDS = 15.0   # 每个备用模型至少要有的时间
+MAX_RESERVE_FRACTION = 0.5        # 备用模型总共最多占掉一半预算
+
+
+def _attempt_budget(remaining: float, candidates_left: int) -> float:
+    """给当前候选的时间：主模型拿大头，只为后面每个备用留少量兜底时间。
+
+    平均分配会害死主模型：90 秒配 3 个模型时每人只有 30 秒，
+    实测复杂题判题要 30–60 秒，主模型本可答出却先被判超时。
+    """
+    if candidates_left <= 1:
+        return remaining
+    reserve = min(FALLBACK_RESERVE_SECONDS * (candidates_left - 1),
+                  remaining * MAX_RESERVE_FRACTION)
+    return remaining - reserve
+
 
 async def generate_with_fallback(
     context, *, event=None, chat_provider_id, timeout, validate=None, **kwargs
@@ -63,7 +79,7 @@ async def generate_with_fallback(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise asyncio.TimeoutError('Model fallback total timeout exceeded')
-        share = remaining / (len(candidates) - index)
+        share = _attempt_budget(remaining, len(candidates) - index)
         if index:
             logger.info(f'[KouHuOJ] Selecting fallback model: {provider_id}')
         started = time.monotonic()
