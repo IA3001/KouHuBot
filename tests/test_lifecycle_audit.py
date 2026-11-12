@@ -30,6 +30,18 @@ class LifecycleTest(unittest.IsolatedAsyncioTestCase):
         self.bot._cache.close()
         self.tmp.cleanup()
 
+    async def test_pitfall_draw_never_waits_for_growth(self):
+        self.bot._pitfalls = object()
+        self.bot._growth = type('Growth', (), {'state': {'last_attempt': 0}})()
+        self.bot._grow_pitfalls = AsyncMock(side_effect=AssertionError('draw must not grow'))
+        async def draw(event, arg):
+            yield event.plain_result('已从题库抽题')
+        self.bot._grammar_new = draw
+        event = stub.AstrMessageEvent('grm new', group_id='100200300', sender_id='1001')
+        out = '\n'.join([item.text async for item in self.bot.cmd_pitfall(event)])
+        self.assertEqual(out, '已从题库抽题')
+        self.bot._grow_pitfalls.assert_not_awaited()
+
     def _open(self):
         self.bot._store.open_problem(self.scope, self.problem, '1001')
         self.bot._store.note_issued(self.scope)

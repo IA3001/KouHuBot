@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.13"
+PLUGIN_VERSION = "0.21.14"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -2485,7 +2485,7 @@ class KouHuOJ(Star):
         if pitfall and pitfall.get("status") == STATUS_OPEN:
             return (
                 "现在开着的是一道坑点题，不是正题。发 grm sub 你的分析；想看答案发 grm giveup。\n"
-                "想练 CF 正题，先结束这道坑点题再发 new。"
+                "重看坑点题发 grm cur；也可以直接发 new 另开一道 CF 正题。"
             )
         return ""
 
@@ -2526,13 +2526,7 @@ class KouHuOJ(Star):
             if invalid:
                 yield event.plain_result(invalid)
                 return
-            if self.config.get('grm_auto_growth',True) and self._growth and not self._growth_lock.locked():
-                interval=max(300,_as_int(self.config.get('grm_growth_interval_seconds'),21600))
-                if time.time()-self._growth.state.get('last_attempt',0)>=interval:
-                    yield event.plain_result('🌱 正在尝试补充一道新坑点，完成后继续抽题……')
-                    grown = await self._grow_pitfalls(event, quiet=True)
-                    if grown:
-                        yield event.plain_result(grown)
+            # 自动补题由后台任务负责，抽题不等待采集、模型复核和编译验证。
             # grm new [分类] [难度]
             async for r in self._grammar_new(event, rest or ""):
                 yield r

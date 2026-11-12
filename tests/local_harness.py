@@ -652,6 +652,7 @@ async def main() -> int:
         out = await runner.says(E("grm new 浮点数", **alice), "cmd_pitfall")
         runner.check("自动采集失败不刷失败提示", "本轮自动采集未完成" not in out, out)
         runner.check("自动采集失败仍按题库作答", "还没结束" in out or "找 bug" in out, out)
+        runner.check("抽题不等待自动采集", "正在尝试补充" not in out, out)
     finally:
         plugin._grow_pitfalls = saved_grow
         plugin._growth.state['last_attempt'] = saved_attempt
