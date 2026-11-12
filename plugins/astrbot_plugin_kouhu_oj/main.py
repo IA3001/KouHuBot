@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.2"
+PLUGIN_VERSION = "0.21.3"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -461,42 +461,44 @@ def build_judge_prompt(problem: dict, submission: str) -> str:
 
 
 def _parse_verdict_by_keyword(text: str, allowed: tuple[str, ...]) -> dict | None:
-    """模型没按 JSON 输出时的兜底：从文字里找判定词。"""
-    upper = text.upper()
-    for verdict in allowed:
-        if re.search(rf"\b{verdict}\b", upper):
-            return {"verdict": verdict, "comment": text.strip()[:160]}
+    """Accept only an unambiguous standalone verdict, never a prose keyword."""
+    verdict = text.strip().upper()
+    if verdict in allowed:
+        return {"verdict": verdict, "comment": text.strip()}
     return None
 
 
 def parse_verdict(raw: str, allowed: tuple[str, ...] = JUDGE_VERDICTS) -> dict | None:
-    """从模型输出里抠出 JSON，抠不出来返回 None。"""
-    if not raw:
+    """Parse one complete JSON verdict or an exact standalone allowed value."""
+    if not isinstance(raw, str) or not raw.strip():
         return None
     text = raw.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    match = re.search(r"\{[\s\S]*\}", text)
-    if not match:
-        return _parse_verdict_by_keyword(text, allowed)
+    fence = re.fullmatch(r"```(?:json)?\s*\n?([\s\S]*?)\s*```", text, re.I)
+    if fence:
+        text = fence.group(1).strip()
+
+    def unique_fields(pairs):
+        data = {}
+        for key, value in pairs:
+            if key in data:
+                raise ValueError("Duplicate verdict field")
+            data[key] = value
+        return data
+
     try:
-        data = json.loads(match.group(0))
-    except json.JSONDecodeError:
+        data = json.loads(text, object_pairs_hook=unique_fields)
+    except (ValueError, TypeError, RecursionError):
         return _parse_verdict_by_keyword(text, allowed)
     if not isinstance(data, dict):
-        return _parse_verdict_by_keyword(text, allowed)
-
-    verdict = str(data.get("verdict") or "").strip().upper()
+        return None
+    verdict = data.get("verdict")
+    comment = data.get("comment", "")
+    if not isinstance(verdict, str) or not isinstance(comment, str):
+        return None
+    verdict = verdict.strip().upper()
     if verdict not in allowed:
-        for candidate in allowed:
-            if candidate in verdict:
-                verdict = candidate
-                break
-        else:
-            return None
-    comment = str(data.get("comment") or "").strip()
-    return {"verdict": verdict, "comment": comment}
+        return None
+    return {"verdict": verdict, "comment": comment.strip()}
 
 
 def _clip(text: str, limit: int) -> str:
@@ -1015,6 +1017,7 @@ class KouHuOJ(Star):
         self._ping_last = {}
         self._editorial_cache = {}
         self._failed_submissions = {}
+        self._image_cleanup_task = None
 
     # -- 生命周期 ------------------------------------------------------
     async def initialize(self) -> None:
@@ -1034,6 +1037,7 @@ class KouHuOJ(Star):
         self._image_dir = data_dir / "images"
         self._image_dir.mkdir(parents=True, exist_ok=True)
         self._cleanup_images()
+        self._image_cleanup_task = asyncio.create_task(self._image_cleanup_loop())
         try:
             await self._cf.refresh_catalog()
         except Exception as exc:  # noqa: BLE001
@@ -1045,6 +1049,9 @@ class KouHuOJ(Star):
 
     async def terminate(self) -> None:
         pending_tasks=[p['task'] for p in self._pending_preparations.values()]+list(self._preparation_deliveries)
+        if self._image_cleanup_task is not None:
+            pending_tasks.append(self._image_cleanup_task)
+            self._image_cleanup_task = None
         for task in pending_tasks:
             task.cancel()
         if pending_tasks:
@@ -1065,6 +1072,14 @@ class KouHuOJ(Star):
             return Path(get_astrbot_data_path()) / "plugin_data" / PLUGIN_NAME
         except Exception:  # noqa: BLE001
             return Path(__file__).resolve().parent / "data"
+
+    async def _image_cleanup_loop(self):
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                await asyncio.to_thread(self._cleanup_images)
+            except Exception as exc:
+                logger.warning(f'[KouHuOJ] Image cleanup failed: {type(exc).__name__}')
 
     def _cleanup_images(self) -> None:
         """清掉一天前的旧图，避免图片目录无限膨胀。"""
@@ -1329,11 +1344,12 @@ class KouHuOJ(Star):
             return
         except Exception:
             pass  # cmd_new consumes the failure and builds the user-facing reply.
-        if self._pending_preparations.get(scope) is not pending:
-            return  # A manual cur/new already claimed this exact task.
         try:
-            async for result in self.cmd_new(event):
-                await event.send(result)
+            async with self._lock_for('new:' + scope):
+                if self._pending_preparations.get(scope) is not pending:
+                    return  # A manual cur/new already claimed this exact task.
+                async for result in self._cmd_new(event):
+                    await event.send(result)
         except Exception as exc:
             logger.error(f'[KouHuOJ] 后台题面自动发送失败 scope={scope} type={type(exc).__name__}: {exc}；题目可用cur重发')
 
@@ -1341,6 +1357,16 @@ class KouHuOJ(Star):
     @filter.regex(RE_NEW)
     @_consumes
     async def cmd_new(self, event: AstrMessageEvent):
+        """Serialize selection and foreground delivery for each group."""
+        lock = self._lock_for('new:' + self._scope_of(event))
+        if lock.locked():
+            yield event.plain_result('本群正在准备或发送题目，请稍等；无需重复 new。')
+            return
+        async with lock:
+            async for result in self._cmd_new(event):
+                yield result
+
+    async def _cmd_new(self, event: AstrMessageEvent):
         """new [l-r] —— 按群档位或指定 CF rating 区间派题"""
         match = RE_NEW.match(event.message_str or '')
         arg = (match.group(1) or '').strip() if match else ''
@@ -1663,7 +1689,7 @@ class KouHuOJ(Star):
         async with self._lock_for("hint:" + scope):
             # 等待锁时可能已经换题，不能给新题发送旧题提示。
             latest = self._store.current(scope)
-            if not latest or latest["cf_key"] != key or latest.get("status") != STATUS_OPEN:
+            if not latest or latest["cf_key"] != key or latest.get("opened_at") != current.get("opened_at") or latest.get("status") != STATUS_OPEN:
                 yield event.plain_result("当前正题已变化，请重新发送 hint " + arg)
                 return
             hints = self._store.hints(scope, key)
@@ -1709,7 +1735,7 @@ class KouHuOJ(Star):
                     yield event.plain_result("提示生成失败，请稍后重试")
                     return
             latest = self._store.current(scope)
-            if not latest or latest["cf_key"] != key or latest.get("status") != STATUS_OPEN:
+            if not latest or latest["cf_key"] != key or latest.get("opened_at") != current.get("opened_at") or latest.get("status") != STATUS_OPEN:
                 yield event.plain_result("生成期间正题已结束或更换，本次提示不再展示")
                 return
             metadata = dict(self._cache.get(key) or {})
@@ -2299,6 +2325,9 @@ class KouHuOJ(Star):
             yield event.plain_result(hint)
             return
 
+        if category:
+            category = self._pitfalls.resolve_category(category)
+
         # 出题记忆：本群出过的先排除，出完一轮才重置。
         # 不记的话就是有放回抽样，64 条按生日问题算第 10 次左右就开始撞车，
         # 扩到 300 条也只是把撞车点推到第 24 次。
@@ -2377,8 +2406,8 @@ class KouHuOJ(Star):
         if cf_cur and cf_cur.get("status") == STATUS_OPEN:
             hint += "\n\n（正题也还开着：那道用 sub 交，别和这道混了）"
         left = self._pitfalls.count(
-            category=category, level=level
-        ) - len(self._store.used_pitfalls(scope))
+            category=category, level=level, exclude=tuple(self._store.used_pitfalls(scope))
+        )
         if left > 0:
             hint += f"\n（这个条件下还剩 {left} 道没出过）"
         yield event.plain_result(reset_note + hint)

@@ -19,6 +19,9 @@ SPEC.loader.exec_module(editorial)
 
 CONTEST = "https://codeforces.com/contest/1234"
 BLOG = "https://codeforces.com/blog/entry/5678"
+BODY = ('Sort the array, then scan its elements while maintaining the minimum prefix value. '
+        'Every optimal interval is considered when its right endpoint is visited. '
+        'Sorting costs O(n log n), and the scan uses O(n) time and O(1) extra space.')
 
 
 class FakeResponse:
@@ -81,7 +84,7 @@ class EditorialTests(unittest.TestCase):
           <p>Formula: <span class='math'>a^2 + b^2</span></p>
           <!-- secret comment --><script>bad_script()</script><style>bad_style</style>
           </div><div class='comments'><div class='ttypography'>User comment</div></div>
-          </body></html>""")
+          </body></html>""".replace('<h2>A. Heading</h2>', '<h2>A. Heading</h2><p>' + BODY + '</p>'))
         result = self.fetch(contest, blog, timeout=7)
         self.assertEqual(result["url"], BLOG)
         self.assertEqual(result["title"], "Round & Editorial")
@@ -104,15 +107,15 @@ class EditorialTests(unittest.TestCase):
             for label in ["Editorial", "tutorial", "题解", "РАЗБОР"]:
                 with self.subTest(href=href, label=label):
                     result = self.fetch(FakeResponse(f'<a href="{href}">{label}</a>'),
-                                        FakeResponse('<div class="ttypography"><p>Body</p></div>'))
-                    self.assertEqual(result, {"url": BLOG, "text": "Body", "title": ""})
+                                        FakeResponse(f'<div class="ttypography"><p>{BODY}</p></div>'))
+                    self.assertEqual(result, {"url": BLOG, "text": BODY, "title": ""})
 
     def test_prioritizes_editorial_tutorial_over_other_language_links(self):
         result = self.fetch(FakeResponse("""
             <a href='/blog/entry/10'>Разбор</a>
             <a href='/blog/entry/11'>Contest announcement</a>
             <a href='/blog/entry/5678'>Editorial</a>"""),
-            FakeResponse("<div class='ttypography'>Complete editorial</div>"))
+            FakeResponse(f"<div class='ttypography'>{BODY}</div>"))
         self.assertEqual(result["url"], BLOG)
 
     def test_no_discovered_link_returns_none_without_guessing(self):
@@ -167,8 +170,28 @@ class EditorialTests(unittest.TestCase):
     def test_existing_math_delimiters_are_not_doubled(self):
         result = self.fetch(FakeResponse("<a href='/blog/entry/5678'>Editorial</a>"),
             FakeResponse("<div class='ttypography'><span class='math'>$$$x$$$</span> "
-                         "<span class='math-tex'>y</span></div>"))
-        self.assertEqual(result["text"], "$$$x$$$ $$$y$$$")
+                         f"<span class='math-tex'>y</span><p>{BODY}</p></div>"))
+        self.assertEqual(result["text"], "$$$x$$$ $$$y$$$\n\n" + BODY)
+
+    def test_actual_loading_placeholder_is_rejected_before_model_input(self):
+        response = FakeResponse("<div class='ttypography'><p>Tutorial is loading...</p></div>")
+        with self.assertRaisesRegex(ValueError, 'placeholder'):
+            self.fetch(FakeResponse("<a href='/blog/entry/5678'>Tutorial</a>"), response)
+        self.assertTrue(response.closed)
+
+    def test_short_and_repeated_placeholder_bodies_are_rejected(self):
+        for text in ['Body', 'Complete editorial', 'A. Solution coming soon.',
+                     'Tutorial is loading... ' * 20,
+                     'Editorial will be posted later. ' * 20,
+                     '题解正在加载，请稍后再试。']:
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, 'placeholder|too short'):
+                self.fetch(FakeResponse("<a href='/blog/entry/5678'>Tutorial</a>"),
+                           FakeResponse(f"<div class='ttypography'>{text}</div>"))
+
+    def test_loading_notice_does_not_hide_a_complete_solution(self):
+        result = self.fetch(FakeResponse("<a href='/blog/entry/5678'>Tutorial</a>"),
+                            FakeResponse(f"<div class='ttypography'>Tutorial is loading...<p>{BODY}</p></div>"))
+        self.assertIn(BODY, result['text'])
 
     def test_declared_and_streamed_http_size_limits_are_errors(self):
         for response in [FakeResponse(headers={"Content-Length": "17"}),

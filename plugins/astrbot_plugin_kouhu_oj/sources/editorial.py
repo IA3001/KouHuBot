@@ -167,6 +167,16 @@ class _EditorialParser(HTMLParser):
             raise ValueError("Editorial main body is empty")
         if len(text) > MAX_TEXT_CHARS:
             raise ValueError(f"Editorial text exceeds {MAX_TEXT_CHARS} characters")
+        # Loading/announcement stubs are not official solution evidence.
+        placeholder = re.compile(
+            r'\b(?:tutorial|editorial)\s+(?:is\s+)?(?:loading|coming\s+soon|not\s+(?:yet\s+)?(?:ready|available|published))\b'
+            r'|\b(?:tutorial|editorial)\s+will\s+be\s+(?:posted|published|added)\s+(?:later|soon)\b'
+            r'|\b(?:please\s+wait|under\s+construction)\b'
+            r'|题解(?:正在加载|加载中|尚未发布|暂未发布|稍后发布)', re.I)
+        meaningful = placeholder.sub('', text)
+        meaningful = re.sub(r'[^\w\u3400-\u9fff]+', '', meaningful)
+        if len(meaningful) < 80:
+            raise ValueError('Editorial main body is a placeholder or too short to contain a solution')
         return text, " ".join("".join(self.title_parts).split())
 
 

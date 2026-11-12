@@ -174,7 +174,7 @@ def test_parse_verdict(mod) -> None:
     eq("标准 JSON", r["verdict"], "AC")
     r = mod.parse_verdict('```json\n{"verdict":"WA","comment":"错"}\n```')
     eq("带代码块围栏", r["verdict"], "WA")
-    r = mod.parse_verdict('判定结果：{"verdict":"ac","comment":"小写也行"}')
+    r = mod.parse_verdict('{"verdict":"ac","comment":"小写也行"}')
     eq("小写判定", r["verdict"], "AC")
 
     # 模型跑偏成 PARTIAL 时，算法题必须落到 WA，不能白送分
@@ -182,7 +182,7 @@ def test_parse_verdict(mod) -> None:
     check("算法题不接受 PARTIAL", r is None or r["verdict"] in mod.JUDGE_VERDICTS, str(r))
 
     r = mod.parse_verdict("我觉得这题应该是 AC 吧", mod.JUDGE_VERDICTS)
-    eq("非 JSON 兜底", r["verdict"], "AC")
+    check("含糊自然语言不计分", r is None)
     check("完全无法识别返回 None", mod.parse_verdict("？？？", mod.JUDGE_VERDICTS) is None)
 
 
@@ -714,7 +714,7 @@ def test_package_import(tmp: Path) -> None:
         eq("包加载下 normalize_tex 生效", cf.normalize_tex(r"a \le b"), r"a \leq b")
 
         main_mod = importlib.import_module("data.plugins.astrbot_plugin_kouhu_oj.main")
-        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.21.2")
+        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.21.3")
         cmds = [n for n in dir(main_mod.KouHuOJ) if n.startswith("cmd_")]
         check(f"指令齐全（{len(cmds)} 个）", len(cmds) >= 12, str(sorted(cmds)))
     finally:
