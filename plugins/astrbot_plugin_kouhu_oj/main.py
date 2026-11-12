@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.12"
+PLUGIN_VERSION = "0.21.13"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -437,7 +437,7 @@ def build_pitfall_prompt(pitfall: dict, submission: str) -> str:
 </student_answer>
 
 只输出一个 JSON 对象，不要解释、不要 markdown 代码块：
-{{"verdict": "AC 或 PARTIAL 或 WA", "comment": "两三句中文锐评，点出这个坑到底是什么"}}
+{{"verdict": "AC 或 PARTIAL 或 WA", "comment": "两三句中文锐评，点出这个坑到底是什么，总长不超过 120 字"}}
 """
 
 
@@ -603,7 +603,7 @@ def build_judge_prompt(problem: dict, submission: str, images_attached: bool = F
 </student_answer>
 
 只输出一个 JSON 对象，不要解释、不要 markdown 代码块：
-{{"verdict": "AC 或 WA", "comment": "两三句中文锐评，必须包含复杂度估算"}}
+{{"verdict": "AC 或 WA", "comment": "两三句中文锐评，必须包含复杂度估算，总长不超过 120 字"}}
 """
 
 
@@ -2124,7 +2124,7 @@ class KouHuOJ(Star):
 
             latest = self._store.current(scope)
             verdict = result["verdict"]
-            comment = result.get("comment") or ""
+            comment = _clip_text(result.get("comment") or "", 500, "…（判词较长，已截断）")
             self._failed_submissions.pop((scope,sender_id),None)
             self._store.bump_attempts(scope, sender_id)
             self._store.record_attempt(scope, cf_key, sender_id, n, verdict)
@@ -2401,6 +2401,7 @@ class KouHuOJ(Star):
             f"› 状态：{status_label}",
             "\n📚 数据统计\n━━━━━━━━━━━━━━━━",
             f"› 题面缓存：{self._cache.ready_count() if self._cache else 0} 道",
+            f"› 坑点题库：{self._pitfalls.count() if self._pitfalls else 0} 道",
             f"› 参与人数：{stats.get('参与人数', 0)} 人",
             f"› 累计 AC：{stats.get('累计 AC', 0)} 次",
         ]
@@ -2791,7 +2792,8 @@ class KouHuOJ(Star):
             yield event.plain_result("判题失败（模型没响应），重发一次试试")
             return
 
-        verdict, comment = result["verdict"], result.get("comment") or ""
+        verdict = result["verdict"]
+        comment = _clip_text(result.get("comment") or "", 500, "…（判词较长，已截断）")
         latest = self._store.current(scope)
         if not latest or latest["opened_at"] != current["opened_at"] or latest["status"] != STATUS_OPEN:
             yield event.plain_result("判题期间坑点题已结束或更换，本次不再记入")
