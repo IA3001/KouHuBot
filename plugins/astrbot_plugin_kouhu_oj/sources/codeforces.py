@@ -90,6 +90,87 @@ def _pre_text(fragment: str) -> str:
     return text.replace('\r\n','\n').strip('\n\r')
 
 
+class _LegacyMathParser(HTMLParser):
+    """Preserve legacy CF math spans and HTML indices before removing markup."""
+
+    _INDEX_CLASSES = {'upper-index': '^', 'lower-index': '_', 'sup': '^', 'sub': '_'}
+    _BLOCKS = {'p', 'div', 'li', 'ul', 'ol', 'br', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.parts = []
+        self.math = []
+        self.stack = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {'br', 'hr', 'wbr', 'img'}:
+            if self.stack:
+                self.math.append(' ')
+            elif tag == 'br':
+                self.parts.append(self.get_starttag_text())
+            return
+        classes = set((dict(attrs).get('class') or '').split())
+        index = '^' if tag == 'sup' else '_' if tag == 'sub' else next(
+            (marker for cls, marker in self._INDEX_CLASSES.items() if tag == 'span' and cls in classes), None)
+        root = not self.stack
+        if not root or (tag == 'span' and 'tex-span' in classes) or index:
+            if root:
+                self.math = []
+                if index:
+                    # An index outside tex-span must retain its base in the same formula.
+                    preceding = ''.join(self.parts)
+                    base = re.search(r'(\$\$\$([^$]+)\$\$\$|[A-Za-z0-9]+(?:\.[0-9]+)?)$', preceding)
+                    if base:
+                        self.parts = [preceding[:base.start()]]
+                        self.math.append(base.group(2) if base.group(2) is not None else base.group(0))
+            if index:
+                self.math.append(index + '{')
+            self.stack.append((tag, bool(index)))
+        elif tag in self._BLOCKS:
+            self.parts.append(self.get_starttag_text())
+
+    def handle_startendtag(self, tag, attrs):
+        if self.stack:
+            if tag == 'br':
+                self.math.append(' ')
+        elif tag in self._BLOCKS:
+            self.parts.append(self.get_starttag_text())
+
+    def handle_endtag(self, tag):
+        if self.stack:
+            if self.stack[-1][0] != tag:
+                return
+            _, index = self.stack.pop()
+            if index:
+                self.math.append('}')
+            if not self.stack:
+                tex = ''.join(self.math).strip()
+                # Use TeX operators while leaving literal prose entities untouched.
+                tex = tex.replace('≤', r'\leq ').replace('≥', r'\geq ').replace('−', '-')
+                if re.fullmatch(r'KOUHUEXISTINGTEX\d+END', tex):
+                    self.parts.append(tex)
+                else:
+                    self.parts.append(html_mod.escape('$$$' + tex + '$$$', quote=False))
+        elif tag in self._BLOCKS:
+            self.parts.append('</' + tag + '>')
+
+    def handle_data(self, data):
+        if self.stack:
+            self.math.append(data)
+        else:
+            self.parts.append(html_mod.escape(data, quote=False))
+
+    def handle_entityref(self, name):
+        entity = '&' + name + ';'
+        if self.stack:
+            self.math.append(html_mod.unescape(entity))
+        else:
+            self.parts.append(entity)
+
+    def handle_charref(self, name):
+        self.handle_entityref('#' + name)
+
+
 def _text_of(fragment: str, image_urls: list[str] | None = None) -> str:
     """把 HTML 转成文本，图片原位替换为不可变 token。"""
     if image_urls is None:
@@ -112,6 +193,16 @@ def _text_of(fragment: str, image_urls: list[str] | None = None) -> str:
         code_blocks.append(code)
         return '\n\nKOUHUPREBLOCK' + str(len(code_blocks)-1) + '\n\n'
     text = re.sub(r'<pre[^>]*>([\s\S]*?)</pre>', save_pre, fragment, flags=re.I)
+    # Existing TeX is already semantic math, so never reinterpret its angle brackets.
+    formulas = []
+    def save_formula(match):
+        formulas.append(match.group(0))
+        return 'KOUHUEXISTINGTEX' + str(len(formulas) - 1) + 'END'
+    text = _TEX_BLOCK.sub(save_formula, text)
+    parser = _LegacyMathParser()
+    parser.feed(text)
+    parser.close()
+    text = ''.join(parser.parts)
     # 块级元素变成换行
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
     text = re.sub(r"</p\s*>", "\n\n", text, flags=re.I)
@@ -135,6 +226,8 @@ def _text_of(fragment: str, image_urls: list[str] | None = None) -> str:
             if blank <= 1 and out:
                 out.append("")
     result = '\n'.join(out).strip()
+    for index, formula in enumerate(formulas):
+        result = result.replace('KOUHUEXISTINGTEX' + str(index) + 'END', html_mod.unescape(formula))
     for index, code in enumerate(code_blocks):
         result = result.replace('KOUHUPREBLOCK' + str(index), '```\n' + code + '\n```')
     return result
@@ -385,6 +478,8 @@ class CfCache:
             self._conn.execute(
                 "ALTER TABLE cf_problems ADD COLUMN sample_parser_version INTEGER DEFAULT 1"
             )
+        if "statement_parser_version" not in columns:
+            self._conn.execute("ALTER TABLE cf_problems ADD COLUMN statement_parser_version INTEGER DEFAULT 1")
         self._conn.commit()
 
     def get(self, cf_key: str) -> dict | None:
@@ -438,6 +533,8 @@ class CfCache:
                 problem.get("sample_parser_version"),
             ),
         )
+        self._conn.execute('UPDATE cf_problems SET statement_parser_version=? WHERE cf_key=?',
+                           (problem.get('statement_parser_version', 2), problem['cf_key']))
         self._conn.commit()
 
     def save_samples(self, cf_key: str, examples: list[dict[str, str]]) -> None:
@@ -726,6 +823,11 @@ class CodeforcesSource:
         """拿到一道完整可用的题（题面 + 中文译文），优先用缓存。"""
         cf_key = entry["cf_key"]
         cached = self._cache.get(cf_key)
+        if cached and cached.get('statement_parser_version', 2) < 2:
+            # Old tag stripping destroyed indices; only a fresh source can recover them.
+            cached = dict(cached)
+            cached['statement_en'] = None
+            cached['statement_cn'] = None
         if cached and cached.get("statement_en"):
             text = cached["statement_en"]
             try:
@@ -782,6 +884,7 @@ class CodeforcesSource:
                 "statement_en": statement,
                 "examples": parsed["examples"],
                 "sample_parser_version": _SAMPLE_PARSER_VERSION,
+                "statement_parser_version": 2,
                 "time_limit": parsed["time_limit"],
                 "memory_limit": parsed["memory_limit"],
                 "fetched_at": time.time(),

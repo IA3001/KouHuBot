@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.1"
+PLUGIN_VERSION = "0.21.2"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -1601,6 +1601,18 @@ class KouHuOJ(Star):
         if not cached:
             yield event.plain_result("题面缓存丢了，发 new 换一道题吧")
             return
+        if cached.get('statement_parser_version', 2) < 2:
+            yield event.plain_result('正在从原题修复旧版公式缓存，请稍等……')
+            token = self._translation_event.set(event)
+            try:
+                await self._cf.fetch(cached)
+                cached = self._cache.get(current['cf_key'])
+            except Exception as exc:
+                logger.warning(f'[KouHuOJ] 公式缓存修复失败：{type(exc).__name__}')
+                yield event.plain_result('旧题面公式修复失败，请稍后发 cur 重试；当前题目未改变。')
+                return
+            finally:
+                self._translation_event.reset(token)
         problem = CodeforcesSource._row_to_problem(cached)   # noqa: SLF001
         if cached.get('sample_parser_version',2)<2 and hasattr(self._cf,'repair_samples'):
             yield event.plain_result('正在修复旧版样例缓存的换行，请稍等……')
