@@ -152,3 +152,29 @@ class GrowthLoopTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(__import__('asyncio').CancelledError):
             await self.bot._growth_loop()
         self.assertEqual(calls, [])
+
+
+class BackgroundProviderTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.mod = stub.load_plugin(Path(self.tmp.name))
+
+    async def asyncTearDown(self):
+        self.tmp.cleanup()
+
+    async def test_background_provider_lookup_never_raises_without_a_event(self):
+        ctx = type('Context', (), {})()
+        async def get_current(umo=None):
+            return 'session-model'
+        ctx.get_current_chat_provider_id = get_current
+        bot = self.mod.KouHuOJ(ctx, {})
+        # 没有配置模型、也从没收到过消息：直接放弃本次，而不是抛异常。
+        self.assertIsNone(await bot._provider_id(None))
+        # 收到过消息之后，后台任务沿用该会话的模型。
+        bot._scope_of(stub.AstrMessageEvent('new', group_id='1', sender_id='1'))
+        self.assertEqual(await bot._provider_id(None), 'session-model')
+
+    async def test_configured_judge_model_is_used_without_any_event(self):
+        ctx = type('Context', (), {})()
+        bot = self.mod.KouHuOJ(ctx, {'judge_provider_id': 'judge-model'})
+        self.assertEqual(await bot._provider_id(None), 'judge-model')

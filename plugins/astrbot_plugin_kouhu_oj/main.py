@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.10"
+PLUGIN_VERSION = "0.21.11"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -1191,6 +1191,7 @@ class KouHuOJ(Star):
         self._failed_submissions = {}
         self._image_cleanup_task = None
         self._growth_task = None
+        self._last_umo = ""
         self._sleep = asyncio.sleep  # 测试可替换，避免真等 15 分钟
 
     # -- 生命周期 ------------------------------------------------------
@@ -1296,8 +1297,11 @@ class KouHuOJ(Star):
                 pass
 
     # -- 辅助 ----------------------------------------------------------
-    @staticmethod
-    def _scope_of(event: AstrMessageEvent) -> str:
+    def _scope_of(self, event: AstrMessageEvent) -> str:
+        # 记住最近活跃会话：后台补题没有 event，也要能拿到会话级模型配置。
+        umo = getattr(event, 'unified_msg_origin', None)
+        if umo:
+            self._last_umo = umo
         group_id = event.get_group_id()
         if group_id:
             return f"group:{group_id}"
@@ -1321,15 +1325,17 @@ class KouHuOJ(Star):
             self._judge_locks[key] = lock
         return lock
 
-    async def _provider_id(self, event: AstrMessageEvent) -> str | None:
+    async def _provider_id(self, event: AstrMessageEvent | None) -> str | None:
         provider_id = str(self.config.get("judge_provider_id") or "").strip()
         if provider_id:
             return provider_id
+        # 后台补题没有 event：用最近活跃会话的配置；也没有就放弃本次，不抛异常。
+        umo = getattr(event, 'unified_msg_origin', None) if event is not None else self._last_umo
+        if not umo:
+            return None
         try:
             # 注意：这是 async 方法，漏 await 会把协程对象当 provider_id 传下去
-            return await self.context.get_current_chat_provider_id(
-                umo=event.unified_msg_origin
-            )
+            return await self.context.get_current_chat_provider_id(umo=umo)
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[KouHuOJ] 获取当前会话模型失败：{exc}")
             return None
