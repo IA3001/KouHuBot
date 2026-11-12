@@ -42,6 +42,20 @@ class LifecycleTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out, '已从题库抽题')
         self.bot._grow_pitfalls.assert_not_awaited()
 
+    async def test_growth_status_aliases_and_help(self):
+        self.bot._pitfalls = object()
+        self.bot._growth = type('Growth', (), {'status': lambda self: '已入库：1 题'})()
+        for command in ('grm status', 'grm growth', 'grm 状态'):
+            event = stub.AstrMessageEvent(command, group_id='100200300', sender_id='1001')
+            out = '\n'.join([item.text async for item in self.bot.cmd_pitfall(event)])
+            self.assertEqual(out, '已入库：1 题')
+        for command in ('grm', 'grm help', 'grm unknown'):
+            event = stub.AstrMessageEvent(command, group_id='100200300', sender_id='1001')
+            out = '\n'.join([item.text async for item in self.bot.cmd_pitfall(event)])
+            self.assertIn('grm status', out)
+            self.assertIn('grm grow ', out)
+            self.assertIn('冷却', out)
+
     def _open(self):
         self.bot._store.open_problem(self.scope, self.problem, '1001')
         self.bot._store.note_issued(self.scope)

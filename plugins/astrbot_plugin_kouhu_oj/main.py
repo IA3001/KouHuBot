@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.14"
+PLUGIN_VERSION = "0.21.15"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -2510,12 +2510,12 @@ class KouHuOJ(Star):
         sub = (parts[0].lower() if parts else "")
         rest = (parts[1].strip() if len(parts) > 1 else "")
 
-        if sub in ('growth','生长状态'):
+        if sub in ('growth', 'status', '状态', '生长状态'):
             yield event.plain_result(self._growth.status() if self._growth else '自动题库尚未初始化')
             return
         if sub in ('grow','采集'):
             if not self._is_admin(event):
-                yield event.plain_result('🔐 grm grow 由管理员触发；grm new 会按冷却自动补充题库。')
+                yield event.plain_result('🔐 grm grow 由管理员联网补题；后台会定时尝试补题，grm status 查看结果。')
                 return
             yield event.plain_result('🌱 正在采集C++资料、整理候选并验证，稍等……')
             yield event.plain_result(await self._grow_pitfalls(event))
@@ -2531,7 +2531,7 @@ class KouHuOJ(Star):
             async for r in self._grammar_new(event, rest or ""):
                 yield r
             return
-        if sub in ("list", "分类", "目录", "help"):
+        if sub in ("list", "分类", "目录"):
             yield event.plain_result(self._grammar_catalog())
             return
         if sub in ("cur", "problem", "show", "p", "重看", "当前"):
@@ -2554,7 +2554,9 @@ class KouHuOJ(Star):
             "grm list               看有哪些分类和难度\n"
             "grm cur                重看当前这道\n"
             "grm sub 分析            提交你的分析\n"
-            "grm giveup             放弃，看答案"
+            "grm giveup             放弃，看答案\n"
+            "grm status             查看联网补题结果（也可用 grm growth）\n"
+            "grm grow               管理员联网补题，通过验证后入库（受补题冷却限制）"
         )
 
     # -- 坑点题：抽新题 -------------------------------------------------
