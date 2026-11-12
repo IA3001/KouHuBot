@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.9"
+PLUGIN_VERSION = "0.21.10"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -1190,6 +1190,8 @@ class KouHuOJ(Star):
         self._editorial_cache = {}
         self._failed_submissions = {}
         self._image_cleanup_task = None
+        self._growth_task = None
+        self._sleep = asyncio.sleep  # 测试可替换，避免真等 15 分钟
 
     # -- 生命周期 ------------------------------------------------------
     async def initialize(self) -> None:
@@ -1210,6 +1212,7 @@ class KouHuOJ(Star):
         self._image_dir.mkdir(parents=True, exist_ok=True)
         self._cleanup_images()
         self._image_cleanup_task = asyncio.create_task(self._image_cleanup_loop())
+        self._growth_task = asyncio.create_task(self._growth_loop())
         try:
             await self._cf.refresh_catalog()
         except Exception as exc:  # noqa: BLE001
@@ -1224,6 +1227,9 @@ class KouHuOJ(Star):
         if self._image_cleanup_task is not None:
             pending_tasks.append(self._image_cleanup_task)
             self._image_cleanup_task = None
+        if self._growth_task is not None:
+            pending_tasks.append(self._growth_task)
+            self._growth_task = None
         for task in pending_tasks:
             task.cancel()
         if pending_tasks:
@@ -1244,6 +1250,30 @@ class KouHuOJ(Star):
             return Path(get_astrbot_data_path()) / "plugin_data" / PLUGIN_NAME
         except Exception:  # noqa: BLE001
             return Path(__file__).resolve().parent / "data"
+
+    async def _growth_loop(self) -> None:
+        """每隔一段时间尝试补一道坑点题。
+
+        以前只有 `grm new` 才顺带触发采集，而 `grm new` 又要求上一道坑点题已经
+        结束：一道题卡住两天，题库就两天不增长。现在后台自己按冷却时间补题。
+        """
+        while True:
+            interval = max(300, _as_int(self.config.get('grm_growth_interval_seconds'), 21600))
+            # 分段睡：改配置不用重启容器，也不会因为睡太久延迟退出。
+            await self._sleep(min(interval, 900))
+            try:
+                if not bool(self.config.get('grm_auto_growth', True)):
+                    continue
+                if not self._growth or not self._pitfalls:
+                    continue
+                due = time.time() - self._growth.state.get('last_attempt', 0) >= interval
+                if not due or self._growth_lock.locked():
+                    continue
+                await self._grow_pitfalls(None, quiet=True)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f'[KouHuOJ] 后台补题失败：{type(exc).__name__}: {exc}')
 
     async def _image_cleanup_loop(self):
         while True:
@@ -2887,7 +2917,7 @@ class KouHuOJ(Star):
             "grm sub <分析>": "提交坑点题的分析",
             "grm giveup": "放弃坑点题，看答案",
             "grm list": "坑点题有哪些分类、各多少道",
-            "grm grow / grm growth": "管理员grow采集C++资料并生成复核和隔离验证一道候选，通过才入库；growth所有人可查看生长状态。grm new默认每6小时触发一次全局补题，失败不影响原题库",
+            "grm grow / grm growth": "管理员grow采集C++资料并生成复核和隔离验证一道候选，通过才入库；growth所有人可查看生长状态。后台默认每6小时自动尝试补一道题，失败不影响原题库",
             "ask <问题>": "就是现在这个自由问答",
             "help": "指令说明",
         }

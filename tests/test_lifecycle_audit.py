@@ -99,3 +99,56 @@ class LifecycleTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class GrowthLoopTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.mod = stub.load_plugin(Path(self.tmp.name))
+        self.bot = self.mod.KouHuOJ(type('Context', (), {})(), {'judge_provider_id': 'mock'})
+
+    async def asyncTearDown(self):
+        self.tmp.cleanup()
+
+    async def test_background_loop_grows_when_due(self):
+        calls = []
+
+        async def fake_sleep(_seconds):
+            if calls:
+                raise __import__('asyncio').CancelledError()
+            await __import__('asyncio').sleep(0)
+
+        async def fake_grow(event, *, quiet=False):
+            calls.append(quiet)
+            return ''
+
+        self.bot._sleep = fake_sleep
+        self.bot._grow_pitfalls = fake_grow
+        self.bot._growth = type('G', (), {'state': {'last_attempt': 0}, 'save': lambda self: None})()
+        self.bot._pitfalls = type('P', (), {'count': lambda self: 1})()
+        with self.assertRaises(__import__('asyncio').CancelledError):
+            await self.bot._growth_loop()
+        self.assertEqual(calls, [True])
+
+    async def test_background_loop_respects_auto_growth_switch(self):
+        calls = []
+        ticks = []
+
+        async def fake_sleep(_seconds):
+            ticks.append(1)
+            if len(ticks) > 2:
+                raise __import__('asyncio').CancelledError()
+            await __import__('asyncio').sleep(0)
+
+        async def fake_grow(event, *, quiet=False):
+            calls.append(quiet)
+            return ''
+
+        self.bot.config['grm_auto_growth'] = False
+        self.bot._sleep = fake_sleep
+        self.bot._grow_pitfalls = fake_grow
+        self.bot._growth = type('G', (), {'state': {'last_attempt': 0}, 'save': lambda self: None})()
+        self.bot._pitfalls = type('P', (), {'count': lambda self: 1})()
+        with self.assertRaises(__import__('asyncio').CancelledError):
+            await self.bot._growth_loop()
+        self.assertEqual(calls, [])
