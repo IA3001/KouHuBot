@@ -761,7 +761,7 @@ async def main() -> int:
     runner.check("包含当前版摘要", mod._changelog_summary(mod._load_changelog(), mod.PLUGIN_VERSION) in out, out)
     runner.check("没走大模型（省 token）", ctx.call_count == before_calls,
                  f"多调了 {ctx.call_count - before_calls} 次模型")
-    runner.check("没出现「没有相关信息」", "没有" not in out[:40], out[:80])
+    runner.check("没出现「没有相关信息」", "没有相关信息" not in out[:120], out[:120])
 
     # 问具体版本
     out = await runner.says(E("ask 0.5.5 改了什么", **alice), "cmd_ask")

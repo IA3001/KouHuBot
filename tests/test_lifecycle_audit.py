@@ -178,3 +178,14 @@ class BackgroundProviderTest(unittest.IsolatedAsyncioTestCase):
         ctx = type('Context', (), {})()
         bot = self.mod.KouHuOJ(ctx, {'judge_provider_id': 'judge-model'})
         self.assertEqual(await bot._provider_id(None), 'judge-model')
+
+    async def test_falls_back_to_global_default_provider(self):
+        ctx = type('Context', (), {})()
+        async def no_session(umo=None):
+            raise RuntimeError('no session provider')
+        ctx.get_current_chat_provider_id = no_session
+        provider = type('Provider', (), {'meta': lambda self: type('Meta', (), {'id': 'global-model'})()})()
+        ctx.get_using_provider = lambda umo=None: provider
+        bot = self.mod.KouHuOJ(ctx, {})
+        bot._scope_of(stub.AstrMessageEvent('new', group_id='1', sender_id='1'))
+        self.assertEqual(await bot._provider_id(None), 'global-model')

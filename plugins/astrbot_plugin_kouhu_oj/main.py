@@ -91,7 +91,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.11"
+PLUGIN_VERSION = "0.21.12"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -1329,16 +1329,22 @@ class KouHuOJ(Star):
         provider_id = str(self.config.get("judge_provider_id") or "").strip()
         if provider_id:
             return provider_id
-        # 后台补题没有 event：用最近活跃会话的配置；也没有就放弃本次，不抛异常。
+        # 后台补题没有 event：先看最近活跃会话，再退回全局默认对话模型。
         umo = getattr(event, 'unified_msg_origin', None) if event is not None else self._last_umo
-        if not umo:
-            return None
+        if umo:
+            try:
+                # 注意：这是 async 方法，漏 await 会把协程对象当 provider_id 传下去
+                return await self.context.get_current_chat_provider_id(umo=umo)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[KouHuOJ] 获取当前会话模型失败：{exc}")
         try:
-            # 注意：这是 async 方法，漏 await 会把协程对象当 provider_id 传下去
-            return await self.context.get_current_chat_provider_id(umo=umo)
+            provider = self.context.get_using_provider(umo=None)
+            provider_id = getattr(provider.meta(), 'id', '') if provider else ''
+            if provider_id:
+                return provider_id
         except Exception as exc:  # noqa: BLE001
-            logger.warning(f"[KouHuOJ] 获取当前会话模型失败：{exc}")
-            return None
+            logger.warning(f"[KouHuOJ] 获取默认对话模型失败：{exc}")
+        return None
 
     @filter.regex(RE_PING)
     @_consumes
