@@ -51,6 +51,7 @@ try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
     from .review_store import ReviewStoreMixin
     from .feedback_store import FeedbackStoreMixin
     from .mistake_book import MistakeBookMixin, mistakes_text
+    from .quoted_text import collect_quoted_text, QUOTE_BOT, QUOTE_OTHER, QUOTE_SELF
     from .capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
     from .render import (
         blocks_to_plain,
@@ -77,6 +78,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from review_store import ReviewStoreMixin
     from feedback_store import FeedbackStoreMixin
     from mistake_book import MistakeBookMixin, mistakes_text
+    from quoted_text import collect_quoted_text, QUOTE_BOT, QUOTE_OTHER, QUOTE_SELF
     from capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
     from render import (  # type: ignore
         blocks_to_plain,
@@ -94,7 +96,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.19"
+PLUGIN_VERSION = "0.21.20"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -368,7 +370,7 @@ HELP_TEXT = """📚 口胡 OJ · 指令菜单
 › new dp / new dp+trees · 按标签（可用中文，多标签须同时满足）
 › new tags · 完整标签与题数
 › cur · 重看当前题｜ping · 测判题模型
-› sub 思路 · 交思路/伪代码/代码｜sub retry · 判题失败后重试暂存文字
+› sub 思路 · 交思路/伪代码/代码（引用自己那条也行）｜sub retry · 判题失败重试
 › 引用图片或附图发 sub · 先转写预览再判题，最多3张
 › hint 1/2/3 · 方向/观察/框架｜giveup · 放弃全群当前题
 
@@ -2052,6 +2054,11 @@ class KouHuOJ(Star):
         sender_id, sender_name = self._sender(event)
         match = RE_SUBMIT.match(event.message_str or "")
         submission = ((match.group(1) or "") if match else "").strip()
+        # 群里更常见的姿势：先写一段分析，再引用那条消息发一个 sub。
+        # 只认自己发的消息：引用别人的等于替别人交卷。
+        quoted, quote_state = collect_quoted_text(event, sender_id)
+        if not submission and quote_state == QUOTE_SELF:
+            submission = quoted
         image_limit = max(1, min(3, _as_int(self.config.get('max_submission_images'), 3)))
         try:
             images = collect_submission_images(event, image_limit)
@@ -2073,7 +2080,21 @@ class KouHuOJ(Star):
             yield event.plain_result('图片交题尚未开启，请用 sub 提交文字思路。')
             return
         if not submission and not images:
-            yield event.plain_result("把思路写在 sub 后面，或引用作答图片发 sub；也可以图片与 sub 一起发送。")
+            if quote_state == QUOTE_OTHER:
+                yield event.plain_result(
+                    "引用的是别人发的消息，判题只认你自己写的思路。\n"
+                    "把思路写在 sub 后面，或者引用你自己那条消息再发 sub。"
+                )
+            elif quote_state == QUOTE_BOT:
+                yield event.plain_result(
+                    "引用的是机器人发的消息（题面、提示或菜单），不能当作答。\n"
+                    "把思路写在 sub 后面，或者引用你自己那条消息再发 sub。"
+                )
+            else:
+                yield event.plain_result(
+                    "把思路写在 sub 后面；也可以先发一段分析，再引用自己那条消息发 sub。\n"
+                    "作答图片同样可以引用或跟 sub 一起发。"
+                )
             return
 
         image_chars = max(500, min(12000, _as_int(self.config.get('image_submission_max_chars'), 6000)))
@@ -2896,9 +2917,16 @@ class KouHuOJ(Star):
         scope = self._scope_of(event) + GRAMMAR_SUFFIX
         sender_id, sender_name = self._sender(event)
 
+        submission = (submission or "").strip()
+        if not submission:
+            # 坑点线路同样支持「先写分析、再引用它发 grm sub」。
+            quoted, quote_state = collect_quoted_text(event, sender_id)
+            if quote_state == QUOTE_SELF:
+                submission = quoted
         if not submission:
             yield event.plain_result(
-                "把分析写在后面，比如：grm sub 这里少了标记已访问，会重复入队"
+                "把分析写在后面，比如：grm sub 这里少了标记已访问，会重复入队\n"
+                "也可以先发一段分析，再引用自己那条消息发 grm sub。"
             )
             return
 

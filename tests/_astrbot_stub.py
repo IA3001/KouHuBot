@@ -65,6 +65,7 @@ class AstrMessageEvent:
         sender_name: str = "群友",
         umo: str | None = None,
         role: str = "member",
+        messages: list | None = None,
     ) -> None:
         self.message_str = message
         self._group_id = group_id
@@ -73,8 +74,12 @@ class AstrMessageEvent:
         self.role = role
         self._umo = umo or f"qq_official:GroupMessage:{group_id}"
         self._stopped = False
+        self._messages = list(messages or [])
 
     # ---- 插件实际调用的接口 ----
+    def get_messages(self) -> list:
+        """消息段列表；引用（Reply）与图片都挂在这里。"""
+        return self._messages
     def stop_event(self) -> None:
         """吃掉这条消息，后续 handler 不再执行。
 
@@ -160,6 +165,47 @@ def install_stubs(*, data_root: Path | None = None, verbose: bool = False) -> No
         return str(resolved_root)
 
     astrbot_path.get_astrbot_data_path = get_astrbot_data_path
+
+    # ---- astrbot.core.message.components ----
+    # 引用的消息、图片都靠这几个段类型识别，桩里必须能 isinstance 判断。
+    message_mod = new_module("astrbot.core.message")
+    core.message = message_mod
+    components = new_module("astrbot.core.message.components")
+    message_mod.components = components
+
+    class BaseMessageComponent:
+        """消息段基类：只存属性。"""
+
+        def __init__(self, **kwargs) -> None:
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    class Plain(BaseMessageComponent):
+        def __init__(self, text: str = "") -> None:
+            self.text = text
+
+    class Image(BaseMessageComponent):
+        def __init__(self, file: str = "", url: str = "", path: str = "") -> None:
+            self.file, self.url, self.path = file, url, path
+
+    class At(BaseMessageComponent):
+        def __init__(self, qq: str = "") -> None:
+            self.qq = qq
+
+    class Reply(BaseMessageComponent):
+        def __init__(self, id="", chain=None, sender_id=0, sender_nickname="", time=0, message_str=""):
+            self.id = id
+            self.chain = list(chain or [])
+            self.sender_id = sender_id
+            self.sender_nickname = sender_nickname
+            self.time = time
+            self.message_str = message_str
+
+    components.BaseMessageComponent = BaseMessageComponent
+    components.Plain = Plain
+    components.Image = Image
+    components.At = At
+    components.Reply = Reply
 
 
 class _FilterProxy:

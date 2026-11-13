@@ -86,7 +86,9 @@ class ImageSubmitFlowTest(unittest.IsolatedAsyncioTestCase):
     async def test_bare_sub_is_routed_and_text_path_still_works(self):
         self.assertIsNotNone(self.mod.RE_SUBMIT.fullmatch('sub'))
         self.assertIsNone(self.mod.RE_SUBMIT.fullmatch('submarine'))
-        self.assertIn('引用作答图片', await self.submit(images=False))
+        hint = await self.submit(images=False)
+        self.assertIn('引用自己那条消息', hint)
+        self.assertIn('作答图片', hint)
         self.assertIn('WA', await self.submit('sub 扫描数组', images=False))
         self.context.llm_generate.assert_not_awaited()
 
