@@ -94,7 +94,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.18"
+PLUGIN_VERSION = "0.21.19"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -338,7 +338,9 @@ RE_HELP = _cmd_re("help")
 RE_HISTORY = _cmd_re("history", rf"(?:{_TEXT_ARG})?")
 # 错题本：只读 review 表，回答「哪些题我没做出来、该复习了」。
 # 参数顺序随便写：mistakes / mistakes due / mistakes grm 2 / 错题本 到期
-RE_MISTAKES = _cmd_re("mistakes|mistake|错题本|错题|复习", rf"(?:{_TEXT_ARG})?")
+# 别名只收不会误伤的写法：「复习」「错题」单独出现时更像提问
+# （「复习一下这道题怎么做」），一旦被当命令就会吞掉群友的正常消息。
+RE_MISTAKES = _cmd_re("mistakes|mistake|错题本", rf"(?:{_TEXT_ARG})?")
 RE_SOL = _cmd_re("sol", rf"(?:{_TEXT_ARG})?")
 RE_RULES = _cmd_re("rules|规则")
 RE_ABOUT = _cmd_re("about|自我介绍|功能介绍")
@@ -346,7 +348,12 @@ RE_HINT = _cmd_re("hint", rf"(?:{_TEXT_ARG})?")
 RE_ASK = _cmd_re("ask", rf"(?:{REQUIRED_ARG})?", tail=r"\Z")
 # 更新日志单独一条指令：ask 要过意图匹配，匹配不上就退回模型；
 # 而「想看日志」是最确定的需求，不该靠猜。
-RE_VER = _cmd_re("更新日志|changelog|version|更新|ver", rf"(?:{_TEXT_ARG})?")
+# 裸「更新」只当版本查询，后面必须跟版本号或直接结束：
+# 否则「更新一下题库」「更新了哪些东西」会被当成 ver 吞掉。
+RE_VER = _cmd_re(
+    r"更新日志|changelog|version|ver|更新(?=[\s。！？!?，,、；;：:…~～]*(?:v?\d+\.\d+\.\d+|$))",
+    rf"(?:{_TEXT_ARG})?",
+)
 RE_SKIP = _cmd_re("skip")
 RE_TIER = _cmd_re("tier", _TEXT_ARG)
 RE_STATUS = _cmd_re("status")
@@ -3319,8 +3326,14 @@ class KouHuOJ(Star):
             due_days = 3.0
         items, total = self._store.mistakes(scope, user, page, 5, due_only, due_days)
         pages = max(1, (total + 4) // 5)
+        lane = "mistakes grm" if grammar else "mistakes"
+        # 还有题没结束时 new 会被挡下，提前说明，免得群友以为重做命令坏了。
+        current = self._store.current(scope)
+        hint = ("还有一道题没结束：先 sub 交卷或 giveup，上面的重做命令才会生效。"
+                if current and current.get("status") == STATUS_OPEN else "")
         for chunk in mistakes_text(
-            items, page=min(page, pages), pages=pages, total=total, due_only=due_only
+            items, page=min(page, pages), pages=pages, total=total,
+            due_only=due_only, command=lane, hint=hint,
         ):
             yield event.plain_result(chunk)
 

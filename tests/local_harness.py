@@ -801,7 +801,11 @@ async def main() -> int:
     runner.check("翻页拿到不同版本", page2 != first and "第 2/" in page2, page2)
     def _listed(text: str) -> list[str]:
         return re.findall(r"^(\d+\.\d+\.\d+) · ", text, re.M)
-    runner.check("翻页是更早的版本", _listed(page2) and _listed(page2)[0] < _listed(first)[-1],
+    def _version_key(value: str) -> tuple[int, ...]:
+        # 版本号不能按字符串比：0.21.9 在字典序上比 0.21.10「大」。
+        return tuple(int(part) for part in value.split("."))
+    runner.check("翻页是更早的版本",
+                 _listed(page2) and _version_key(_listed(page2)[0]) < _version_key(_listed(first)[-1]),
                  f"{_listed(first)[-1]} -> {_listed(page2)[0] if _listed(page2) else '空'}")
     runner.check("列表提示下一页", "ver list 2" in first, first)
     out = await runner.says(E("ver list 99", **alice), "cmd_version")

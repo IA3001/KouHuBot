@@ -169,5 +169,24 @@ class CommandToleranceTest(unittest.IsolatedAsyncioTestCase):
             self.assertRegex(arg, r'^\[?1200-1600\]?$')
 
 
+    async def test_plain_sentences_are_not_swallowed_by_commands(self):
+        """以命令词开头的正常提问不能被当成命令吞掉。"""
+        for text in ('复习一下这道题怎么做', '错题怎么复习', '更新一下题库', '更新了哪些东西', '更新了'):
+            self.assertIsNone(self.mod.RE_MISTAKES.match(text), text)
+            self.assertIsNone(self.mod.RE_VER.match(text), text)
+
+    async def test_version_command_still_accepts_bare_and_version_arg(self):
+        for text in ('更新', '更新！', '更新 0.6.0', '更新日志 0.6.0', 'ver', '/ver list'):
+            self.assertIsNotNone(self.mod.RE_VER.match(text), text)
+        self.assertIsNone(self.mod.RE_MISTAKES.match('更新'))
+
+    async def test_mistake_book_command_accepts_its_arguments(self):
+        for text, arg in (('mistakes', ''), ('错题本 2', '2'),
+                          ('mistakes due', 'due'), ('mistakes grm 2', 'grm 2')):
+            match = self.mod.RE_MISTAKES.match(text)
+            self.assertIsNotNone(match, text)
+            self.assertEqual((match.group(1) or '').strip(), arg, text)
+
+
 if __name__ == '__main__':
     unittest.main()

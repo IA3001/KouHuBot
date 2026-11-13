@@ -252,29 +252,36 @@ def _item_block(item: dict) -> str:
     return "\n".join(lines)
 
 
-def _empty_text(due_only: bool) -> list[str]:
+def _page_command(command: str, due_only: bool) -> str:
+    """翻页命令必须带上线路与 due 限定，否则第 2 页会跳到别的册子。"""
+    base = (command or "mistakes").strip() or "mistakes"
+    return f"{base} due" if due_only else base
+
+
+def _empty_text(due_only: bool, command: str = "mistakes") -> list[str]:
+    base = (command or "mistakes").strip() or "mistakes"
     if due_only:
         return [
             "📕 错题本 · 待复习\n" + _RULE
             + "\n目前没有到期的错题，都还没到复习时间，先忙别的也行。"
-            + "\n想看全部错题：mistakes"
+            + f"\n想看全部错题：{base}"
         ]
     return [
         "📕 错题本\n" + _RULE
         + "\n目前没有待复习的错题。"
         + "\n答错或放弃的题在题目结束后会进这里，AC 之后自动移出。"
-        + "\n只看到期的：mistakes due"
+        + f"\n只看到期的：{base} due"
     ]
 
 
-def _navigation(page: int, pages: int) -> str:
+def _navigation(page: int, pages: int, command: str = "mistakes") -> str:
     parts = []
     if page < pages:
-        parts.append(f"下一页：mistakes {page + 1}")
+        parts.append(f"下一页：{command} {page + 1}")
     if page > 1:
-        parts.append(f"上一页：mistakes {page - 1}")
+        parts.append(f"上一页：{command} {page - 1}")
     if not parts:
-        return "翻页：mistakes [页码]（目前只有 1 页）"
+        return f"翻页：{command} [页码]（目前只有 1 页）"
     return "｜".join(parts)
 
 
@@ -285,19 +292,26 @@ def mistakes_text(
     pages: int,
     total: int,
     due_only: bool = False,
+    command: str = "mistakes",
+    hint: str = "",
 ) -> list[str]:
     """把一页错题渲染成纯文本块（不含 Markdown 记号）。
 
     返回的 ``list[str]`` 每个元素都是一条可直接发出的消息；条目多时按条目边界
-    切块，末尾带 ``mistakes [页码]`` 风格的翻页提示。每页 5 条时整体约 600~800 字。
+    切块，末尾带翻页提示。每页 5 条时整体约 600~800 字。
+
+    ``command`` 是不含 due 的线路命令（``mistakes`` 或 ``mistakes grm``），
+    翻页提示会据此拼出完整命令：``mistakes grm 2``、``mistakes due 2``。
+    ``hint`` 是一句可选的补充说明（例如当前还有题没结束、重做会先被挡下）。
     """
     page = _positive_int(page, 1)
     pages = max(_positive_int(pages, 1), page)
     total = _non_negative_int(total, 0)
     items = list(items or ())
+    page_cmd = _page_command(command, due_only)
 
     if not items:
-        return _empty_text(due_only)
+        return _empty_text(due_only, command)
 
     label = "错题本 · 待复习" if due_only else "错题本"
     blocks = [f"📕 {label} · {page}/{pages} 页 · 共 {total} 题\n" + _RULE]
@@ -314,9 +328,10 @@ def mistakes_text(
     if current:
         chunks.append(current)
 
-    nav = _navigation(page, pages)
-    if len(chunks[-1]) + 2 + len(nav) <= CHUNK_LIMIT:
-        chunks[-1] = f"{chunks[-1]}\n\n{nav}"
+    nav = _navigation(page, pages, page_cmd)
+    tail = f"{nav}\n{hint.strip()}" if (hint or "").strip() else nav
+    if len(chunks[-1]) + 2 + len(tail) <= CHUNK_LIMIT:
+        chunks[-1] = f"{chunks[-1]}\n\n{tail}"
     else:
-        chunks.append(nav)
+        chunks.append(tail)
     return chunks

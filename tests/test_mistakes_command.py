@@ -159,6 +159,45 @@ class MistakesCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('当时直接看了答案', out)
         self.assertNotIn('放弃时的判词', out)
 
+    async def test_paging_keeps_lane_and_due_qualifiers(self):
+        """翻页命令必须带上 grm / due，否则第 2 页会跳到别的册子。"""
+        for index, key in enumerate(('910A', '910B', '910C', '910D', '910E', '910F')):
+            self.round(key, 'WA')
+        self.bot.config['mistake_due_days'] = 0
+        due = (await self.run_cmd('mistakes due'))[0]
+        self.assertIn('下一页：mistakes due 2', due)
+        self.bot.config['mistake_due_days'] = 3
+        grammar_scope = self.scope + self.mod.GRAMMAR_SUFFIX
+        for index in range(6):
+            self.bot._store.open_problem(
+                grammar_scope, {'cf_key': self.mod.PITFALL_PREFIX + f'p{index}', 'title': '', 'points': 0}, '1001')
+            row = self.bot._store.current(grammar_scope)
+            self.bot._store.note_review(grammar_scope, row, '1001', 'x', 'WA', '错')
+            self.bot._store.close_problem(grammar_scope, 'gave_up', '1001')
+        gram = (await self.run_cmd('mistakes grm'))[0]
+        self.assertIn('下一页：mistakes grm 2', gram)
+        second = (await self.run_cmd('mistakes grm 2'))[0]
+        self.assertIn('mistakes grm 1', second)
+
+    async def test_empty_state_points_at_the_same_lane(self):
+        grammar_scope = self.scope + self.mod.GRAMMAR_SUFFIX
+        empty = (await self.run_cmd('mistakes grm due'))[0]
+        self.assertIn('mistakes grm', empty)
+        all_empty = (await self.run_cmd('mistakes grm'))[0]
+        self.assertIn('mistakes grm due', all_empty)
+
+    async def test_open_problem_blocks_redo_and_says_so(self):
+        self.round('920A', 'WA')
+        self.round('920B', 'WA', close=False)  # 这道还没结束
+        out = (await self.run_cmd('mistakes'))[0]
+        self.assertIn('920A', out)
+        self.assertNotIn('920B', out)
+        self.assertIn('先 sub 交卷或 giveup', out)
+        # 没有进行中的题时不再多嘴
+        self.bot._store.close_problem(self.scope, 'gave_up', '1001')
+        quiet = (await self.run_cmd('mistakes'))[0]
+        self.assertNotIn('先 sub 交卷或 giveup', quiet)
+
     async def test_empty_state_explains_how_to_fill_it(self):
         out = (await self.run_cmd('mistakes due'))[0]
         self.assertIn('没有到期', out)
