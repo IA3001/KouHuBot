@@ -226,9 +226,12 @@ class QuotedSubmitTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('AC', out)
         self.assertEqual(self.bot._judge.call_args.args[2], '二分答案然后 check 单调性')
 
-    async def test_inline_text_wins_over_quote(self):
+    async def test_inline_text_and_quote_both_reach_the_judge(self):
+        """两条都算：群里常见「先发草稿、再引用它补一句结论」。"""
         await self.say(self.event('sub 我自己的新思路', quoted_text='旧的思路'))
-        self.assertEqual(self.bot._judge.call_args.args[2], '我自己的新思路')
+        submitted = self.bot._judge.call_args.args[2]
+        self.assertIn('旧的思路', submitted)
+        self.assertIn('我自己的新思路', submitted)
 
     async def test_quoting_others_is_refused_with_an_explanation(self):
         out = await self.say(self.event('sub', quoted_text='别人写的思路', quoted_sender='2002'))
@@ -254,6 +257,62 @@ class QuotedSubmitTest(unittest.IsolatedAsyncioTestCase):
                              handler='_grammar_submit_once')
         self.assertIn('找到了', out)
         self.assertEqual(self.bot._judge.call_args.args[2], 'scanf 后面漏了 getchar')
+
+    async def test_quote_and_inline_text_are_judged_together(self):
+        """引用草稿 + 补一句结论，两句都得算作答，不能只判后面那半句。"""
+        out = await self.say(self.event('sub 噢我懂了，前后 ans 上限是 n-2，所以就是 3n',
+                                        quoted_text='草稿：特判 n=1；维护 ans 从 1 开始，从 i=2 问到 n'))
+        self.assertIn('AC', out)
+        submitted = self.bot._judge.call_args.args[2]
+        self.assertIn('特判 n=1', submitted)
+        self.assertIn('就是 3n', submitted)
+        self.assertLess(submitted.index('特判 n=1'), submitted.index('就是 3n'))
+
+    async def test_previous_attempts_ride_along_as_context(self):
+        """同一轮里先交过一版，再补一版：旧的当补充资料，不丢。"""
+        current = self.bot._store.current(self.scope)
+        self.bot._store.note_review(self.scope, current, '1001', '两轮各 2n，一共 4n', 'WA', '超了')
+        await self.say(self.event('sub 第二轮复用第一轮的信息，就是 3n'))
+        self.assertEqual(self.bot._judge.call_args.kwargs.get('previous'),
+                         ['两轮各 2n，一共 4n'])
+
+    async def test_previous_notes_stay_out_of_other_rounds(self):
+        current = self.bot._store.current(self.scope)
+        self.bot._store.note_review(self.scope, current, '1001', '本轮旧稿', 'WA', '')
+        notes = self.bot._round_notes(self.scope, '1001', '628B')
+        self.assertEqual(notes, ['本轮旧稿'])
+        self.assertEqual(self.bot._round_notes(self.scope, '1001', '2258C'), [])
+        self.assertEqual(self.bot._round_notes(self.scope, '2002', '628B'), [])
+        self.assertEqual(self.bot._round_notes(self.scope, '1001', '628B', exclude='本轮旧稿'), [])
+
+    async def test_previous_notes_are_capped(self):
+        current = self.bot._store.current(self.scope)
+        for text in ('第一版', '第二版', '第三版'):
+            self.bot._store.note_review(self.scope, current, '1001', text, 'WA', '')
+        notes = self.bot._round_notes(self.scope, '1001', '628B')
+        self.assertEqual(len(notes), self.mod.ROUND_NOTES_LIMIT)
+        self.assertEqual(notes[0], '第三版')      # 最新的排前面
+        self.assertNotIn('第一版', notes)
+
+    async def test_grammar_lane_also_merges_quote_and_text(self):
+        grammar_scope = self.scope + self.mod.GRAMMAR_SUFFIX
+        self.bot._store.open_problem(
+            grammar_scope, {'cf_key': self.mod.PITFALL_PREFIX + 'getchar-newline', 'title': '', 'points': 0}, '1001')
+        self.bot._judge.return_value = {'verdict': 'AC', 'comment': '抓到点了'}
+        await self.say(self.event('grm sub 就是少读了换行', quoted_text='scanf 后面没 getchar'),
+                       handler='_grammar_submit_once', submission='就是少读了换行')
+        submitted = self.bot._judge.call_args.args[2]
+        self.assertIn('scanf 后面没 getchar', submitted)
+        self.assertIn('少读了换行', submitted)
+
+    async def test_judge_prompt_carries_previous_attempts(self):
+        problem = {'statement_en': 'Find max', 'examples': [], 'time_limit': 1, 'memory_limit': 256}
+        prompt = self.mod.build_judge_prompt(problem, 'sub 就是 3n', previous=['草稿：两轮找最远点'])
+        self.assertIn('<previous_attempts>', prompt)
+        self.assertIn('两轮找最远点', prompt)
+        self.assertIn('只作参考', prompt)
+        bare = self.mod.build_judge_prompt(problem, 'sub 就是 3n')
+        self.assertNotIn('<previous_attempts>', bare)
 
     async def test_grammar_lane_hint_mentions_quoting(self):
         grammar_scope = self.scope + self.mod.GRAMMAR_SUFFIX
