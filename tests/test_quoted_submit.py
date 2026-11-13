@@ -155,6 +155,21 @@ class CollectQuotedTextTest(unittest.TestCase):
         shape = self.helpers.quote_shape(event)
         self.assertIn('msg_idx', shape) or self.assertIn('elements=', shape)
 
+    def test_adapter_dump_markers_are_cleaned(self):
+        """AstrBot 摊平引用时塞的 === 消息 1 === / [消息内容] / [关联消息] 要清掉。"""
+        _, _, Plain, Reply = components()
+        dump = ("=== 消息 1 ===\n[消息内容]  sub 就是 3n\n[消息类型] 引用消息\n"
+                "[关联消息]\n--- 第1条 ---\n    [消息内容] 草稿：特判 n=1")
+        event = stub.AstrMessageEvent('sub', sender_id='1001',
+                                      messages=[Reply(chain=[Plain(dump)], sender_id='1001')])
+        text, state = self.helpers.collect_quoted_text(event, '1001')
+        self.assertEqual(state, self.helpers.QUOTE_SELF)
+        for marker in ('=== 消息', '[消息内容]', '[消息类型]', '第1条 ---'):
+            self.assertNotIn(marker, text)
+        self.assertIn('就是 3n', text)
+        self.assertIn('特判 n=1', text)
+        self.assertIn('（引用的引用）', text)
+
     def test_no_messages_means_no_quote(self):
         event = stub.AstrMessageEvent('sub', sender_id='1001')
         self.assertEqual(self.helpers.collect_quoted_text(event, '1001'),

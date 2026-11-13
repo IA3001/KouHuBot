@@ -26,6 +26,37 @@ _BOT_MARKERS = ('口胡 OJ', '📚', '🧩', '📕', '📌', '🎯 最小反例'
                 '【这道题】', '【提示】', '【这道坑点】', '› ', '❯ ')
 
 
+import re
+
+# AstrBot 的 qq_official 适配器把引用（尤其是「引用里还有引用」）摊平成一段
+# 带标记的文字再塞进 Reply.chain：``=== 消息 1 ===``、``[消息内容]``、
+# ``[消息类型] 引用消息``、``[关联消息]``、``--- 第1条 ---``。
+# 这些标记对判题和 history 只会添乱，落库前统一清掉。
+_DUMP_HEADER = re.compile(r'^\s*===\s*消息\s*\d+\s*===\s*$', re.M)
+_DUMP_KIND = re.compile(r'^\s*\[消息类型\]\s*.*$', re.M)
+_DUMP_CONTENT = re.compile(r'^\s*\[消息内容\]\s*', re.M)
+_DUMP_ID = re.compile(r'^\s*\[消息(?:ID|id|Id)\]\s*.*$', re.M)
+_DUMP_RELATED = re.compile(r'^\s*\[关联消息\]\s*$', re.M)
+_DUMP_INDEX = re.compile(r'^\s*---\s*第\s*(\d+)\s*条\s*---\s*$', re.M)
+_BLANK_RUN = re.compile(r'\n{3,}')
+
+
+def clean_quote_dump(text: str) -> str:
+    """去掉引用摊平后留下的结构标记，只保留可读的正文。"""
+    if not text:
+        return ''
+    cleaned = _DUMP_HEADER.sub('', text)
+    cleaned = _DUMP_KIND.sub('', cleaned)
+    cleaned = _DUMP_ID.sub('', cleaned)
+    cleaned = _DUMP_CONTENT.sub('', cleaned)
+    cleaned = _DUMP_RELATED.sub('（下面是他引用的消息）', cleaned)
+    cleaned = _DUMP_INDEX.sub('（引用的引用）', cleaned)
+    lines = [line.strip() for line in cleaned.splitlines()]
+    cleaned = '\n'.join(lines)
+    cleaned = _BLANK_RUN.sub('\n\n', cleaned)
+    return cleaned.strip()
+
+
 def _component_text(component) -> str:
     """取一个消息段里的纯文本；图片、@ 等没有 text 的段返回空串。"""
     text = getattr(component, 'text', None)
@@ -175,10 +206,10 @@ def collect_quoted_text(event, sender_id, own_text: str = '') -> tuple[str, str]
         collected.append(body)
         state = QUOTE_SELF
     if collected:
-        return '\n'.join(collected).strip(), state
+        return clean_quote_dump('\n'.join(collected)), state
 
     # 适配器没把引用转成 Reply（QQ 官方群消息常见）：直接读原始载荷。
-    body = _raw_quoted_body(event, own_text)
+    body = clean_quote_dump(_raw_quoted_body(event, own_text))
     if not body:
         return '', QUOTE_NONE
     if looks_like_bot_output(body):
