@@ -204,6 +204,23 @@ class QuotedSubmitTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('机器人发的消息', out)
         self.bot._judge.assert_not_awaited()
 
+    async def test_quoted_command_word_is_not_judged(self):
+        """引用自己刚发的 help 再发 sub：是说指令，不是作答，不该烧一次判题。"""
+        out = await self.say(self.event('sub', quoted_text='help'))
+        self.assertIn('是指令，不是思路', out)
+        self.bot._judge.assert_not_awaited()
+
+    async def test_inline_command_word_is_not_judged(self):
+        out = await self.say(self.event('sub new'))
+        self.assertIn('是指令，不是思路', out)
+        self.bot._judge.assert_not_awaited()
+
+    async def test_short_but_real_analysis_still_judged(self):
+        """「暴力」不是指令词，照样要判。"""
+        out = await self.say(self.event('sub 暴力'))
+        self.assertIn('AC', out)
+        self.assertEqual(self.bot._judge.call_args.args[2], '暴力')
+
     async def test_quoted_own_analysis_is_judged(self):
         out = await self.say(self.event('sub', quoted_text='二分答案然后 check 单调性'))
         self.assertIn('AC', out)
