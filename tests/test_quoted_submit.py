@@ -121,6 +121,40 @@ class CollectQuotedTextTest(unittest.TestCase):
         self.assertNotIn('机密思路', shape)
         self.assertEqual(self.helpers.quote_shape(SimpleNamespace()), 'no-raw-data')
 
+    def test_quoted_body_inside_parallel_message(self):
+        """真实 QQ 群消息：msg_elements 只给 msg_idx，正文在 parallel_message 里。"""
+        from types import SimpleNamespace
+        _, _, _, Reply = components()
+        def event(parallel):
+            raw = SimpleNamespace(raw_data={
+                'id': 'm1', 'content': 'sub', 'message_type': 103,
+                'message_scene': {'ext': ['qq_official']},
+                'author': {'member_openid': 'X'},
+                'msg_elements': [{'message_type': 103, 'msg_idx': 0}],
+                'parallel_message': parallel,
+            })
+            return SimpleNamespace(get_messages=lambda: [Reply(id='q1', chain=[], message_str='')],
+                                   message_obj=SimpleNamespace(raw_message=raw), message_str='sub')
+
+        for parallel in ([{'content': '暴力', 'message_type': 103, 'id': 'q1'}],
+                         {'content': '暴力', 'id': 'q1'}):
+            self.assertEqual(self.helpers.collect_quoted_text(event(parallel), 'u1', 'sub'),
+                             ('暴力', self.helpers.QUOTE_SELF), parallel)
+
+    def test_parallel_message_without_body_reports_shape_only(self):
+        from types import SimpleNamespace
+        raw = SimpleNamespace(raw_data={
+            'content': 'sub', 'message_type': 103,
+            'msg_elements': [{'message_type': 103, 'msg_idx': 0}],
+            'parallel_message': [{'message_type': 103, 'id': 'q1'}],
+        })
+        event = SimpleNamespace(get_messages=lambda: [], message_obj=SimpleNamespace(raw_message=raw),
+                                message_str='sub')
+        self.assertEqual(self.helpers.collect_quoted_text(event, 'u1', 'sub'),
+                         ('', self.helpers.QUOTE_NONE))
+        shape = self.helpers.quote_shape(event)
+        self.assertIn('msg_idx', shape) or self.assertIn('elements=', shape)
+
     def test_no_messages_means_no_quote(self):
         event = stub.AstrMessageEvent('sub', sender_id='1001')
         self.assertEqual(self.helpers.collect_quoted_text(event, '1001'),

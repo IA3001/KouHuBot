@@ -65,22 +65,50 @@ def _raw_elements(event) -> list:
     return elements if isinstance(elements, list) else []
 
 
+def _walk_content(node, path: str, depth: int = 0, out: list | None = None) -> list[tuple[str, str]]:
+    """在载荷里找正文类字段（content/text），返回 (路径, 文字) 列表。
+
+    QQ 群消息的引用正文不总在 ``msg_elements[i].content``：真实事件里
+    ``msg_elements`` 只给 ``message_type`` 和 ``msg_idx``，被引用的消息本体在
+    ``parallel_message`` 里。这两种摆法都要能取到，所以按字段名递归找。
+    """
+    if out is None:
+        out = []
+    if depth > 3 or len(out) >= 8:
+        return out
+    if isinstance(node, dict):
+        for key, value in node.items():
+            child = f'{path}.{key}' if path else str(key)
+            if key in ('content', 'text') and isinstance(value, str):
+                out.append((child, value.strip()))
+            else:
+                _walk_content(value, child, depth + 1, out)
+    elif isinstance(node, list):
+        for index, item in enumerate(node[:4]):
+            _walk_content(item, f'{path}[{index}]', depth + 1, out)
+    return out
+
+
 def _raw_quoted_body(event, own_text: str) -> str:
     """从原始载荷里取出被引用消息的正文，顺带排除本条消息自己的正文。"""
+    raw = getattr(getattr(event, 'message_obj', None), 'raw_message', None)
+    data = getattr(raw, 'raw_data', None)
+    if not isinstance(data, dict):
+        return ''
     own = (own_text or '').strip()
-    parts = []
+    found: list[str] = []
     for element in _raw_elements(event):
-        content = element.get('content') if isinstance(element, dict) else None
-        if not isinstance(content, str):
-            continue
-        content = content.strip()
-        if content and content != own:
-            parts.append(content)
+        if isinstance(element, dict) and isinstance(element.get('content'), str):
+            found.append(element['content'].strip())
+    parallel = data.get('parallel_message')
+    if parallel is not None:
+        found.extend(text for _, text in _walk_content(parallel, 'parallel_message'))
+    parts = [text for text in found if text and text != own]
     return '\n'.join(parts).strip()
 
 
 def quote_shape(event) -> str:
-    """引用载荷的形状摘要（只报字段名和段数，不碰正文），排查用。"""
+    """引用载荷的形状摘要（只报字段名、路径和长度，不碰正文），排查用。"""
     raw = getattr(getattr(event, 'message_obj', None), 'raw_message', None)
     data = getattr(raw, 'raw_data', None)
     if not isinstance(data, dict):
@@ -91,7 +119,19 @@ def quote_shape(event) -> str:
     if isinstance(elements, list):
         for element in elements[:2]:
             kinds.append(','.join(sorted(element)) if isinstance(element, dict) else type(element).__name__)
-    return f"message_type={data.get('message_type')!r} keys=[{keys}] elements=[{';'.join(kinds)}]"
+    body = _raw_quoted_body(event, getattr(event, 'message_str', '') or '')
+    shape = f"message_type={data.get('message_type')!r} keys=[{keys}] elements=[{';'.join(kinds)}]"
+    if body:
+        cjk = any('\u3400' <= ch <= '\u9fff' for ch in body)
+        shape += f' 取到 len={len(body)} cjk={cjk}'
+    else:
+        hits = []
+        for path, text in _walk_content(data.get('parallel_message'), 'parallel_message'):
+            cjk = any('\u3400' <= ch <= '\u9fff' for ch in text)
+            hits.append(f'{path}:len={len(text)}:cjk={cjk}')
+        shape += f" parallel=[{';'.join(hits)}]"
+    return shape
+
 
 
 

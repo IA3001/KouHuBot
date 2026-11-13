@@ -7,6 +7,18 @@
 
 ---
 
+## 0.21.22
+
+摘要：引用正文再往前一步——QQ 群消息把它放在 parallel_message 里。
+
+- 真实群消息的引用载荷里，msg_elements 只有 message_type 和 msg_idx，正文放在 parallel_message：
+  引用正文既不在 msg_elements，也没有 message_reference，所以在上一版读原始载荷后仍然是空。
+  现在按字段名递归查找 content/text，parallel_message 是列表还是对象都能取到。
+- 仍然排除本条消息自己的正文、机器人自己的输出（题面/提示/菜单）。
+- 取不到时日志里会写出 parallel_message 里的字段路径与长度（不含正文），据此可以继续定位。
+
+---
+
 ## 0.21.21
 
 摘要：修好引用提交在 QQ 官方机器人上不生效。
