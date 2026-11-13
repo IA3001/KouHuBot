@@ -189,6 +189,40 @@ class CollectQuotedTextTest(unittest.TestCase):
         self.assertEqual(self.helpers.collect_quoted_text(event, '1001')[0],
                          '答案就是 sub 后面那句的复杂度')
 
+    def test_nested_quote_levels_get_nested_markers(self):
+        """引用套引用：层级用 > 的个数表示，不写旁白。"""
+        _, _, Plain, Reply = components()
+        dump = ("=== 消息 1 ===\n[消息内容] 三层的外层\n[消息类型] 引用消息\n[关联消息]\n"
+                "--- 第1条 ---\n    [消息内容] 三层的中间\n    [消息类型] 引用消息\n    [关联消息]\n"
+                "    --- 第1条 ---\n        [消息内容] 三层的最内")
+        event = stub.AstrMessageEvent('sub', sender_id='1001',
+                                      messages=[Reply(chain=[Plain(dump)], sender_id='1001')])
+        markup, state = self.helpers.collect_quoted_markup(event, '1001')
+        self.assertEqual(state, self.helpers.QUOTE_SELF)
+        self.assertEqual(markup.splitlines(), [
+            '> 三层的外层',
+            '>',
+            '> > 三层的中间',
+            '>',
+            '> > > 三层的最内',
+        ])
+
+    def test_quote_depth_is_capped(self):
+        """再深的引用也不无限缩进，前缀最多 QUOTE_MAX_DEPTH 个。"""
+        blocks = [(0, 'a'), (1, 'b'), (5, 'c')]
+        markup = self.helpers.render_markup(blocks)
+        deepest = markup.splitlines()[-1]
+        self.assertEqual(deepest, '> ' * self.helpers.QUOTE_MAX_DEPTH + 'c')
+
+    def test_multiple_quoted_messages_are_siblings(self):
+        _, _, Plain, Reply = components()
+        dump = ("=== 消息 1 ===\n[消息内容] 第一条\n"
+                "=== 消息 2 ===\n[消息内容] 第二条")
+        event = stub.AstrMessageEvent('sub', sender_id='1001',
+                                      messages=[Reply(chain=[Plain(dump)], sender_id='1001')])
+        markup, _ = self.helpers.collect_quoted_markup(event, '1001')
+        self.assertEqual(markup.splitlines(), ['> 第一条', '>', '> 第二条'])
+
     def test_no_messages_means_no_quote(self):
         event = stub.AstrMessageEvent('sub', sender_id='1001')
         self.assertEqual(self.helpers.collect_quoted_text(event, '1001'),
@@ -258,7 +292,8 @@ class QuotedSubmitTest(unittest.IsolatedAsyncioTestCase):
     async def test_quoted_own_analysis_is_judged(self):
         out = await self.say(self.event('sub', quoted_text='二分答案然后 check 单调性'))
         self.assertIn('AC', out)
-        self.assertEqual(self.bot._judge.call_args.args[2], '二分答案然后 check 单调性')
+        # 送进判题的是规范引用格式：被引用的内容带一个 > 前缀。
+        self.assertEqual(self.bot._judge.call_args.args[2], '> 二分答案然后 check 单调性')
 
     async def test_inline_text_and_quote_both_reach_the_judge(self):
         """两条都算：群里常见「先发草稿、再引用它补一句结论」。"""
@@ -290,7 +325,7 @@ class QuotedSubmitTest(unittest.IsolatedAsyncioTestCase):
         out = await self.say(self.event('grm sub', quoted_text='scanf 后面漏了 getchar'),
                              handler='_grammar_submit_once')
         self.assertIn('找到了', out)
-        self.assertEqual(self.bot._judge.call_args.args[2], 'scanf 后面漏了 getchar')
+        self.assertEqual(self.bot._judge.call_args.args[2], '> scanf 后面漏了 getchar')
 
     async def test_quote_and_inline_text_are_judged_together(self):
         """引用草稿 + 补一句结论，两句都得算作答，不能只判后面那半句。"""
@@ -354,6 +389,12 @@ class QuotedSubmitTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('只作参考', prompt)
         bare = self.mod.build_judge_prompt(problem, 'sub 就是 3n')
         self.assertNotIn('<previous_attempts>', bare)
+
+    async def test_judge_prompt_explains_the_quote_markers(self):
+        problem = {'statement_en': 'Find max', 'examples': [], 'time_limit': 1, 'memory_limit': 256}
+        prompt = self.mod.build_judge_prompt(problem, '> 旧的思路\n\n新的结论')
+        self.assertIn('> >', prompt)
+        self.assertIn('不带 > 的是他这次写的', prompt)
 
     async def test_grammar_lane_hint_mentions_quoting(self):
         grammar_scope = self.scope + self.mod.GRAMMAR_SUFFIX

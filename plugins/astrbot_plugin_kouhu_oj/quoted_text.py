@@ -41,28 +41,81 @@ _DUMP_INDEX = re.compile(r'^\s*---\s*第\s*(\d+)\s*条\s*---\s*$', re.M)
 _BLANK_RUN = re.compile(r'\n{3,}')
 # 被引用的旧消息是一条完整指令时，行首的 sub / grm sub 是命令本身，不是作答内容。
 _LEADING_COMMAND = re.compile(r'^\s*(?:grm\s+)?(?:sub|submit)(?![A-Za-z])[\s:：,，、]*', re.I)
+QUOTE_MAX_DEPTH = 4          # 引用最多标四层，再深也不加前缀，免得整段缩进
+
+
+def parse_quote_blocks(text: str) -> list[tuple[int, str]]:
+    """把适配器摊平的引用解析成 [(层级, 正文)]，层级 0 就是被引用的那条。
+
+    适配器给的是一段带标记的文字：``=== 消息 1 ===`` 分出每条消息，
+    ``[消息内容]`` 后面是正文，``[关联消息]`` 后面是它自己引用过的消息，
+    每条用 ``--- 第N条 ---`` 起头。引用越深，层级越大。
+    """
+    if not text:
+        return []
+    blocks: list[list] = []      # [[层级, [行, ...]], ...]
+    depth = 0
+    child_depth = None
+    force_new = False            # 上一条消息结束后必须另起一块，哪怕层级相同
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if _DUMP_HEADER.match(line):
+            depth, child_depth = 0, None
+            force_new = True
+            continue
+        if _DUMP_KIND.match(line) or _DUMP_ID.match(line):
+            continue
+        if _DUMP_RELATED.match(line):
+            # 后面 ``--- 第N条 ---`` 起头的是这一条的下一层
+            child_depth = depth + 1
+            continue
+        if _DUMP_INDEX.match(line):
+            if child_depth is None:
+                child_depth = depth + 1
+            depth = child_depth
+            force_new = True
+            continue
+        match = _DUMP_CONTENT.match(line)
+        content = line[match.end():].strip() if match else line
+        if not content:
+            continue
+        if blocks and blocks[-1][0] == depth and not force_new:
+            blocks[-1][1].append(content)
+        else:
+            blocks.append([depth, [content]])
+            force_new = False
+
+    parsed: list[tuple[int, str]] = []
+    for depth, lines in blocks:
+        lines[0] = _LEADING_COMMAND.sub('', lines[0]).strip() or lines[0]
+        parsed.append((depth, '\n'.join(lines)))
+    return parsed
+
+
+def render_plain(blocks: list[tuple[int, str]]) -> str:
+    """纯文本：各层按顺序用空行隔开，不带任何符号。给「判断文字内容」的地方用。"""
+    return '\n\n'.join(text for _, text in blocks if text.strip()).strip()
+
+
+def render_markup(blocks: list[tuple[int, str]]) -> str:
+    """规范引用格式（Markdown）：第 0 层一个 ``>``，第 1 层 ``> >``，条间留一个 ``>`` 空行。
+
+    用通用符号而不是「（下面是他引用的消息）」这类旁白：这是作答，不是解说。
+    """
+    rendered: list[str] = []
+    for depth, text in blocks:
+        if not text.strip():
+            continue
+        prefix = '> ' * min(depth + 1, QUOTE_MAX_DEPTH)
+        rendered.append('\n'.join((prefix + line).rstrip() for line in text.splitlines()))
+    return '\n>\n'.join(rendered).strip()
 
 
 def clean_quote_dump(text: str) -> str:
-    """去掉引用摊平后留下的结构标记，只保留可读的正文。"""
-    if not text:
-        return ''
-    cleaned = _DUMP_HEADER.sub('', text)
-    cleaned = _DUMP_KIND.sub('', cleaned)
-    cleaned = _DUMP_ID.sub('', cleaned)
-    cleaned = _DUMP_CONTENT.sub('', cleaned)
-    # 只删标记，不往正文里塞说明文字：这些是作答，不是给评委看的旁白。
-    cleaned = _DUMP_RELATED.sub('', cleaned)
-    cleaned = _DUMP_INDEX.sub('', cleaned)
-    lines = [line.strip() for line in cleaned.splitlines()]
-    cleaned = _BLANK_RUN.sub('\n\n', '\n'.join(lines))
-    # 每段（空行分隔）开头如果是指令词，剥掉它，只留内容。
-    paragraphs = []
-    for paragraph in cleaned.split('\n\n'):
-        paragraph = _LEADING_COMMAND.sub('', paragraph).strip()
-        if paragraph:
-            paragraphs.append(paragraph)
-    return '\n\n'.join(paragraphs).strip()
+    """把带标记的引用摊平后清成纯文本（不含引用符号）。"""
+    return render_plain(parse_quote_blocks(text))
 
 
 def _component_text(component) -> str:
@@ -128,12 +181,12 @@ def _walk_content(node, path: str, depth: int = 0, out: list | None = None) -> l
     return out
 
 
-def _raw_quoted_body(event, own_text: str) -> str:
-    """从原始载荷里取出被引用消息的正文，顺带排除本条消息自己的正文。"""
+def _raw_quoted_texts(event, own_text: str) -> list[str]:
+    """从原始载荷里取出被引用消息的正文（可能多条），排除本条消息自己的正文。"""
     raw = getattr(getattr(event, 'message_obj', None), 'raw_message', None)
     data = getattr(raw, 'raw_data', None)
     if not isinstance(data, dict):
-        return ''
+        return []
     own = (own_text or '').strip()
     found: list[str] = []
     for element in _raw_elements(event):
@@ -142,8 +195,7 @@ def _raw_quoted_body(event, own_text: str) -> str:
     parallel = data.get('parallel_message')
     if parallel is not None:
         found.extend(text for _, text in _walk_content(parallel, 'parallel_message'))
-    parts = [text for text in found if text and text != own]
-    return '\n'.join(parts).strip()
+    return [text for text in found if text and text != own]
 
 
 def quote_shape(event) -> str:
@@ -158,7 +210,7 @@ def quote_shape(event) -> str:
     if isinstance(elements, list):
         for element in elements[:2]:
             kinds.append(','.join(sorted(element)) if isinstance(element, dict) else type(element).__name__)
-    body = _raw_quoted_body(event, getattr(event, 'message_str', '') or '')
+    body = '\n'.join(_raw_quoted_texts(event, getattr(event, 'message_str', '') or ''))
     shape = f"message_type={data.get('message_type')!r} keys=[{keys}] elements=[{';'.join(kinds)}]"
     if body:
         cjk = any('\u3400' <= ch <= '\u9fff' for ch in body)
@@ -174,8 +226,8 @@ def quote_shape(event) -> str:
 
 
 
-def collect_quoted_text(event, sender_id, own_text: str = '') -> tuple[str, str]:
-    """收集被引用消息里的文字。
+def collect_quoted_blocks(event, sender_id, own_text: str = '') -> tuple[list[tuple[int, str]], str]:
+    """收集被引用消息里的文字，按引用层级返回 [(层级, 正文)]。
 
     Args:
         event: AstrBot 事件，暴露 ``get_messages()``。
@@ -183,12 +235,12 @@ def collect_quoted_text(event, sender_id, own_text: str = '') -> tuple[str, str]
         own_text: 本条消息自己的正文，用来在原始载荷里排除它自己。
 
     Returns:
-        ``(文字, 情况)``。情况为 ``''``（没引用文字）、``'self'``（可用）、
+        ``(层级块, 情况)``。情况为 ``''``（没引用文字）、``'self'``（可用）、
         ``'other'``（引用了明确是别人的消息）、``'bot'``（引用了机器人自己的输出）。
-        只看浅层引用，嵌套引用一律忽略，和图片收集保持同样的深度。
+        层级 0 是被引用的那条，1 是它引用的，以此类推；多选引用会有多个 0。
     """
     messages = getattr(event, 'get_messages', lambda: [])() or []
-    collected: list[str] = []
+    blocks: list[tuple[int, str]] = []
     state = QUOTE_NONE
     try:
         from astrbot.core.message.components import Reply
@@ -205,21 +257,34 @@ def collect_quoted_text(event, sender_id, own_text: str = '') -> tuple[str, str]
         author = str(getattr(message, 'sender_id', '') or '').strip().lower()
         if author in _UNKNOWN_AUTHORS:
             if looks_like_bot_output(body):
-                return '', QUOTE_BOT
-            collected.append(body)
+                return [], QUOTE_BOT
+            blocks.extend(parse_quote_blocks(body))
             state = QUOTE_SELF
             continue
         if author != owner:
-            return '', QUOTE_OTHER
-        collected.append(body)
+            return [], QUOTE_OTHER
+        blocks.extend(parse_quote_blocks(body))
         state = QUOTE_SELF
-    if collected:
-        return clean_quote_dump('\n'.join(collected)), state
+    if blocks:
+        return blocks, state
 
     # 适配器没把引用转成 Reply（QQ 官方群消息常见）：直接读原始载荷。
-    body = clean_quote_dump(_raw_quoted_body(event, own_text))
-    if not body:
-        return '', QUOTE_NONE
-    if looks_like_bot_output(body):
-        return '', QUOTE_BOT
-    return body, QUOTE_SELF
+    texts = _raw_quoted_texts(event, own_text)
+    plain = '\n'.join(texts)
+    if not plain.strip():
+        return [], QUOTE_NONE
+    if looks_like_bot_output(plain):
+        return [], QUOTE_BOT
+    return [(0, text) for text in texts], QUOTE_SELF
+
+
+def collect_quoted_text(event, sender_id, own_text: str = '') -> tuple[str, str]:
+    """只取纯文字（不带引用符号），用于判断内容：是不是指令词、多长、有没有内容。"""
+    blocks, state = collect_quoted_blocks(event, sender_id, own_text)
+    return render_plain(blocks), state
+
+
+def collect_quoted_markup(event, sender_id, own_text: str = '') -> tuple[str, str]:
+    """取带规范引用符号的版本（> / > >），用于送给评委和落库。"""
+    blocks, state = collect_quoted_blocks(event, sender_id, own_text)
+    return render_markup(blocks), state
