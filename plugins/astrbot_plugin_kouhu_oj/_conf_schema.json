@@ -64,6 +64,12 @@
     "type": "int",
     "default": 10
   },
+  "mistake_due_days": {
+    "description": "错题本复习间隔（天）",
+    "type": "float",
+    "hint": "一道没做出来的题，隔多少天算「该复习」。默认 3 天；设 0 表示每道错题都随时算到期。只影响 mistakes 的到期提醒与排序，不影响抽题和计分。",
+    "default": 3
+  },
   "image_width": {
     "description": "题目图片宽度（像素）",
     "type": "int",

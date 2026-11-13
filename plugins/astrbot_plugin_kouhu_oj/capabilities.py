@@ -58,7 +58,7 @@ INTRO_TEXT = """我是口胡 OJ：群里练算法、判思路、找 C++ 代码�
 ② 提示：hint 1 方向、hint 2 关键观察、hint 3 解法框架，群内可见、不扣分。
 ③ 坑点题：grm new 抽题，grm sub 交分析，grm giveup 看答案；与正题独立、不计分，资料整理并验证后才入库。
 ④ 积分：rank 群榜，me 个人战绩；答对加分、答错不扣分，同题只计首次 AC。
-⑤ 复盘：history 看历史、history show 628B 看作答与判词、sol 看官方题解整理。
+⑤ 复盘：history 看历史、history show 628B 看作答与判词、mistakes 错题本看该重做的题、sol 看官方题解整理。
 ⑥ 规则与更新：rules 计分与升降档，ask 问答，ver 看更新、ver list 看历版，help 完整指令。
 
 模型判题和提示可能出错；目前没有代码评测沙箱；个人训练和周月榜还在计划中。

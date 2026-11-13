@@ -16,6 +16,7 @@ _ENTRY_SELECT = """
     FROM review_entries AS e
     JOIN review_rounds AS r ON r.id = e.round_id
 """
+# e.* 自动带出 review_entries 的全部列，新增的 counterexample 无需改这里。
 
 
 class ReviewStoreMixin:
@@ -45,6 +46,7 @@ class ReviewStoreMixin:
                 comment TEXT NOT NULL,
                 points INTEGER NOT NULL DEFAULT 0,
                 hint_level INTEGER NOT NULL DEFAULT 0,
+                counterexample TEXT NOT NULL DEFAULT '',
                 at REAL NOT NULL
             )""",
             """CREATE TABLE IF NOT EXISTS review_hint_uses (
@@ -67,6 +69,12 @@ class ReviewStoreMixin:
         with self._conn:
             for statement in statements:
                 self._conn.execute(statement)
+            # 老库只加列：不重建表、不改 PRAGMA user_version，重复执行也安全。
+            columns = {row[1] for row in self._conn.execute("PRAGMA table_info(review_entries)")}
+            if "counterexample" not in columns:
+                self._conn.execute(
+                    "ALTER TABLE review_entries ADD COLUMN counterexample TEXT NOT NULL DEFAULT ''"
+                )
 
     def import_legacy_reviews(self) -> None:
         """旧版没有保存作答和判词，只导入原有判定，不伪造缺失内容。"""
@@ -124,9 +132,13 @@ class ReviewStoreMixin:
 
     def note_review(
         self, scope: str, current: dict, user_id: str, submission: str,
-        verdict: str, comment: str, points: int = 0,
+        verdict: str, comment: str, points: int = 0, counterexample: str = "",
     ) -> int:
-        """Persist an attempt with the user's maximum hint level at its time."""
+        """Persist an attempt with the user's maximum hint level at its time.
+
+        ``counterexample`` is optional: old call sites keep working and simply
+        store an empty string.
+        """
         now = time.time()
         with self._conn:
             round_id = self._ensure_review_round(scope, current)
@@ -138,10 +150,10 @@ class ReviewStoreMixin:
             cursor = self._conn.execute(
                 """INSERT INTO review_entries
                     (round_id, user_id, submission, verdict, comment,
-                     points, hint_level, at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                     points, hint_level, counterexample, at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (round_id, user_id, submission, verdict, comment,
-                 points, hint_level, now),
+                 points, hint_level, counterexample or "", now),
             )
             return int(cursor.lastrowid)
 

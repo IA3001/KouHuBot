@@ -20,7 +20,7 @@ class StrictVerdictTest(unittest.TestCase):
         for verdict in ('AC', 'WA'):
             with self.subTest(verdict=verdict):
                 self.assertEqual(self.mod.parse_verdict('{"verdict":"' + verdict.lower() + '","comment":"评语"}'),
-                                 {'verdict': verdict, 'comment': '评语'})
+                                 {'verdict': verdict, 'comment': '评语', 'counterexample': ''})
         self.assertEqual(self.mod.parse_verdict('```json\n{"verdict":"AC","comment":"正确"}\n```')['verdict'], 'AC')
         self.assertEqual(self.mod.parse_verdict('{"verdict":"PARTIAL","comment":"还差一步"}', self.mod.PITFALL_VERDICTS)['verdict'], 'PARTIAL')
         self.assertIsNone(self.mod.parse_verdict('{"verdict":"PARTIAL"}', self.mod.JUDGE_VERDICTS))

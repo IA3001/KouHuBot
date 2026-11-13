@@ -32,6 +32,9 @@
 | `history show 628B [记录页]` | 按题号分页查看历史作答记录 |
 | `history show 提交编号 [内容页]` | 按提交编号分页查看完整作答与判词 |
 | `history grm show 提交编号 [内容页]` | 坑点历史使用同样的分页方式，在 `history` 后加 `grm` |
+| `mistakes [due] [grm] [页码]` | 错题本：答错或放弃、还没 AC 的题，最久没管的排最前 |
+| `mistakes due` | 只看超过复习间隔（默认 3 天）的错题 |
+| `mistakes grm` | 坑点线路的错题本，与 CF 正题分开 |
 | `sol` / `sol 628B` | 查看已结束题目的解析 |
 | `rank [页码]` / `me` | 本群积分榜分页 / 我的战绩 |
 | `tier` | 查看群难度档 |
@@ -63,6 +66,7 @@ CF 正题来自 Codeforces，题面抓取、翻译成功后缓存到本地。正
 | `new_cooldown_seconds` | 5 | 同群派题冷却秒数 |
 | `tags_cooldown_seconds` | 10 | 标签列表冷却秒数 |
 | `leaderboard_size` | 10 | 排行榜显示人数 |
+| `mistake_due_days` | 3 | 错题本多久算「该复习」，0 表示随到随复习 |
 | `image_width` | 900 | 图片宽度 |
 | `fetch_timeout_seconds` | 40 | CF 抓取超时秒数 |
 | `prepare_timeout_seconds` | 60 | 题面准备总时限 |
