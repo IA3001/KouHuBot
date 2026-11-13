@@ -291,6 +291,13 @@ class QuotedSubmitTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.bot._judge.call_args.kwargs.get('previous'),
                          ['两轮各 2n，一共 4n'])
 
+    async def test_previous_notes_skip_what_the_quote_already_brought(self):
+        """引用链里已经摊平了上一版，就别在「本轮此前提交」里再来一遍。"""
+        current = self.bot._store.current(self.scope)
+        self.bot._store.note_review(self.scope, current, '1001', '上一版：两轮各 2n', 'WA', '')
+        await self.say(self.event('sub', quoted_text='上一版：两轮各 2n 加上新结论就是 3n'))
+        self.assertEqual(self.bot._judge.call_args.kwargs.get('previous'), [])
+
     async def test_previous_notes_stay_out_of_other_rounds(self):
         current = self.bot._store.current(self.scope)
         self.bot._store.note_review(self.scope, current, '1001', '本轮旧稿', 'WA', '')

@@ -96,7 +96,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.26"
+PLUGIN_VERSION = "0.21.27"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -3123,7 +3123,9 @@ class KouHuOJ(Star):
             if str(row.get('status') or '') != STATUS_OPEN:
                 continue
             text = str(row.get('submission') or '').strip()
-            if not text or text == skip or text in notes:
+            # 引用链里可能已经把这段摊平进来了（引用上一版再补一句很常见），
+            # 再塞进「本轮此前的提交」只会重复占字数，所以整段包含也算重复。
+            if not text or text in notes or (skip and text in skip):
                 continue
             notes.append(text)
             if len(notes) >= ROUND_NOTES_LIMIT:
