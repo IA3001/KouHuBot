@@ -478,6 +478,14 @@ async def main() -> int:
     out = await runner.says(E(f"history show {review_id}", **alice), "cmd_history")
     runner.check("开放题历史不提前回放判词", "结束后" in out, out)
 
+    snap_open = plugin._status_snapshot(scope, '1001')
+    cur_ctx = snap_open['本群当前题目']
+    runner.check('ask题没结束也能拿到题面', '题面' in cur_ctx and len(cur_ctx['题面']) > 10, str(cur_ctx)[:160])
+    runner.check('ask题没结束不泄题号题名', first_key not in json.dumps(cur_ctx, ensure_ascii=False), first_key)
+    runner.check('ask带上提问者刚交的作答', cur_ctx.get('提问者在这道题上的最近一次提交', {}).get('判定') == 'WA', str(cur_ctx)[:160])
+    runner.check('ask不带别人的作答', '提问者在这道题上的最近一次提交' not in
+                 plugin._status_snapshot(scope, '1002')['本群当前题目'], '1002 没交过')
+
     # ---------- 7. AC 计分 ----------
     banner("7. submit 判 AC：加分、揭晓题号、关闭题目")
     runner.judge("AC")
