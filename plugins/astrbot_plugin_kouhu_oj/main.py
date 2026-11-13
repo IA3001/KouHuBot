@@ -51,7 +51,7 @@ try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
     from .review_store import ReviewStoreMixin
     from .feedback_store import FeedbackStoreMixin
     from .mistake_book import MistakeBookMixin, mistakes_text
-    from .quoted_text import collect_quoted_text, QUOTE_BOT, QUOTE_OTHER, QUOTE_SELF
+    from .quoted_text import collect_quoted_text, quote_shape, QUOTE_BOT, QUOTE_NONE, QUOTE_OTHER, QUOTE_SELF
     from .capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
     from .render import (
         blocks_to_plain,
@@ -78,7 +78,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from review_store import ReviewStoreMixin
     from feedback_store import FeedbackStoreMixin
     from mistake_book import MistakeBookMixin, mistakes_text
-    from quoted_text import collect_quoted_text, QUOTE_BOT, QUOTE_OTHER, QUOTE_SELF
+    from quoted_text import collect_quoted_text, quote_shape, QUOTE_BOT, QUOTE_NONE, QUOTE_OTHER, QUOTE_SELF
     from capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
     from render import (  # type: ignore
         blocks_to_plain,
@@ -96,7 +96,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.20"
+PLUGIN_VERSION = "0.21.21"
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -2056,9 +2056,14 @@ class KouHuOJ(Star):
         submission = ((match.group(1) or "") if match else "").strip()
         # 群里更常见的姿势：先写一段分析，再引用那条消息发一个 sub。
         # 只认自己发的消息：引用别人的等于替别人交卷。
-        quoted, quote_state = collect_quoted_text(event, sender_id)
+        quoted, quote_state = collect_quoted_text(event, sender_id, event.message_str or "")
         if not submission and quote_state == QUOTE_SELF:
             submission = quoted
+        if not submission and quote_state == QUOTE_NONE:
+            # 引用载荷的形状只在排查时需要，绝不记录用户正文。
+            shape = quote_shape(event)
+            if 'no-raw-data' not in shape:
+                logger.info(f'[KouHuOJ] sub 未取到引用正文：{shape}')
         image_limit = max(1, min(3, _as_int(self.config.get('max_submission_images'), 3)))
         try:
             images = collect_submission_images(event, image_limit)

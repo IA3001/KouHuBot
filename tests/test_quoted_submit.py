@@ -82,6 +82,45 @@ class CollectQuotedTextTest(unittest.TestCase):
             self.assertEqual(self.helpers.collect_quoted_text(event, '1001'),
                              ('', self.helpers.QUOTE_BOT), text)
 
+    def test_raw_payload_fallback_when_adapter_skips_the_quote(self):
+        """真实群消息里 msg_elements 有正文但 message_type 不给 103，适配器会丢掉它。"""
+        from types import SimpleNamespace
+        raw = SimpleNamespace(raw_data={
+            'id': 'm1', 'content': 'sub',
+            'message_reference': {'message_id': 'q1'},
+            'msg_elements': [{'content': '暴力枚举所有点对', 'message_type': 103}],
+        })
+        event = SimpleNamespace(get_messages=lambda: [],
+                                message_obj=SimpleNamespace(raw_message=raw),
+                                message_str='sub')
+        self.assertEqual(self.helpers.collect_quoted_text(event, '1001', 'sub'),
+                         ('暴力枚举所有点对', self.helpers.QUOTE_SELF))
+
+    def test_raw_payload_fallback_skips_own_body_and_bot_output(self):
+        from types import SimpleNamespace
+        own = SimpleNamespace(raw_data={'content': 'sub', 'msg_elements': [{'content': 'sub'}]})
+        event = SimpleNamespace(get_messages=lambda: [], message_obj=SimpleNamespace(raw_message=own),
+                                message_str='sub')
+        self.assertEqual(self.helpers.collect_quoted_text(event, '1001', 'sub'),
+                         ('', self.helpers.QUOTE_NONE))
+
+        bot = SimpleNamespace(raw_data={'content': 'sub', 'msg_elements': [{'content': '📚 口胡 OJ · 指令菜单'}]})
+        event = SimpleNamespace(get_messages=lambda: [], message_obj=SimpleNamespace(raw_message=bot),
+                                message_str='sub')
+        self.assertEqual(self.helpers.collect_quoted_text(event, '1001', 'sub'),
+                         ('', self.helpers.QUOTE_BOT))
+
+    def test_quote_shape_reports_fields_without_content(self):
+        from types import SimpleNamespace
+        raw = SimpleNamespace(raw_data={'content': 'sub', 'message_type': None,
+                                        'msg_elements': [{'content': '机密思路', 'message_type': 103}]})
+        event = SimpleNamespace(get_messages=lambda: [], message_obj=SimpleNamespace(raw_message=raw))
+        shape = self.helpers.quote_shape(event)
+        self.assertIn('msg_elements', shape)
+        self.assertIn('message_type=None', shape)
+        self.assertNotIn('机密思路', shape)
+        self.assertEqual(self.helpers.quote_shape(SimpleNamespace()), 'no-raw-data')
+
     def test_no_messages_means_no_quote(self):
         event = stub.AstrMessageEvent('sub', sender_id='1001')
         self.assertEqual(self.helpers.collect_quoted_text(event, '1001'),

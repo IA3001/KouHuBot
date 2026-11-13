@@ -50,12 +50,58 @@ def looks_like_bot_output(text: str) -> bool:
     return any(marker in text for marker in _BOT_MARKERS)
 
 
-def collect_quoted_text(event, sender_id) -> tuple[str, str]:
+def _raw_elements(event) -> list:
+    """取 QQ 原始载荷里的 msg_elements。
+
+    AstrBot 的 qq_official 适配器只在 ``message_type == 103`` 时才把引用内容
+    转成 Reply.chain；真实群消息里 ``msg_elements`` 存在但 ``message_type``
+    不一定给 103，于是引用正文会被整段丢掉。这里直接读原始载荷兜底。
+    """
+    raw = getattr(getattr(event, 'message_obj', None), 'raw_message', None)
+    data = getattr(raw, 'raw_data', None)
+    if not isinstance(data, dict):
+        return []
+    elements = data.get('msg_elements')
+    return elements if isinstance(elements, list) else []
+
+
+def _raw_quoted_body(event, own_text: str) -> str:
+    """从原始载荷里取出被引用消息的正文，顺带排除本条消息自己的正文。"""
+    own = (own_text or '').strip()
+    parts = []
+    for element in _raw_elements(event):
+        content = element.get('content') if isinstance(element, dict) else None
+        if not isinstance(content, str):
+            continue
+        content = content.strip()
+        if content and content != own:
+            parts.append(content)
+    return '\n'.join(parts).strip()
+
+
+def quote_shape(event) -> str:
+    """引用载荷的形状摘要（只报字段名和段数，不碰正文），排查用。"""
+    raw = getattr(getattr(event, 'message_obj', None), 'raw_message', None)
+    data = getattr(raw, 'raw_data', None)
+    if not isinstance(data, dict):
+        return 'no-raw-data'
+    keys = ','.join(sorted(data))[:200]
+    elements = data.get('msg_elements')
+    kinds = []
+    if isinstance(elements, list):
+        for element in elements[:2]:
+            kinds.append(','.join(sorted(element)) if isinstance(element, dict) else type(element).__name__)
+    return f"message_type={data.get('message_type')!r} keys=[{keys}] elements=[{';'.join(kinds)}]"
+
+
+
+def collect_quoted_text(event, sender_id, own_text: str = '') -> tuple[str, str]:
     """收集被引用消息里的文字。
 
     Args:
         event: AstrBot 事件，暴露 ``get_messages()``。
         sender_id: 当前发消息的人，用来校验引用作者。
+        own_text: 本条消息自己的正文，用来在原始载荷里排除它自己。
 
     Returns:
         ``(文字, 情况)``。情况为 ``''``（没引用文字）、``'self'``（可用）、
@@ -63,16 +109,14 @@ def collect_quoted_text(event, sender_id) -> tuple[str, str]:
         只看浅层引用，嵌套引用一律忽略，和图片收集保持同样的深度。
     """
     messages = getattr(event, 'get_messages', lambda: [])() or []
-    if not messages:
-        return '', QUOTE_NONE
-    try:
-        from astrbot.core.message.components import Reply
-    except ImportError:  # 本地桩没装消息组件时按「没有引用」处理
-        return '', QUOTE_NONE
-
-    owner = str(sender_id)
     collected: list[str] = []
     state = QUOTE_NONE
+    try:
+        from astrbot.core.message.components import Reply
+    except ImportError:  # 本地桩没装消息组件时当作没有 Reply 段
+        Reply = ()  # type: ignore[assignment]
+
+    owner = str(sender_id)
     for message in messages:
         if not isinstance(message, Reply):
             continue
@@ -90,4 +134,13 @@ def collect_quoted_text(event, sender_id) -> tuple[str, str]:
             return '', QUOTE_OTHER
         collected.append(body)
         state = QUOTE_SELF
-    return '\n'.join(collected).strip(), state
+    if collected:
+        return '\n'.join(collected).strip(), state
+
+    # 适配器没把引用转成 Reply（QQ 官方群消息常见）：直接读原始载荷。
+    body = _raw_quoted_body(event, own_text)
+    if not body:
+        return '', QUOTE_NONE
+    if looks_like_bot_output(body):
+        return '', QUOTE_BOT
+    return body, QUOTE_SELF
