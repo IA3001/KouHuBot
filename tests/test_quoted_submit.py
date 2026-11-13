@@ -168,7 +168,26 @@ class CollectQuotedTextTest(unittest.TestCase):
             self.assertNotIn(marker, text)
         self.assertIn('就是 3n', text)
         self.assertIn('特判 n=1', text)
-        self.assertIn('（引用的引用）', text)
+        # 正文里不许出现「（他引用的消息）」这类旁白，那是给评委的说明，不是作答。
+        for noise in ('（', '）', '引用的引用', '下面是他'):
+            self.assertNotIn(noise, text)
+
+    def test_leading_command_word_is_stripped_from_quoted_text(self):
+        """被引用的旧消息本身是条指令时，行首的 sub 不该混进作答。"""
+        _, _, Plain, Reply = components()
+        event = stub.AstrMessageEvent(
+            'sub', sender_id='1001',
+            messages=[Reply(chain=[Plain('sub 二分答案 + 单调性 check')], sender_id='1001')])
+        self.assertEqual(self.helpers.collect_quoted_text(event, '1001')[0],
+                         '二分答案 + 单调性 check')
+
+    def test_command_word_inside_a_sentence_survives(self):
+        _, _, Plain, Reply = components()
+        event = stub.AstrMessageEvent(
+            'sub', sender_id='1001',
+            messages=[Reply(chain=[Plain('答案就是 sub 后面那句的复杂度')], sender_id='1001')])
+        self.assertEqual(self.helpers.collect_quoted_text(event, '1001')[0],
+                         '答案就是 sub 后面那句的复杂度')
 
     def test_no_messages_means_no_quote(self):
         event = stub.AstrMessageEvent('sub', sender_id='1001')

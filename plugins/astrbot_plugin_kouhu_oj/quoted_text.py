@@ -39,6 +39,8 @@ _DUMP_ID = re.compile(r'^\s*\[消息(?:ID|id|Id)\]\s*.*$', re.M)
 _DUMP_RELATED = re.compile(r'^\s*\[关联消息\]\s*$', re.M)
 _DUMP_INDEX = re.compile(r'^\s*---\s*第\s*(\d+)\s*条\s*---\s*$', re.M)
 _BLANK_RUN = re.compile(r'\n{3,}')
+# 被引用的旧消息是一条完整指令时，行首的 sub / grm sub 是命令本身，不是作答内容。
+_LEADING_COMMAND = re.compile(r'^\s*(?:grm\s+)?(?:sub|submit)(?![A-Za-z])[\s:：,，、]*', re.I)
 
 
 def clean_quote_dump(text: str) -> str:
@@ -49,12 +51,18 @@ def clean_quote_dump(text: str) -> str:
     cleaned = _DUMP_KIND.sub('', cleaned)
     cleaned = _DUMP_ID.sub('', cleaned)
     cleaned = _DUMP_CONTENT.sub('', cleaned)
-    cleaned = _DUMP_RELATED.sub('（下面是他引用的消息）', cleaned)
-    cleaned = _DUMP_INDEX.sub('（引用的引用）', cleaned)
+    # 只删标记，不往正文里塞说明文字：这些是作答，不是给评委看的旁白。
+    cleaned = _DUMP_RELATED.sub('', cleaned)
+    cleaned = _DUMP_INDEX.sub('', cleaned)
     lines = [line.strip() for line in cleaned.splitlines()]
-    cleaned = '\n'.join(lines)
-    cleaned = _BLANK_RUN.sub('\n\n', cleaned)
-    return cleaned.strip()
+    cleaned = _BLANK_RUN.sub('\n\n', '\n'.join(lines))
+    # 每段（空行分隔）开头如果是指令词，剥掉它，只留内容。
+    paragraphs = []
+    for paragraph in cleaned.split('\n\n'):
+        paragraph = _LEADING_COMMAND.sub('', paragraph).strip()
+        if paragraph:
+            paragraphs.append(paragraph)
+    return '\n\n'.join(paragraphs).strip()
 
 
 def _component_text(component) -> str:
