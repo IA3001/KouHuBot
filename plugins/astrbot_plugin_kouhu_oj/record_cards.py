@@ -23,7 +23,13 @@ from __future__ import annotations
 
 import html
 import re
+import time
 from typing import Any, Iterable, Sequence
+
+try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
+    from . import profile as _profile
+except ImportError:  # 本地测试桩：record_cards 被当作顶层模块加载
+    import profile as _profile  # type: ignore
 
 # ------------------------------------------------------------------ 常量
 
@@ -211,6 +217,80 @@ h1 { font-size: 30px; line-height: 1.25; margin: 0; font-weight: 700; letter-spa
 .pager { flex: none; font: 600 14px/1 "DejaVu Sans Mono", monospace; color: var(--brand-ink);
          background: #eef3ef; border: 1px solid #d9e3db; border-radius: 999px;
          padding: 9px 14px; white-space: nowrap; }
+/* ---- 个人主页：CF 风格的 rating / 热力图 / 曲线 ---- */
+.hero { display: flex; gap: 16px; margin: 0 0 18px; }
+.hero .rating {
+  flex: 0 0 292px; border: 2px solid var(--tone-line); border-radius: 14px;
+  background: var(--tone-bg); padding: 14px 18px 16px;
+}
+.hero .rating .num {
+  font-family: "DejaVu Sans Mono", monospace; font-size: 54px; font-weight: 700;
+  line-height: 1; letter-spacing: -2px; color: var(--tone-ink);
+}
+.hero .rating .rl { font-size: 14px; color: var(--tone-ink); margin-top: 8px; }
+.hero .rating .rn { font-size: 12.5px; line-height: 1.55; color: #6c726b; margin-top: 8px; }
+.hero .side { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.hero .kv {
+  display: flex; align-items: baseline; gap: 10px;
+  border-bottom: 1px solid #eceee9; padding-bottom: 8px;
+}
+.hero .kv span { font-size: 13px; color: #7c817b; min-width: 72px; }
+.hero .kv b { font-size: 19px; font-weight: 700; color: var(--ink); }
+.hero .kv i { font-style: normal; font-size: 13px; color: #8a8f88; margin-left: auto; }
+.rank-newbie    { --tone-bg: #f2f2f2; --tone-line: #d3d3d3; --tone-ink: #6b6b6b; }
+.rank-pupil     { --tone-bg: #eef7ee; --tone-line: #b5d9b5; --tone-ink: #1f7a3d; }
+.rank-specialist{ --tone-bg: #e9f6f5; --tone-line: #a7d9d6; --tone-ink: #0f7a74; }
+.rank-expert    { --tone-bg: #ecf0fd; --tone-line: #b3c1ef; --tone-ink: #2a4bc0; }
+.rank-cm        { --tone-bg: #f6ecfa; --tone-line: #d9b8e6; --tone-ink: #8b2fa8; }
+.rank-master    { --tone-bg: #fdf1e2; --tone-line: #efd0a2; --tone-ink: #a86a10; }
+.rank-gm        { --tone-bg: #fdeaea; --tone-line: #f0bcbc; --tone-ink: #b3392c; }
+.rank-unrated   { --tone-bg: #f5f5f2; --tone-line: #ddddd7; --tone-ink: #6c726b; }
+.period { display: flex; gap: 10px; margin: 0 0 20px; }
+.period div {
+  flex: 1; border: 1px solid #e8eae5; border-radius: 12px; padding: 10px 12px;
+  background: #fbfcfa;
+}
+.period span { display: block; font-size: 12.5px; color: #8a8f88; }
+.period b { font-size: 20px; font-weight: 700; color: var(--ink); }
+.period i { font-style: normal; font-size: 12.5px; color: var(--brand-ink); margin-left: 4px; }
+.heat-flex { display: flex; gap: 22px; align-items: flex-start; }
+.heat-wrap { position: relative; padding-left: 26px; flex: 0 0 auto; }
+.heat-days { position: absolute; left: 0; top: 19px; width: 26px; }
+.heat-days i {
+  display: block; font-style: normal; font-size: 11px; color: #9a9f98;
+  height: 17px; line-height: 13px;
+}
+.heat-months { position: relative; height: 16px; font-size: 11.5px; color: #9a9f98; }
+.heat-months span { position: absolute; top: 0; white-space: nowrap; }
+.heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 14px); gap: 4px; }
+.heat i { width: 14px; height: 14px; border-radius: 3px; background: #eef0ec; display: block; }
+.heat i.l1 { background: #bcdcc2; }
+.heat i.l2 { background: #8dc199; }
+.heat i.l3 { background: #59a06f; }
+.heat i.l4 { background: #3d8a55; }
+.heat i.fut { background: transparent; border: 1px dashed #e4e7e1; }
+.heat-side { flex: 1; padding-top: 22px; }
+.heat-side .hv { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f0f1ee; }
+.heat-side .hv:last-child { border-bottom: 0; }
+.heat-side .hv span { font-size: 12.5px; color: #8a8f88; min-width: 62px; }
+.heat-side .hv b { font-size: 16px; font-weight: 700; color: var(--ink); }
+.heat-legend { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #8a8f88; margin-bottom: 6px; }
+.heat-legend i { width: 11px; height: 11px; border-radius: 3px; background: #eef0ec; display: block; }
+.heat-legend i.l1 { background: #cfe6d3; }
+.heat-legend i.l2 { background: #a5d1ae; }
+.heat-legend i.l3 { background: #6fb083; }
+.heat-legend i.l4 { background: #3d8a55; }
+.curve { margin-top: 4px; }
+.curve svg { display: block; }
+.curve .cap { display: flex; justify-content: space-between; font-size: 12.5px; color: #8a8f88; }
+.curve .cap b { color: var(--brand-ink); font-weight: 700; }
+.rrow { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f0f1ee; }
+.rrow:last-child { border-bottom: 0; }
+.rrow .when { font-family: "DejaVu Sans Mono", monospace; font-size: 13px; color: #8a8f88; width: 106px; }
+.rrow .key { font-family: "DejaVu Sans Mono", monospace; font-size: 15px; font-weight: 700; color: var(--brand-ink); }
+.rrow .title { font-size: 14.5px; color: #4a4f49; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rrow .tag.rank-tag { background: var(--tone-bg); color: var(--tone-ink); border-color: var(--tone-line); }
+.rrow .pt { font-family: "DejaVu Sans Mono", monospace; font-size: 14px; color: var(--brand-ink); width: 62px; text-align: right; }
 .rule { height: 3px;
         background: linear-gradient(90deg, var(--brand) 0 120px, var(--line) 120px 100%);
         margin: 18px 0 22px; }
@@ -583,33 +663,207 @@ def mistakes_card(
     return document(title=clean_text(title), body=body + footer(commands, notes), width=width)
 
 
-def me_card(
+def _fmt_stamp(at: float, pattern: str = "%m-%d %H:%M") -> str:
+    return time.strftime(pattern, time.localtime(at))
+
+
+def _svg_curve(curve: Sequence[dict], *, width: int = 848, height: int = 116) -> str:
+    """累计积分曲线：纯 SVG，无脚本、无外链。"""
+    points = [float(row.get("total") or 0) for row in curve]
+    if len(points) < 2:
+        return ""
+    top = max(points) or 1.0
+    bottom = min(min(points), 0.0)
+    span = max(top - bottom, 1.0)
+    pad_x, pad_y = 2.0, 6.0
+    usable_w, usable_h = width - pad_x * 2, height - pad_y * 2
+
+    def x_of(index: int) -> float:
+        return pad_x + usable_w * index / (len(points) - 1)
+
+    def y_of(value: float) -> float:
+        return pad_y + usable_h * (1 - (value - bottom) / span)
+
+    line = " ".join(f"{x_of(i):.1f},{y_of(v):.1f}" for i, v in enumerate(points))
+    area = (f"{pad_x:.1f},{height - pad_y:.1f} " + line +
+            f" {width - pad_x:.1f},{height - pad_y:.1f}")
+    return (
+        f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
+        f'fill="none" xmlns="http://www.w3.org/2000/svg">'
+        f'<polygon points="{area}" fill="rgba(98,134,106,0.12)"/>'
+        f'<polyline points="{line}" stroke="#62866a" stroke-width="2.2" '
+        f'stroke-linejoin="round" stroke-linecap="round"/>'
+        f'<circle cx="{x_of(len(points) - 1):.1f}" cy="{y_of(points[-1]):.1f}" r="4.5" '
+        f'fill="#3f5f47"/>'
+        f'</svg>'
+    )
+
+
+def _heatmap(profile: dict) -> str:
+    """GitHub 风格热力图：17 列（周）× 7 行（周一到周日）。"""
+    heat = profile.get("heatmap") or {}
+    cells = heat.get("cells") or []
+    if not cells:
+        return ""
+    step = 18  # 14px 方块 + 4px 间距
+    months = "".join(
+        f'<span style="left:{week * step}px">{esc(label)}</span>'
+        for week, label in (heat.get("months") or [])
+    )
+    blocks = "".join(
+        f'<i class="l{int(cell.get("level") or 0)}{" fut" if cell.get("future") else ""}"></i>'
+        for cell in cells
+    )
+    days = "".join(
+        f'<i>{"一二三四五六日"[index] if index in (0, 2, 4) else ""}</i>'
+        for index in range(7)
+    )
+    active = int(profile.get("active_days") or 0)
+    solves = int(profile.get("solves") or 0)
+    per_day = (solves / active) if active else 0.0
+    return (
+        f'<div class="heat-flex">'
+        f'<div class="heat-wrap">'
+        f'<div class="heat-days">{days}</div>'
+        f'<div class="heat-months">{months}</div>'
+        f'<div class="heat">{blocks}</div>'
+        f'</div>'
+        f'<div class="heat-side">'
+        f'<div class="heat-legend">少'
+        f'<i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i>多</div>'
+        f'<div class="hv"><span>活跃天数</span><b>{active} 天</b></div>'
+        f'<div class="hv"><span>最长连续</span><b>{int(profile.get("longest_streak") or 0)} 天</b></div>'
+        f'<div class="hv"><span>做题日均</span><b>{per_day:.1f} 题</b></div>'
+        f'<div class="hv"><span>本次连击</span><b>{int(profile.get("streak") or 0)} 天</b></div>'
+        f'</div></div>'
+    )
+
+
+def profile_card(
     *,
     name: str,
     cells: Sequence[tuple[str, str]],
+    profile: dict,
     hint_rows: Sequence[dict],
     commands: Sequence[tuple[str, str]] = (),
     notes: Iterable[str] = (),
-    subtitle: str = "本群统计 · 正题与坑点分别记录",
+    subtitle: str = "统计口径：本地时区 · 累计积分只计首次 AC",
     width: int = CARD_WIDTH,
 ) -> str:
-    """个人战绩（``me``）。``hint_rows`` 每项：``tone``、``label``、``value``、``note``。"""
-    title = f"{name} 的战绩" if name else "我的战绩"
-    body = masthead(kicker="口胡 OJ · 战绩", title=title, subtitle=subtitle)
+    """个人主页（``me``）：CF 风格的 rating、今日/本周/本月、热力图、曲线、最近做题。
+
+    ``profile`` 是 ``profile.build_profile()`` 的返回；``hint_rows`` 每项
+    ``tone``、``label``、``value``、``note``。
+    """
+    # 昵称里的 emoji 会被 clean_text 换成占位点，尾部剩下的「·」很碍眼（「壹· 的战绩」）。
+    name = re.sub(r"[·\s]+$", "", clean_text(name or "")).strip()
+    # 中文昵称后面不留空格（「壹 的战绩」看着别扭），英文昵称照旧留一个。
+    gap = "" if re.search(r"[\u4e00-\u9fff]$", name) else " "
+    title = f"{name}{gap}的战绩" if name else "我的战绩"
+    streak = int(profile.get("streak") or 0)
+    pager = f"连续 {streak} 天" if streak else ""
+    body = masthead(kicker="口胡 OJ · 个人主页", title=title, subtitle=subtitle,
+                    pager=pager)
+
+    rating = profile.get("rating")
+    rank = profile.get("rank") or ("unrated", "未定级")
+    rank_key, rank_label = rank
+    solves = int(profile.get("solves") or 0)
+    number = str(rating) if rating else "未定级"
+    if rating:
+        note = (f"按已 AC 题目的平均难度折算：{_profile.LOWEST_TIER}–"
+                f"{_profile.HIGHEST_TIER}，每 50 分一档。")
+    else:
+        note = (f"再 AC {max(1, _profile.RATING_MIN_SOLVES - solves)} 道题就能定级；"
+                f"不够就不编一个数字。")
+    peak = profile.get("peak_tier")
+    peak_line = (f'<div class="kv"><span>最高难度</span><b>{int(peak)}</b>'
+                 f'<i>{esc(profile.get("peak_key") or "")}</i></div>') if peak else ""
+    body += (
+        f'<div class="hero">'
+        f'<div class="rating rank-{esc(rank_key)}">'
+        f'<div class="num">{esc(number)}</div>'
+        f'<div class="rl">{esc(rank_label)} · {esc(rank_key)}</div>'
+        f'<div class="rn">{esc(note)}</div>'
+        f'</div>'
+        f'<div class="side">'
+        f'<div class="kv"><span>累计积分</span><b>{int(profile.get("points") or 0)}</b>'
+        f'<i>{solves} 道 AC</i></div>'
+        f'{peak_line}'
+        f'<div class="kv"><span>连续做题</span><b>{streak} 天</b>'
+        f'<i>最长 {int(profile.get("longest_streak") or 0)} 天</i></div>'
+        f'</div></div>'
+    )
     body += stats(cells, hero=0)
+
+    def period(label: str, key: str) -> str:
+        data = profile.get(key) or {}
+        return (f'<div><span>{esc(label)}</span><b>{int(data.get("count") or 0)} 题</b>'
+                f'<i>+{int(data.get("points") or 0)}</i></div>')
+
+    body += (f'<div class="period">{period("今天", "today")}{period("本周", "week")}'
+             f'{period("本月", "month")}</div>')
+
+    heat = _heatmap(profile)
+    if heat:
+        weeks = int((profile.get("heatmap") or {}).get("weeks") or _profile.HEATMAP_WEEKS)
+        body += section("做题热力图",
+                        f"最近 {weeks} 周 · 格子越深当天 AC 越多") + heat
+
+    curve = profile.get("curve") or []
+    svg = _svg_curve(curve)
+    if svg:
+        body += section("积分曲线", "从窗口起点累计到现在") + (
+            f'<div class="curve">{svg}'
+            f'<div class="cap"><span>{esc(_fmt_stamp(0, "%Y-%m-%d") and _date_of(curve[0]))}</span>'
+            f'<span>现在 <b>{int(curve[-1].get("total") or 0)} 分</b></span></div></div>'
+        )
+
+    recent = profile.get("recent") or []
+    if recent:
+        rows = []
+        for row in recent:
+            tier = row.get("tier")
+            tag = ""
+            if tier:
+                tag = (f'<span class="tag rank-tag rank-{esc(_rank_key(tier))}">'
+                       f'{int(tier)}</span>')
+            rows.append(
+                f'<div class="rrow">'
+                f'<span class="when">{esc(_fmt_stamp(float(row.get("at") or 0)))}</span>'
+                f'<b class="key">{esc(row.get("key"))}</b>'
+                f'<span class="title">{esc(row.get("title"))}</span>'
+                f'{tag}'
+                f'<span class="pt">+{int(row.get("points") or 0)}</span></div>'
+            )
+        body += section("最近做过的题", "最新在上") + "".join(rows)
+
     body += section("已 AC 题目的提示记录")
-    cards = []
+    hint_cards = []
     for row in hint_rows:
         tone = str(row.get("tone") or "")
-        cards.append(
+        hint_cards.append(
             f'<div class="row {tone}">'
             f'<div class="top"><span class="badge {tone}">{esc(row.get("label"))}</span>'
             f'<span class="spacer"></span>'
             f'<span class="key">{esc(row.get("value"))}</span></div>'
             f'<p class="comment">{esc(row.get("note"))}</p></div>'
         )
-    body += f'<div class="rows">{"".join(cards)}</div>'
+    body += f'<div class="rows">{"".join(hint_cards)}</div>'
     return document(title=clean_text(title), body=body + footer(commands, notes), width=width)
+
+
+def _rank_key(tier: int) -> str:
+    """档位 → 段位色名（最近做题里的小标签用）。"""
+    found = _profile.rank_of(int(tier))
+    return found[0] if found else "unrated"
+
+
+def _date_of(row: dict) -> str:
+    day = row.get("day") or ()
+    if len(day) == 3:
+        return "%d-%02d-%02d" % day
+    return ""
 
 
 def solution_card(
@@ -656,6 +910,6 @@ __all__ = [
     "CARD_MISTAKE_PAGE", "CODE_BUDGET", "COMMENT_LIMIT", "DEFAULT_MAX_HEIGHT",
     "VERDICT_TONES", "clean_text", "clip", "code_block", "document", "entries_card",
     "entry_detail_card", "esc", "footer", "history_card", "inline", "masthead",
-    "me_card", "mistakes_card", "prose", "render", "section", "solution_card",
+    "profile_card", "mistakes_card", "prose", "render", "section", "solution_card",
     "split_code", "stats", "verdict_badge",
 ]

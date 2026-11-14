@@ -52,6 +52,7 @@ try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
     from .feedback_store import FeedbackStoreMixin
     from .mistake_book import MistakeBookMixin, humanize_days, mistakes_text
     from . import record_cards
+    from . import profile as profile_stats
     from .quoted_text import (collect_quoted_blocks, render_markup, render_plain,
                               quote_shape, QUOTE_BOT, QUOTE_NONE, QUOTE_OTHER, QUOTE_SELF)
     from .capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
@@ -81,6 +82,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from feedback_store import FeedbackStoreMixin
     from mistake_book import MistakeBookMixin, humanize_days, mistakes_text
     import record_cards  # type: ignore
+    import profile as profile_stats  # type: ignore
     from quoted_text import (collect_quoted_blocks, render_markup, render_plain,
                              quote_shape, QUOTE_BOT, QUOTE_NONE, QUOTE_OTHER, QUOTE_SELF)
     from capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
@@ -2574,9 +2576,12 @@ class KouHuOJ(Star):
         hint_stats = self._store.review_hint_stats(scope, sender_id)
         display_name = '' if sender_name == sender_id or re.fullmatch(r'[0-9A-Fa-f]{24,}', sender_name or '') else sender_name
         title = f'{display_name} 的战绩' if display_name else '我的战绩'
+        stats_data = profile_stats.build_profile(
+            self._store.solve_history(scope, sender_id))
         card = await self._render_card(
-            record_cards.me_card,
+            record_cards.profile_card,
             name=display_name,
+            profile=stats_data,
             cells=[
                 (str(player['total_score'] or 0), "累计积分"),
                 (str(solved), "解题"),
@@ -2602,12 +2607,17 @@ class KouHuOJ(Star):
         if card:
             yield event.image_result(card)
             return
+        activity = (f"📅 今天 {stats_data['today']['count']} 题"
+                    f" · 本周 {stats_data['week']['count']} 题"
+                    f" · 本月 {stats_data['month']['count']} 题")
+        if stats_data["streak"]:
+            activity += f" · 连续 {stats_data['streak']} 天"
         yield event.plain_result(
             f"🏆 {title}\n━━━━━━━━━━━━━━━━\n"
             f"⭐ 累计积分：{player['total_score']}\n"
             f"✅ 解题：{solved} 题\n"
-            f"🎯 首次通过率：{rate}\n\n"
-            "📝 作答统计\n━━━━━━━━━━━━━━━━\n"
+            f"🎯 首次通过率：{rate}\n"
+            f"{activity}\n\n"
             f"› 提交：{attempts} 次\n"
             f"› 放弃：{gave_up} 次\n\n"
             "💡 已 AC 题目的提示记录\n━━━━━━━━━━━━━━━━\n"

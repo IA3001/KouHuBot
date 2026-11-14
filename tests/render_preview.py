@@ -1,9 +1,12 @@
 """Generate real browser screenshots: python tests/render_preview.py [output directory]."""
 import sys
+import time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'plugins/astrbot_plugin_kouhu_oj'))
 from browser_render import render_statement, render_examples
+import profile as profile_stats
 import record_cards
+import scoring
 
 PROBLEM = {
     'time_limit': 2, 'memory_limit': 256,
@@ -32,6 +35,20 @@ $$a_i \mid a_{i+1} \mid \cdots \mid a_{i+k-1} = a_j \mid a_{j+1} \mid \cdots \mi
 错误公式只局部降级：$$$\badcommand{x}$$$。后面的正文应正常显示。''',
     'examples': [{'input': '2\n1\n0\n3\n2 2 2', 'output': '1\n1'}],
 }
+
+def _preview_solves():
+    """给个人主页预览造一串 AC 记录：有今天、本周、几个月前的，热力图才不空。"""
+    now = time.time()
+    plan = [('280B', 800, 0), ('2259G', 1200, 0), ('15B', 800, 1), ('1077E', 1400, 1),
+            ('1225D', 1600, 2), ('420C', 1400, 4), ('2022C', 1200, 6), ('1497C', 2000, 9),
+            ('98A', 1000, 14), ('168B', 800, 21), ('1091D', 1600, 30), ('2135B', 1800, 44),
+            ('75C', 1200, 58), ('2258C', 1400, 77), ('28A', 1000, 96), ('2118D1', 2200, 120)]
+    rows = [{'key': key, 'title': 'Codeforces 题目 %s' % key,
+             'points': scoring.TIER_POINTS[tier], 'at': now - days * 86400}
+            for key, tier, days in plan]
+    return sorted(rows, key=lambda row: row['at'])
+
+
 CARDS = {
     'history': lambda: record_cards.history_card(
         rows=[{'key': '628B', 'verdicts': ['AC', 'WA'], 'count': '2 次记录',
@@ -48,10 +65,10 @@ CARDS = {
                 'last_comment': '只统计了位置不同的字符数。',
                 'redo_cmd': 'new CF628B', 'look_cmd': 'history show 628B'}],
         page=1, pages=1, total=1),
-    'me': lambda: record_cards.me_card(
+    'me': lambda: record_cards.profile_card(
         name='Alice',
-        cells=[('310', '累计积分'), ('4', '解题'), ('75%', '首次通过率'),
-               ('9', '提交'), ('1', '放弃')],
+        cells=[('16', '解题'), ('69%', '首次通过率'), ('31', '提交'), ('3', '放弃')],
+        profile=profile_stats.build_profile(_preview_solves()),
         hint_rows=[{'tone': 'ac', 'label': '主动请求提示后 AC', 'value': '2 次',
                     'note': '判词里保留了当时请求的最高提示级别。'},
                    {'tone': '', 'label': '未主动请求提示', 'value': '1 次',

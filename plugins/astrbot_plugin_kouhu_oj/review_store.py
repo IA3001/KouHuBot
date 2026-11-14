@@ -296,6 +296,26 @@ class ReviewStoreMixin:
         ).fetchall()
         return [dict(row) for row in rows], int(total)
 
+    def solve_history(self, scope: str, user_id: str, limit: int = 5000) -> list[dict]:
+        """这个人在本群 AC 过的题（按时间正序）。
+
+        个人主页要的统计（rating、今日/本周/本月、热力图、积分曲线、最近做题）
+        全部从这一份数据算，避免为每个指标各写一条 SQL、口径还各不相同。
+        标题取该题最近一轮的题名；旧版导入的记录没有题名就留空。
+        """
+        rows = self._conn.execute(
+            """SELECT s.cf_key AS key, s.points AS points, s.solved_at AS at,
+                      (SELECT r.title FROM review_rounds r
+                        WHERE r.scope_id = s.scope_id AND r.problem_key = s.cf_key
+                        ORDER BY r.opened_at DESC LIMIT 1) AS title
+                 FROM solved s
+                WHERE s.scope_id = ? AND s.user_id = ?
+                ORDER BY s.solved_at ASC
+                LIMIT ?""",
+            (scope, user_id, max(1, int(limit))),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def review_hint_stats(self, scope: str, user_id: str) -> dict:
         rows = self._conn.execute(
             "SELECT e.hint_level,COUNT(*) AS n FROM review_entries e JOIN review_rounds r ON r.id=e.round_id WHERE r.scope_id=? AND e.user_id=? AND e.verdict='AC' GROUP BY e.hint_level",

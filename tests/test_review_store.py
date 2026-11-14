@@ -260,3 +260,50 @@ class ReviewStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SolveHistoryTests(unittest.TestCase):
+    """个人主页的数据源：一次 AC 一行，标题取该题最近一轮。"""
+
+    def setUp(self) -> None:
+        self.store = Store()
+        self.addCleanup(self.store.close)
+        self.store._conn.execute(
+            """CREATE TABLE solved (
+                   scope_id TEXT NOT NULL, user_id TEXT NOT NULL, cf_key TEXT NOT NULL,
+                   points INTEGER NOT NULL, solved_at REAL NOT NULL,
+                   PRIMARY KEY (scope_id, user_id, cf_key))""")
+
+    def add(self, scope: str, user: str, key: str, points: int, at: float) -> None:
+        self.store._conn.execute(
+            "INSERT INTO solved(scope_id,user_id,cf_key,points,solved_at) VALUES(?,?,?,?,?)",
+            (scope, user, key, points, at))
+
+    def test_returns_oldest_first_with_title_from_the_latest_round(self) -> None:
+        self.store._ensure_review_round("g", current())
+        self.add("g", "alice", "4A", 100, 200.0)
+        self.add("g", "alice", "5B", 320, 100.0)
+        rows = self.store.solve_history("g", "alice")
+        self.assertEqual([row["key"] for row in rows], ["5B", "4A"])
+        self.assertEqual(rows[1]["title"], "Watermelon")
+        self.assertIsNone(rows[0]["title"])          # 没有轮次就没有题名，不编一个
+        self.assertEqual(rows[1]["points"], 100)
+
+    def test_later_round_wins(self) -> None:
+        self.store._ensure_review_round("g", current(opened_at=100.0, title="旧题名"))
+        self.store._ensure_review_round("g", current(opened_at=900.0, title="新题名"))
+        self.add("g", "alice", "4A", 100, 950.0)
+        self.assertEqual(self.store.solve_history("g", "alice")[0]["title"], "新题名")
+
+    def test_isolated_by_group_and_user(self) -> None:
+        self.add("g", "alice", "4A", 100, 200.0)
+        self.add("g", "bob", "4A", 100, 200.0)
+        self.add("other", "alice", "4A", 100, 200.0)
+        self.assertEqual(len(self.store.solve_history("g", "alice")), 1)
+        self.assertEqual(self.store.solve_history("g", "carol"), [])
+
+    def test_limit_keeps_the_oldest_rows_first(self) -> None:
+        for index in range(5):
+            self.add("g", "alice", "%dA" % (index + 1), 100, 100.0 + index)
+        rows = self.store.solve_history("g", "alice", limit=3)
+        self.assertEqual([row["key"] for row in rows], ["1A", "2A", "3A"])

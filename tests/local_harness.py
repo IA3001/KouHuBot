@@ -614,6 +614,8 @@ async def main() -> int:
     runner.check("显示积分", "积分" in out, out)
     runner.check("显示解题数", "解题" in out, out)
     runner.check("显示放弃数", "放弃" in out, out)
+    runner.check("显示今日/本周/本月做题数",
+                 all(word in out for word in ("今天", "本周", "本月")), out)
     out = await runner.says(E("me", **carol), "cmd_me")
     runner.check("没做过题有提示", "还没做过题" in out, out)
 

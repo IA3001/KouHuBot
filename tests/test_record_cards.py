@@ -184,24 +184,68 @@ class HtmlTests(unittest.TestCase):
         self.assertIn('目前没有到期的错题', due)
         self.assertIn('错题本 · 待复习', due)
 
-    # -- me ----------------------------------------------------------
-    def test_me_card_shows_stats_and_hint_breakdown(self):
-        rc = self.rc
-        html = rc.me_card(
-            name='Alice',
-            cells=[('310', '累计积分'), ('4', '解题'), ('75%', '首次通过率'),
-                   ('9', '提交'), ('1', '放弃')],
+    # -- me（个人主页） ----------------------------------------------
+    def me_html(self, name='Alice', **profile_kwargs):
+        rc, mod = self.rc, self.mod
+        return rc.profile_card(
+            name=name,
+            cells=[('4', '解题'), ('75%', '首次通过率'), ('9', '提交'), ('1', '放弃')],
+            profile=mod.profile_stats.build_profile(**profile_kwargs),
             hint_rows=[
                 {"tone": 'ac', "label": '主动请求提示后 AC', "value": '2 次', "note": 'a'},
                 {"tone": '', "label": '未主动请求提示', "value": '1 次', "note": 'b'},
                 {"tone": 'giveup', "label": '旧版记录未知', "value": '1 次', "note": 'c'},
             ])
-        self.assertIn('Alice 的战绩', html)
-        self.assertIn('累计积分', html)
-        self.assertIn('310', html)
-        self.assertIn('旧版记录未知', html)
-        self.assertIn('已 AC 题目的提示记录', html)
-        self.assertIn('首次通过率', html)
+
+    def test_me_card_keeps_the_old_stats_and_hint_breakdown(self):
+        html = self.me_html(solves=[])
+        for expected in ('Alice 的战绩', '未定级', '旧版记录未知',
+                         '已 AC 题目的提示记录', '首次通过率'):
+            self.assertIn(expected, html)
+
+    def test_me_card_adds_cf_style_rating_and_periods(self):
+        now = 1_700_000_000.0
+        tier = self.mod.scoring.TIER_POINTS
+        solves = [{'key': '17%02dA' % i, 'title': '题 %d' % i,
+                   'points': tier[1400], 'at': now - i * 3600} for i in range(4)]
+        html = self.me_html(solves=solves, now=now)
+        self.assertIn('1400', html)                       # rating 数字
+        self.assertIn('熟练 · specialist', html)           # CF 段位名
+        self.assertIn('rank-specialist', html)            # 段位配色
+        for label in ('今天', '本周', '本月'):
+            self.assertIn(label, html)
+        self.assertIn('做题热力图', html)
+        self.assertIn('积分曲线', html)
+        self.assertIn('最近做过的题', html)
+
+    def test_me_card_heatmap_has_one_cell_per_day(self):
+        rc, mod = self.rc, self.mod
+        profile = mod.profile_stats.build_profile([])
+        html = self.me_html(solves=[])
+        weeks = profile['heatmap']['weeks']
+        self.assertEqual(html.count('<i class="l'), weeks * 7 + 5)   # 格子 + 图例 5 个
+        self.assertIn('heat-months', html)
+
+    def test_me_card_cleans_emoji_only_nicknames(self):
+        """昵称里全是 emoji 时，别让标题变成「壹· 的战绩」。"""
+        html = self.me_html(name='壹💭💭💭', solves=[])
+        self.assertIn('<title>壹的战绩</title>', html)   # 中文名后面不留空格
+
+    def test_me_card_renders_a_real_svg_curve_without_script(self):
+        now = 1_700_000_000.0
+        solves = [{'key': 'A', 'title': 't', 'points': 220, 'at': now - 86400},
+                  {'key': 'B', 'title': 't', 'points': 320, 'at': now}]
+        html = self.me_html(solves=solves, now=now)
+        self.assertIn('<svg', html)
+        self.assertIn('<polyline', html)
+        self.assertNotIn('<script', html)
+        self.assertIn('现在 <b>540 分</b>', html)
+
+    def test_me_card_unrated_says_how_many_more_solves(self):
+        html = self.me_html(solves=[{'key': 'A', 'title': 't', 'points': 220,
+                                     'at': 1_700_000_000.0}], now=1_700_000_000.0)
+        self.assertIn('未定级', html)
+        self.assertIn('再 AC 2 道题', html)
 
     # -- sol ---------------------------------------------------------
     def test_solution_card_puts_source_before_body(self):
@@ -397,7 +441,10 @@ class WiringTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.rc, 'render', return_value='card.png') as fake:
             out = await self.run_cmd('cmd_me', 'me')
         self.assertTrue(self.is_image(out[0]))
-        self.assertIn('战绩', fake.call_args.args[0])
+        html = fake.call_args.args[0]
+        self.assertIn('战绩', html)
+        self.assertIn('做题热力图', html)      # 个人主页多了 CF 风格的那几块
+        self.assertIn('今天', html)
 
     async def test_solution_renders_card_and_keeps_clickable_link(self):
         rid = self.round('628B', 'AC', '不错')
