@@ -156,7 +156,8 @@ EXPECT = {
     5: {"name": "grammar 坑点", "contains": [], "images": 1},
     6: {"name": "submit 坑点题", "contains": [], "images": 0, "min_len": 5},
     7: {"name": "rank 排行榜", "contains": ["题库缓存"], "images": 1},
-    8: {"name": "me 战绩", "contains": ["积分", "解题"], "images": 0},
+    # me 现在是记录卡片：指标画在图里，正文不再有「积分/解题」字样
+    8: {"name": "me 战绩（一张卡片）", "contains": [], "images": 1},
     9: {
         "name": "ask 自由问答",
         "contains": [],

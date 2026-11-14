@@ -11,7 +11,9 @@ class ReviewUXTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.mod = stub.load_plugin(Path(self.tmp.name))
-        self.bot = self.mod.KouHuOJ(type('Context', (), {})(), {'leaderboard_size': 2})
+        # 本文件验证「文字回退 + 分页兼容」；记录卡片的图片路径见 RecordCardTests。
+        self.bot = self.mod.KouHuOJ(type('Context', (), {})(),
+                                    {'leaderboard_size': 2, 'record_cards_enabled': False})
         await self.bot.initialize()
         self.event = stub.AstrMessageEvent('history', group_id='review', sender_id='alice')
         self.scope = self.bot._scope_of(self.event)

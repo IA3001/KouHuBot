@@ -50,7 +50,8 @@ try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
     from .llm_fallback import generate_with_fallback
     from .review_store import ReviewStoreMixin
     from .feedback_store import FeedbackStoreMixin
-    from .mistake_book import MistakeBookMixin, mistakes_text
+    from .mistake_book import MistakeBookMixin, humanize_days, mistakes_text
+    from . import record_cards
     from .quoted_text import (collect_quoted_blocks, render_markup, render_plain,
                               quote_shape, QUOTE_BOT, QUOTE_NONE, QUOTE_OTHER, QUOTE_SELF)
     from .capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
@@ -78,7 +79,8 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from llm_fallback import generate_with_fallback
     from review_store import ReviewStoreMixin
     from feedback_store import FeedbackStoreMixin
-    from mistake_book import MistakeBookMixin, mistakes_text
+    from mistake_book import MistakeBookMixin, humanize_days, mistakes_text
+    import record_cards  # type: ignore
     from quoted_text import (collect_quoted_blocks, render_markup, render_plain,
                              quote_shape, QUOTE_BOT, QUOTE_NONE, QUOTE_OTHER, QUOTE_SELF)
     from capabilities import INTRO_ASK, INTRO_TEXT, PLANNED_FEATURES, RULES_ASK, rules_text
@@ -98,7 +100,25 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     from growth_validation import validate_candidate
 
 PLUGIN_NAME = "astrbot_plugin_kouhu_oj"
-PLUGIN_VERSION = "0.21.29"
+
+
+def _read_plugin_version(default: str) -> str:
+    """版本号只在 metadata.yaml 写一处，启动时读回来。
+
+    以前这里是个常量，发版时忘了改就会出现「AstrBot 日志说 0.22.0，
+    群里 ver 还说 0.21.29」——两个地方各写一遍必然走样，所以只留一处。
+    metadata.yaml 是插件包的一部分，读不到才退回常量（比如只同步了 .py）。
+    """
+    meta = Path(__file__).resolve().parent / "metadata.yaml"
+    try:
+        text = meta.read_text(encoding="utf-8")
+    except OSError:
+        return default
+    m = re.search(r"^\s*version:\s*v?(\d+\.\d+\.\d+)", text, re.M)
+    return m.group(1) if m else default
+
+
+PLUGIN_VERSION = _read_plugin_version("0.22.0")
 SCHEMA_VERSION = 5
 
 # 更新日志放在仓库根目录，跟插件目录隔了一层；运行时容器里也可能只同步了
@@ -184,8 +204,10 @@ def _changelog_section(text: str, version: str) -> str:
     """
     if not text:
         return ""
+    # 标题允许带尾巴（`## 0.22.0 · 复盘记录改成图片卡片`），但版本号后面
+    # 不能紧跟数字或点，免得 0.22.0 匹配到 0.22.01。
     pattern = re.compile(
-        r"^##\s*" + re.escape(version) + r"\s*$.*?(?=^##\s|\Z)",
+        r"^##\s*" + re.escape(version) + r"(?![\d.])[^\n]*$.*?(?=^##\s|\Z)",
         re.M | re.S,
     )
     m = pattern.search(text)
@@ -1428,6 +1450,68 @@ class KouHuOJ(Star):
             self._judge_locks[key] = lock
         return lock
 
+    # -- 记录卡片：复盘类输出画成图片 -----------------------------------
+    def _record_cards_on(self) -> bool:
+        """记录类输出是否画成图片。
+
+        没有图片目录（插件还没初始化完）时一律退回文字。这条判据同时也让
+        「不调 initialize 的单元测试」保持原样，不用为测试再造一个开关。
+        """
+        if not self._image_dir:
+            return False
+        return bool(self.config.get("record_cards_enabled", True))
+
+    def _card_width(self) -> int:
+        # 0 / 坏值表示「跟随题目图片宽度」，两者都统一夹到 320–4096。
+        value = _as_int(self.config.get("record_card_width"), 0)
+        if value <= 0:
+            value = _as_int(self.config.get("image_width"), 900)
+        return max(320, min(4096, value))
+
+    async def _render_card(self, builder, **payload) -> str:
+        """渲染一张记录卡片；任何失败都返回空串，由调用方回退到文字。
+
+        渲染丢到独立线程（Chromium 一轮约 0.7 秒），不阻塞事件循环。失败一律
+        记 warning：卡片只是展示层，坏掉不该让群友连记录都拿不到。
+        """
+        if not self._record_cards_on():
+            return ""
+        try:
+            document = builder(**payload)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[KouHuOJ] 记录卡片构建失败：{type(exc).__name__}: {exc}")
+            return ""
+        try:
+            path = await asyncio.to_thread(
+                record_cards.render, document,
+                out_dir=str(self._image_dir), width=self._card_width(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[KouHuOJ] 记录卡片渲染失败，回退文字：{type(exc).__name__}: {exc}")
+            return ""
+        return path or ""
+
+    @staticmethod
+    def _redo_command(key: str) -> str:
+        """错题本里的「重做」命令，与文字版口径保持一致。"""
+        if str(key).startswith(PITFALL_PREFIX):
+            return "grm new"
+        return f"new CF{key}"
+
+    @staticmethod
+    def _look_command(key: str) -> str:
+        """错题本里的「回看」命令，与文字版口径保持一致。"""
+        if str(key).startswith(PITFALL_PREFIX):
+            return f"history grm show {str(key)[len(PITFALL_PREFIX):]}"
+        return f"history show {key}"
+
+    @staticmethod
+    def _hint_record_label(hint_level: int) -> str:
+        """把 hint_level 翻成「提示口径」的一句话（三态含旧版未知）。"""
+        if hint_level < 0:
+            return "旧版提示记录未知"
+        return f"主动请求提示{hint_level}级" if hint_level else "未主动请求提示"
+
     async def _provider_id(self, event: AstrMessageEvent | None) -> str | None:
         provider_id = str(self.config.get("judge_provider_id") or "").strip()
         if provider_id:
@@ -2490,6 +2574,34 @@ class KouHuOJ(Star):
         hint_stats = self._store.review_hint_stats(scope, sender_id)
         display_name = '' if sender_name == sender_id or re.fullmatch(r'[0-9A-Fa-f]{24,}', sender_name or '') else sender_name
         title = f'{display_name} 的战绩' if display_name else '我的战绩'
+        card = await self._render_card(
+            record_cards.me_card,
+            name=display_name,
+            cells=[
+                (str(player['total_score'] or 0), "累计积分"),
+                (str(solved), "解题"),
+                (rate, "首次通过率"),
+                (str(attempts), "提交"),
+                (str(gave_up), "放弃"),
+            ],
+            hint_rows=[
+                {"tone": "ac", "label": "主动请求提示后 AC",
+                 "value": f"{hint_stats['requested']} 次",
+                 "note": "判词里保留了当时请求的最高提示级别，复盘时能看出这题是怎么做出来的。"},
+                {"tone": "", "label": "未主动请求提示",
+                 "value": f"{hint_stats['unrequested']} 次",
+                 "note": "提示群内公开，未主动请求不代表独立完成。"},
+                {"tone": "giveup", "label": "旧版记录未知",
+                 "value": f"{hint_stats['unknown']} 次",
+                 "note": "升级前的提交没有保存提示使用情况，不补造。"},
+            ],
+            commands=[("看历史", "history"), ("错题本", "mistakes"),
+                      ("群榜", "rank"), ("解析", "sol")],
+            notes=["提示群内公开，未主动请求不代表独立完成。"],
+        )
+        if card:
+            yield event.image_result(card)
+            return
         yield event.plain_result(
             f"🏆 {title}\n━━━━━━━━━━━━━━━━\n"
             f"⭐ 累计积分：{player['total_score']}\n"
@@ -3359,6 +3471,15 @@ class KouHuOJ(Star):
                 return
         self._last_ask[scope] = time.monotonic()
 
+        # 仅显式引用 ACMT 时走可选的只读教学分支；普通 ask 路径保持原样。
+        if re.search(r'@ACMT(?=$|\s|[「"『])', question, re.I):
+            try:
+                from .acmt_reference import answer_reference
+            except ImportError:
+                from acmt_reference import answer_reference
+            yield event.plain_result(await answer_reference(self, event, question, scope))
+            return
+
         # 问「更新了什么」这类问题，直接读 CHANGELOG 回答。
         # 不走模型：模型不知道仓库里有什么，只会说「日志里没有这个信息」，
         # 而日志就在那儿。而且版本历史这种事实性内容，让模型转述容易编。
@@ -3431,7 +3552,9 @@ class KouHuOJ(Star):
             return
         match = RE_VER.match(event.message_str or "")
         arg = (match.group(1) or "").strip() if match else ""
-        versions = re.findall(r"^##\s+(\d+\.\d+\.\d+)\s*$", changelog, re.M)
+        # 同样容忍 `## 0.22.0 · 小标题` 的写法：以前只认光秃秃的版本号标题，
+        # 结果新版日志明明写了却列不出来。
+        versions = re.findall(r"^##\s+(\d+\.\d+\.\d+)(?![\d.])", changelog, re.M)
         usage = "ver 查看当前版本\nver list 查看历史版本\nver 0.6.0 查看指定版本"
         list_match = re.fullmatch(r"(?:list|history|历史|列表)(?:\s*第?\s*(\d{1,3})\s*页?)?", arg, re.I)
         if list_match:
@@ -3521,15 +3644,53 @@ class KouHuOJ(Star):
             due_days = float(self.config.get("mistake_due_days", 3))
         except (TypeError, ValueError):
             due_days = 3.0
-        items, total = self._store.mistakes(scope, user, page, 5, due_only, due_days)
-        pages = max(1, (total + 4) // 5)
+        # 图片一页装 15 题（一行约 125px，远低于单张上限）；文字受消息长度
+        # 限制，仍是每页 5 题。回退时按文字口径重新取数，页码自洽。
+        size = record_cards.CARD_MISTAKE_PAGE if self._record_cards_on() else 5
+        items, total = self._store.mistakes(scope, user, page, size, due_only, due_days)
+        pages = max(1, (total + size - 1) // size)
         lane = "mistakes grm" if grammar else "mistakes"
         # 还有题没结束时 new 会被挡下，提前说明，免得群友以为重做命令坏了。
         current = self._store.current(scope)
         hint = ("还有一道题没结束：先 sub 交卷或 giveup，上面的重做命令才会生效。"
                 if current and current.get("status") == STATUS_OPEN else "")
+        shown_page = min(page, pages)
+        commands = []
+        if shown_page > 1:
+            commands.append(("上一页", f"{lane} {shown_page - 1}"))
+        if shown_page < pages:
+            commands.append(("下一页", f"{lane} {shown_page + 1}"))
+        if not due_only:
+            commands.append(("只看到期", f"{lane} due"))
+        commands.append(("看历史", "history grm" if grammar else "history"))
+        card = await self._render_card(
+            record_cards.mistakes_card,
+            items=[{
+                "key": item.get('cf_key') or item.get('problem_key') or '未知题号',
+                "title": item.get('title') or '',
+                "fail_count": item.get('fail_count') or 0,
+                "ago": humanize_days(item.get('days_since') or 0),
+                "due": bool(item.get('due')),
+                "last_verdict": item.get('last_verdict') or '',
+                "last_comment": item.get('last_comment') or '',
+                "redo_cmd": self._redo_command(item.get('cf_key') or item.get('problem_key') or ''),
+                "look_cmd": self._look_command(item.get('cf_key') or item.get('problem_key') or ''),
+            } for item in items],
+            page=shown_page, pages=pages, total=total, due_only=due_only,
+            lane="坑点" if grammar else "正题", commands=commands,
+            notes=[hint] if hint else [],
+        )
+        if card:
+            yield event.image_result(card)
+            return
+        # 卡片没渲染出来：同一批题按文字口径（每页 5）重新取，页码夹到文字页范围，
+        # 保证退回去的每条消息长度与 0.21.x 一致。
+        text_pages = max(1, (total + 4) // 5)
+        text_page = min(max(1, page), text_pages)
+        if size != 5:
+            items, _ = self._store.mistakes(scope, user, text_page, 5, due_only, due_days)
         for chunk in mistakes_text(
-            items, page=min(page, pages), pages=pages, total=total,
+            items, page=text_page, pages=text_pages, total=total,
             due_only=due_only, command=lane, hint=hint,
         ):
             yield event.plain_result(chunk)
@@ -3598,11 +3759,42 @@ class KouHuOJ(Star):
                 yield event.plain_result(f'{prefix} show 题号 [页码]')
                 return
             page = int(parts[2]) if len(parts)==3 else 1
-            rows,total = self._store.review_problem_entries(scope,user,key,page)
-            pages=max(1,(total+2)//3)
+            # 图片一页 15 次作答，文字一页 3 条（消息长度限制）。
+            entry_size = record_cards.CARD_ENTRY_PAGE if self._record_cards_on() else 3
+            rows,total = self._store.review_problem_entries(scope,user,key,page,entry_size)
+            pages=max(1,(total+entry_size-1)//entry_size)
             if not rows:
                 yield event.plain_result(f'没有这一页，共 {pages} 页')
                 return
+            entry_commands = [("看全文", f"{prefix} show 提交编号")]
+            if page < pages:
+                entry_commands.insert(0, ("下一批", f"{prefix} show {key} {page + 1}"))
+            if page > 1:
+                entry_commands.insert(0, ("上一批", f"{prefix} show {key} {page - 1}"))
+            card = await self._render_card(
+                record_cards.entries_card,
+                key_label=key,
+                rows=[{
+                    "id": row['id'],
+                    "verdict": row['verdict'],
+                    "at": time.strftime('%m-%d %H:%M', time.localtime(row['at'])),
+                    "submission": row['submission'],
+                    "comment": row['comment'],
+                    "detail_cmd": f"{prefix} show {row['id']}",
+                } for row in rows],
+                page=page, pages=pages, total=total,
+                lane="坑点" if grammar else "正题", commands=entry_commands,
+                notes=["判词由模型生成，可能有误；每题每次作答都在这里。"],
+            )
+            if card:
+                yield event.image_result(card)
+                return
+            # 卡片失败：按文字口径（每页 3 条）重取同一页，页码夹到文字页范围。
+            text_pages = max(1, (total + 2) // 3)
+            text_page = min(max(1, page), text_pages)
+            if entry_size != 3:
+                rows, _ = self._store.review_problem_entries(scope, user, key, text_page, 3)
+            page, pages = text_page, text_pages
             yield event.plain_result(f'📖 {key} · 我的作答 · {page}/{pages} 页')
             for row in rows:
                 detail_cmd = f"{prefix} show {row['id']}"
@@ -3632,6 +3824,40 @@ class KouHuOJ(Star):
             if content_page > content_pages:
                 yield event.plain_result(f"没有这一内容页，共 {content_pages} 页；发 {detail_cmd} {content_pages}")
                 return
+            # 卡片一次能装下整条记录（等宽 15.5px 下 900px 宽约 85 字/行），
+            # 所以图片路径不再按 1400 字分页；只有超长作答才切块。
+            chunks = record_cards.split_code(str(entry['submission'] or ''))
+            cards = []
+            for index, chunk in enumerate(chunks, 1):
+                last = index == len(chunks)
+                card = await self._render_card(
+                    record_cards.entry_detail_card,
+                    title=f"记录 #{entry['id']} · {entry['cf_key']}",
+                    kicker=f"口胡 OJ · {'坑点' if grammar else '正题'}作答",
+                    subtitle=time.strftime('%Y-%m-%d %H:%M', time.localtime(entry['at'])),
+                    pager=f"作答 {index}/{len(chunks)}",
+                    verdict=entry['verdict'],
+                    points_label=('旧版未保存' if entry['hint_level'] < 0
+                                  else f"{entry.get('points') or 0} 分"),
+                    points_note='本次得分',
+                    hint_label=self._hint_record_label(entry['hint_level']),
+                    hint_note='请求的最高提示级别',
+                    submission=chunk,
+                    comment=str(entry['comment'] or '') if last else '',
+                    counterexample=str(entry.get('counterexample') or '') if last else '',
+                    commands=[("本题每次作答", f"{prefix} show {entry['cf_key']}"),
+                              ("历史列表", prefix)],
+                    notes=["判词与反例都由模型生成，可能有误；反例只给输入与两个结果，不给解法。"]
+                    if entry.get('counterexample') else ["判词由模型生成，可能有误。"],
+                )
+                if not card:
+                    cards = []
+                    break
+                cards.append(card)
+            if cards:
+                for path in cards:
+                    yield event.image_result(path)
+                return
             chunk = content[(content_page - 1) * 1400:content_page * 1400]
             navigation = f"内容翻页：{detail_cmd} [内容页]"
             if content_page > 1:
@@ -3651,11 +3877,48 @@ class KouHuOJ(Star):
             yield event.plain_result("页码过大，请从 history 1 开始查看")
             return
         page = int(parts[0]) if parts else 1
-        rows, total = self._store.review_problems(scope, user, page)
-        pages = max(1, (total + 4) // 5)
+        # 图片一页 20 题，文字一页 5 题（消息长度限制）；回退时按文字口径重取。
+        list_size = record_cards.CARD_LIST_PAGE if self._record_cards_on() else 5
+        rows, total = self._store.review_problems(scope, user, page, list_size)
+        pages = max(1, (total + list_size - 1) // list_size)
         if page > pages:
             yield event.plain_result(f"只有 {pages} 页，发 history{' grm' if grammar else ''} {pages}")
             return
+        list_commands = [("题面", f"{prefix} problem 题号"),
+                         ("每次作答", f"{prefix} show 题号")]
+        if not grammar:
+            list_commands.append(("解析", "sol 题号"))
+        if page < pages:
+            list_commands.append(("下一页", f"{prefix} {page + 1}"))
+        if page > 1:
+            list_commands.insert(0, ("上一页", f"{prefix} {page - 1}"))
+        card = await self._render_card(
+            record_cards.history_card,
+            rows=[{
+                # 隐藏口径先落到文案上，再交给渲染器；渲染器不认识 status。
+                "key": "进行中（结束后揭晓）" if self._review_hidden(scope, row) else row['cf_key'],
+                "hidden": self._review_hidden(scope, row),
+                "verdicts": list(row['verdicts']),
+                "count": f"{row['submission_count']} 次记录",
+                "at": time.strftime("%m-%d %H:%M", time.localtime(row['at'])),
+                "points": ('含旧版未知得分' if row['legacy_unknown']
+                           else f"+{row['total_points']}分"),
+                "hint": self._hint_record_label(row['hint_level']),
+                "title": row.get('title') or '',
+            } for row in rows],
+            page=page, pages=pages, total=total,
+            lane="坑点" if grammar else "正题", commands=list_commands,
+            notes=["提示群内公开，未主动请求不代表独立完成。"],
+        )
+        if card:
+            yield event.image_result(card)
+            return
+        # 卡片失败：按文字口径（每页 5）重取同一页，页码夹到文字页范围。
+        text_pages = max(1, (total + 4) // 5)
+        text_page = min(max(1, page), text_pages)
+        if list_size != 5:
+            rows, _ = self._store.review_problems(scope, user, text_page, 5)
+        page, pages = text_page, text_pages
         lines = [f"📖 我的{'坑点' if grammar else '正题'}记录\n━━━━━━━━━━━━━━━━\n📄 {page}/{pages} 页 · 共 {total} 题"]
         for row in rows:
             hidden = self._review_hidden(scope, row)
@@ -3748,6 +4011,24 @@ class KouHuOJ(Star):
                     return
             if self._review_hidden(scope, current):
                 yield event.plain_result("这道题已重新开题，暂不展示历史解析")
+                return
+            source_text = str(cached_solution['source'] or '')
+            source_label, _, source_url = source_text.partition('\n')
+            card = await self._render_card(
+                record_cards.solution_card,
+                key_label=current['cf_key'],
+                source=source_label,
+                url=source_url.strip(),
+                text=str(cached_solution['text'] or ''),
+                commands=[("本题记录", f"history show {current['cf_key']}"),
+                          ("题面", f"history problem {current['cf_key']}")],
+                notes=["解析由模型按官方参考中文整理，可能有误。"],
+            )
+            if card:
+                yield event.image_result(card)
+                if source_url.strip():
+                    # 图里的链接点不动，正文再补一条能点的原文地址。
+                    yield event.plain_result(f"📚 官方原文：{source_url.strip()}")
                 return
             yield event.plain_result(f"📚 题后解析 · {current['cf_key']}\n━━━━━━━━━━━━━━━━\n来源：{cached_solution['source']}\n📌 以下为基于官方参考的模型中文整理，可能有误。\n\n{cached_solution['text']}")
 

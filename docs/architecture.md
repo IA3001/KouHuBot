@@ -339,5 +339,6 @@ AstrBot 提供 `put_kv_data / get_kv_data`（插件维度 KV），很适合存�
 | 改指令名 | 文件顶部的 `RE_*` 正则 |
 | 加新指令 | 新写一个 `@filter.regex(...)` 方法 |
 | 换模型 | WebUI 配置，或插件配置项 `judge_provider_id` |
-| 改图片样式 | `render.py` 顶部的色板与排版参数 |
-| 改图片宽度 | 插件配置项 `image_width` |
+| 改图片样式 | `render.py` 顶部的色板与排版参数（Pillow 字迹）、`browser_render.py` 的 `_STYLE`（题面卡）、`record_cards.py` 的 `CARD_CSS`（记录卡） |
+| 改图片宽度 | 插件配置项 `image_width`；记录卡片另有 `record_card_width`（0 表示跟随） |
+| 关掉记录卡片 | 插件配置项 `record_cards_enabled=false`，复盘输出退回文字 |

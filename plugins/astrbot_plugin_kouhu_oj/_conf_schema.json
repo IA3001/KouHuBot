@@ -76,6 +76,18 @@
     "hint": "默认 900。手机上 900 左右清晰度刚好，调太大会让图片体积暴涨。",
     "default": 900
   },
+  "record_cards_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "复盘类输出用图片渲染",
+    "hint": "history / mistakes / me / sol / 提交详情改成卡片图片，排版好看且省消息长度；渲染失败会自动回退成原来的文字。"
+  },
+  "record_card_width": {
+    "type": "int",
+    "default": 900,
+    "description": "记录卡片宽度（像素）",
+    "hint": "留空或 0 表示跟随题目图片宽度；手机上看 900 左右清晰度刚好。"
+  },
   "fetch_timeout_seconds": {
     "description": "抓题超时（秒）",
     "type": "int",

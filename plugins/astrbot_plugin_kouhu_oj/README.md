@@ -40,6 +40,7 @@
 | `mistakes grm` | 坑点线路的错题本，与 CF 正题分开 |
 | `sol` / `sol 628B` | 查看已结束题目的解析 |
 | `rank [页码]` / `me` | 本群积分榜分页 / 我的战绩 |
+| — | 上述复盘类输出（history / mistakes / me / sol / 提交详情）默认发**图片卡片**，见下节 |
 | `tier` | 查看群难度档 |
 | `ask 问题` | 自由问答，支持多行文字 |
 | `help` / `rules` / `about` | 指令菜单 / 计分规则 / 功能介绍 |
@@ -52,7 +53,19 @@
 
 ## 题目来源与判题
 
-CF 正题来自 Codeforces，题面抓取、翻译成功后缓存到本地。正题和样例使用 Chromium 与 KaTeX 渲染；排行榜、坑点等图片使用 Pillow。题面无法准备完整时会提示失败，不会用不完整内容替换当前题。
+CF 正题来自 Codeforces，题面抓取、翻译成功后缓存到本地。正题和样例使用 Chromium 与 KaTeX 渲染；排行榜、坑点、记录卡片同样走 Chromium（卡片不带公式，因此不加载 KaTeX）。题面无法准备完整时会提示失败，不会用不完整内容替换当前题。
+
+## 记录卡片
+
+`history`、`history show 题号`、`history show 提交编号`、`mistakes`、`me`、`sol` 的结果画成图片：
+
+- 卡片 900 宽（`record_card_width`，0 表示跟随 `image_width`），白底、左侧品牌绿竖线，判词用色带与徽章区分 AC / WA / 放弃，不依赖 emoji 字形（容器里没有 emoji 字体，画出来是方框）。
+- 进行中的题仍然显示「进行中（结束后揭晓）」，不会因为换了展示形态而漏掉隐藏口径。
+- 提交详情一次装下整条记录，不再按 1400 字切页；超长作答切成多张并标注「作答 i/n」。
+- 一页装得更多：`history` 30 题、`history show 题号` 20 次作答、`mistakes` 20 题（文字回退仍是 5 / 3 / 5，
+  因为文字受消息长度限制）。图片更高的部分只是行数，字号不变。
+- 图里的命令点不动，所以卡片上把可用的命令用等宽胶囊写出来，`sol` 图后面还会补一条可点的官方原文链接。
+- 渲染失败（没有浏览器、内存不足、内容异常）自动退回原来的文字，不会让群友拿不到记录。配置 `record_cards_enabled` 可以整体关掉，`sub` / `giveup` 的即时回执始终是文字（要能点链接、答案块要全文可重建）。
 
 坑点题使用随插件提供的 `pitfalls.json`，包含代码、参考答案和修复方式。可用分类以 `grm list` 实际显示为准，例如 `grm new 浮点数 1`。后台默认每 6 小时尝试补充一道候选，经过资料采集、模型生成、模型复核和隔离代码验证后才进入可抽题库。失败保留原题库，可用 `grm growth` 查看结果。部署环境需支持隔离验证；无法验证的候选不会进入可抽题库。
 
@@ -71,6 +84,8 @@ CF 正题来自 Codeforces，题面抓取、翻译成功后缓存到本地。正
 | `leaderboard_size` | 10 | 排行榜显示人数 |
 | `mistake_due_days` | 3 | 错题本多久算「该复习」，0 表示随到随复习 |
 | `image_width` | 900 | 图片宽度 |
+| `record_cards_enabled` | true | 复盘类输出（history / mistakes / me / sol / 提交详情）用图片渲染；关掉则回到文字 |
+| `record_card_width` | 900 | 记录卡片宽度；0 表示跟随 `image_width` |
 | `fetch_timeout_seconds` | 40 | CF 抓取超时秒数 |
 | `prepare_timeout_seconds` | 60 | 题面准备总时限 |
 | `translate_timeout_seconds` | 90 | 单次翻译超时，仍受准备总时限限制 |

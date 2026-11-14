@@ -315,23 +315,28 @@ def _browser_executable(chromium) -> str | None:
     return None
 
 
-def _render(problem: dict, out_dir: str | None, width: int, examples: bool) -> str:
-    # The lock covers document creation, browser startup, screenshot and cleanup.
+def _render_document(document: str, out_dir: str | None, width: int, label: str,
+                     ready_expression: str | None) -> str:
+    """Screenshot one fully self-contained document.
+
+    Shared by statements (which wait for the KaTeX pass to finish) and by record
+    cards (which have no scripts, so ``ready_expression`` is ``None``). The lock
+    covers document creation, browser startup, screenshot and cleanup, so the
+    single worker never runs two browsers at once.
+    """
     with _RENDER_LOCK:
         _validate_width(width)
-        for filename in ("katex.min.js", "katex.min.css"):
-            if not (ASSET_DIR / filename).is_file():
-                raise RenderError(f"Local KaTeX asset is unavailable: {ASSET_DIR / filename}")
-        document = build_html(problem, examples=examples, width=width)
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:
             raise RenderError("Playwright is required for browser rendering") from exc
         directory = Path(out_dir or tempfile.gettempdir()).resolve()
         directory.mkdir(parents=True, exist_ok=True)
+        # Opaque file name: a key or title in the path could leak the problem
+        # identity through logs, caches or platform file previews.
         output = directory / f"kouhu_{uuid.uuid4().hex}.png"
         with tempfile.TemporaryDirectory(prefix="kouhu-render-") as temporary:
-            page_path = Path(temporary) / "statement.html"
+            page_path = Path(temporary) / "page.html"
             page_path.write_text(document, encoding="utf-8")
             with sync_playwright() as playwright:
                 executable = _browser_executable(playwright.chromium)
@@ -353,18 +358,30 @@ def _render(problem: dict, out_dir: str | None, width: int, examples: bool) -> s
                     page = context.new_page()
                     page.set_default_timeout(30_000)
                     page.goto(page_path.as_uri(), wait_until="load")
-                    page.wait_for_function("window.__kouhuRendered === true")
+                    if ready_expression:
+                        page.wait_for_function(ready_expression)
                     page.evaluate("async () => { await document.fonts.ready; await Promise.all(Array.from(document.images, image => image.decode())); }")
                     dimensions = page.evaluate("""() => ({
                       height: Math.ceil(Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)),
                       width: Math.ceil(Math.max(document.body.scrollWidth, document.documentElement.scrollWidth))
                     })""")
                     if max(dimensions.values()) > MAX_HEIGHT:
-                        raise RenderError(f"题面图片尺寸 {dimensions['width']}×{dimensions['height']}px 超过单边 {MAX_HEIGHT}px 上限")
+                        raise RenderError(f"{label}图片尺寸 {dimensions['width']}×{dimensions['height']}px 超过单边 {MAX_HEIGHT}px 上限")
                     page.screenshot(path=str(output), full_page=True, type="png")
                 finally:
                     browser.close()
         return str(output)
+
+
+def _render(problem: dict, out_dir: str | None, width: int, examples: bool) -> str:
+    _validate_width(width)
+    for filename in ("katex.min.js", "katex.min.css"):
+        if not (ASSET_DIR / filename).is_file():
+            raise RenderError(f"Local KaTeX asset is unavailable: {ASSET_DIR / filename}")
+    document = build_html(problem, examples=examples, width=width)
+    # Statements need the KaTeX pass to finish before the screenshot.
+    return _render_document(document, out_dir, width, "题面",
+                            "window.__kouhuRendered === true")
 
 
 def render_statement(problem: dict, out_dir: str | None = None, width: int = 900) -> str:
@@ -375,3 +392,15 @@ def render_statement(problem: dict, out_dir: str | None = None, width: int = 900
 def render_examples(problem: dict, out_dir: str | None = None, width: int = 900) -> str:
     """Return one PNG containing escaped sample input/output, without math parsing."""
     return _RENDERER.submit(_render, problem, out_dir, width, True).result()
+
+
+def render_html(document: str, out_dir: str | None = None, width: int = 900) -> str:
+    """Screenshot an arbitrary, fully self-contained HTML document.
+
+    Used by ``record_cards`` for history/mistakes/score/solution cards. The
+    document must not reference remote resources: the request router only lets
+    the temporary page and the bundled KaTeX directory through. Scripts are not
+    waited for, so cards must be static HTML.
+    """
+    _validate_width(width)
+    return _RENDERER.submit(_render_document, document, out_dir, width, "记录卡片", None).result()

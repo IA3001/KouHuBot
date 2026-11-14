@@ -220,6 +220,11 @@ def _ago(days: float) -> str:
     return f"{int(days)} 天"
 
 
+def humanize_days(days: float) -> str:
+    """公开的「距今多久」格式化：记录卡片与错题本文字版共用一套口径。"""
+    return _ago(days)
+
+
 def _redo_and_review(key: str) -> str:
     """给出重做/回看两条命令；坑点线路的题号带 ``grm:`` 前缀。"""
     if key.startswith(PITFALL_PREFIX):

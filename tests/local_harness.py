@@ -326,6 +326,10 @@ async def main() -> int:
             "judge_ack_delay_seconds": 0.01,
             "judge_timeout_seconds": 30,
             "image_width": 900,
+            # 默认关掉记录卡片：本脚本大量断言「文字形态」（分页、判词顺序、
+            # 内容页重建），这些正是卡片失败时的回退契约。图片路径由第 19b 节
+            # 单独验证，且那里会真的渲染 PNG。
+            "record_cards_enabled": False,
         },
     )
     await plugin.initialize()
@@ -1154,6 +1158,44 @@ async def main() -> int:
     runner.check('手动生长需要管理员','管理员' in out and ctx.call_count==calls_before,out)
     out=await runner.says(E('grm growth',**alice),'cmd_pitfall')
     runner.check('用户可查看自动题库状态','已入库：1' in out,out)
+
+    # ---------- 19b. 记录卡片 ----------
+    banner("19b. 记录卡片：复盘类输出渲染成图片")
+    plugin.config["record_cards_enabled"] = True
+    image_dir = plugin._image_dir
+
+    def cards_of(text: str) -> list[Path]:
+        return [Path(item) for item in image_path_of(text) if item.startswith(str(image_dir))]
+
+    out = await runner.says(E("history", **alice), "cmd_history")
+    shots = cards_of(out)
+    runner.check("history 出图且不再发长文字",
+                 len(shots) == 1 and all(p.is_file() and p.stat().st_size > 5000 for p in shots), out)
+    png = shots[0].read_bytes()[:24] if shots else b""
+    runner.check("卡片是 900 宽的 PNG",
+                 png[:8] == b"\x89PNG\r\n\x1a\n" and int.from_bytes(png[16:20], "big") == 900,
+                 str(png[:24]))
+
+    out = await runner.says(E("mistakes", **alice), "cmd_mistakes")
+    runner.check("mistakes 出图", len(cards_of(out)) == 1, out)
+    out = await runner.says(E("me", **alice), "cmd_me")
+    runner.check("me 出图", len(cards_of(out)) == 1, out)
+    out = await runner.says(E(f"history show {review_id}", **alice), "cmd_history")
+    runner.check("提交详情出图", len(cards_of(out)) == 1, out)
+    sol_row = plugin._store.review_problem(scope, "1001", first_key)
+    if sol_row:
+        # 直接落一条缓存解析，避免这张卡依赖模型队列的时序。
+        plugin._store.save_solution(
+            sol_row["round_id"], "关键观察：奇偶性。做法：检查能否拆成两个正偶数。",
+            "CF官方题解参考 · 模型中文整理\nhttps://codeforces.com/blog/entry/1")
+    out = await runner.says(E(f"sol {first_key}", **alice), "cmd_solution")
+    runner.check("题后解析出图并保留可点原文",
+                 len(cards_of(out)) == 1 and "https://codeforces.com/blog/entry/" in out, out)
+
+    plugin.config["record_cards_enabled"] = False
+    out = await runner.says(E("history", **alice), "cmd_history")
+    runner.check("关掉配置回到文字", not cards_of(out) and "我的正题记录" in out, out)
+    plugin.config["record_cards_enabled"] = True
 
     # ---------- 19. 数据持久化 ----------
     banner("19. 重开数据库，数据要还在")

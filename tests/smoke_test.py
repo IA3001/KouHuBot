@@ -11,6 +11,7 @@ KouHuBot 单元测试（不联网、不出图、不调用模型）
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -35,6 +36,16 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 def eq(name: str, got, want) -> None:
     check(name, got == want, f"实际 {got!r}，期望 {want!r}")
+
+
+PLUGIN_DIR = Path(__file__).resolve().parent.parent / "plugins" / "astrbot_plugin_kouhu_oj"
+
+
+def metadata_version() -> str:
+    """插件版本号唯一的出处：metadata.yaml（main.py 也从这里读，别写死）。"""
+    text = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
+    m = re.search(r"^\s*version:\s*v?(\d+\.\d+\.\d+)", text, re.M)
+    return m.group(1) if m else ""
 
 
 # ----------------------------------------------------------------------
@@ -714,7 +725,8 @@ def test_package_import(tmp: Path) -> None:
         eq("包加载下 normalize_tex 生效", cf.normalize_tex(r"a \le b"), r"a \leq b")
 
         main_mod = importlib.import_module("data.plugins.astrbot_plugin_kouhu_oj.main")
-        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, "0.21.29")
+        # 期望值从 metadata.yaml 读：把版本号写死在测试里，两边一起过期就变成假绿。
+        eq("包加载下 main 可导入", main_mod.PLUGIN_VERSION, metadata_version())
         cmds = [n for n in dir(main_mod.KouHuOJ) if n.startswith("cmd_")]
         check(f"指令齐全（{len(cmds)} 个）", len(cmds) >= 12, str(sorted(cmds)))
         # 错题本与最小反例是这一版新增的用户可见能力，缺了说明接线断了
