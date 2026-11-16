@@ -116,8 +116,14 @@ tar czf /root/kouhu-backups/plugin-<旧版本>-$(date +%Y%m%d-%H%M%S).tgz \
 
 ## 7. 已知环境限制
 
-- 容器内存上限 900MiB、宿主机**没有 swap**。实测：记录卡片渲染峰值约 +12MiB，
-  题面渲染是内存大头（单次峰值可到 ~820MiB）。同一条渲染线程串行执行，不会叠。
-  建议按 `deploy/setup-swap.sh` 补 2G swap。
+- 容器内存上限 900MiB、宿主机**没有 swap**（`free` 显示 Swap: 0）。同一条渲染线程串行执行，不会叠。
+  实测（0.23.1，`/sys/fs/cgroup/memory.stat`）：
+  - 常驻进程 RSS 约 405MiB（AstrBot 主进程，含 `anon_thp` 318MiB 大页）；
+  - 纯静态记录卡片：内存基本不动；
+  - **带公式的解析卡**（加载 KaTeX）：单次 +70~135MiB，耗时约 4.4s；
+  - 题面渲染是大头，单次峰值可到 ~820MiB。
+  `memory.events` 里 `max` 计数会涨（触到上限会先回收 page cache 再重试），但 `oom` / `oom_kill` 一直是 0，
+  渲染完 `current` 会回落到 ~530MiB。建议仍按 `deploy/setup-swap.sh` 补 2G swap，给题面渲染留余量。
+- 卡片的公式是**按需**加载的：正文出现 `data-tex` 才注入 KaTeX 并等 `__kouhuRendered`，否则仍是纯静态文档。
 - 容器内没有 emoji 字体：卡片里不要画 emoji（会是豆腐块），状态用色块和文字。
 - 卡片是静态 HTML（无 `<script>`），所以 CSP 不需要放开脚本；截图等待条件为 `None`。

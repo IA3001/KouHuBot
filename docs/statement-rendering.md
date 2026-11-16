@@ -19,7 +19,7 @@ HTML 提取保留段落、输入输出分区及 pre 格式块；翻译公式使�
 - 解析与判词的正文走 `math_prose()`：先用 `tokenize_math` 把 `$$…$$` / `\[…\]` / `\(…\)` 挖成占位串，再交给 `prose()` 排 Markdown（标题、列表、粗体），最后把占位串回填成 `[data-tex]`。行内片段（作答预览、错题本建议）走 `math_inline()`，不拆段落。作答正文与代码块不解析公式——那里的 `$` 是代码或金额。
 - 卡片 HTML 由 `record_cards.py` 构建：`history_card` / `entries_card` / `entry_detail_card` / `mistakes_card` / `profile_card` / `solution_card`，都是纯函数，可离线单测。可见性口径（进行中隐藏题号、题名）**在调用方**先落成文案再交进来，渲染器不认识 `status`，避免隐藏逻辑写两份。
 - 容器里没有任何 emoji 字体（`fc-list | grep -i emoji` 为空），emoji 会渲染成 .notdef 方框，所以卡片内状态一律用 CSS 色块与文字徽章；用户昵称、作答、判词里的 emoji 由 `clean_text` 换成占位点。用户内容一律 HTML 转义。
-- 单张耗时约 0.6–0.7 秒、进程树峰值内存约 +460MB。渲染串行（`_RENDERER` 单工作线程 + `_RENDER_LOCK`），一次命令只出一到两张卡，渲染放在 `asyncio.to_thread` 里，不阻塞事件循环。
+- 单张耗时约 0.6–0.7 秒、进程树峰值内存约 +460MB；加载 KaTeX 的解析卡约 4.4 秒、cgroup 峰值 +70~135MiB（0.23.1 实测）。渲染串行（`_RENDERER` 单工作线程 + `_RENDER_LOCK`），一次命令只出一到两张卡，渲染放在 `asyncio.to_thread` 里，不阻塞事件循环。
 - 失败（没有浏览器、截图超时、`RenderError`、内容异常）只记一条 warning，然后**回退到原文字**；文字构建函数（`mistakes_text`、`history` 的拼装等）原样保留，所以关掉 `record_cards_enabled` 或渲染不可用时行为与 0.21.x 完全一致。
 - 单张仍受 30000px 上限约束：提交详情按 `split_code`（5000 字/张）切块并标注「作答 i/n」，正常提交（默认 2000 字）永远是一张。
 - 每页条数按图片容量定（`record_cards.CARD_LIST_PAGE=30` / `CARD_ENTRY_PAGE=20` / `CARD_MISTAKE_PAGE=20`），30 行列表约 4569px 高；文字回退沿用消息长度的 5 / 3 / 5，渲染失败时按文字口径重新取数，页码自洽。
