@@ -38,11 +38,16 @@ def main() -> int:
 
 
 def repr_blocks(text: str) -> str:
-    """用三引号包起来，但避开正文里可能出现的连续引号。"""
+    """用三引号包起来，但避开正文里可能出现的连续引号。
+
+    反斜杠要成对写：日志里会写 LaTeX（``\\[``、``\\text{}``），原样塞进源码会被
+    Python 当成转义序列吃掉一层（``\\t`` 直接变制表符），内嵌副本就和 .md 走样了。
+    """
     quote = '"""'
     while quote in text:
         quote += '"'
-    return f"{quote}{text}{quote}"
+    body = text.replace("\\", "\\\\")
+    return f"{quote}{body}{quote}"
 
 
 if __name__ == "__main__":

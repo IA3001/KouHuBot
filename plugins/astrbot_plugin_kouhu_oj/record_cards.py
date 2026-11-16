@@ -145,10 +145,14 @@ def prose(text: str) -> str:
             out.append(f"<h3>{inline(heading[1])}</h3>")
         elif item:
             flush()
-            kind = "ol" if re.match(r"^\s*\d", line) else "ul"
+            number = re.match(r"^\s*(\d+)[.)]", line)
+            kind = "ol" if number else "ul"
             if kind != list_kind:
                 close_list()
-                out.append(f"<{kind}>")
+                # 列表被公式或代码块打断后，后半段要从原来的编号接着数。
+                start = int(number.group(1)) if number else 1
+                out.append(f'<ol start="{start}">' if kind == "ol" and start > 1
+                           else f"<{kind}>")
                 list_kind = kind
             out.append(f"<li>{inline(item[1])}</li>")
         elif re.fullmatch(r"\s*[-*_]{3,}\s*", line):
@@ -163,12 +167,75 @@ def prose(text: str) -> str:
     return "\n".join(out) or '<p class="empty">（没有内容）</p>'
 
 
+_MATH_SLOT = "KOUHUMATH{}END"
+_MATH_SLOT_RE = re.compile(r"KOUHUMATH(\d+)END")
+
+
+def math_span(tex: str, display: bool = False) -> str:
+    """把一段 LaTeX 变成待渲染占位元素（KaTeX 在页面里填进去）。"""
+    escaped = html.escape(str(tex).strip(), quote=True)
+    return (f'<span class="math" data-tex="{escaped}" '
+            f'data-display="{str(bool(display)).lower()}">{escaped}</span>')
+
+
+def math_prose(text: str) -> str:
+    """带公式的 :func:`prose`。
+
+    先用 ``browser_render.tokenize_math`` 把 ``$$…$$`` / ``\\[…\\]`` / ``\\(…\\)``
+    这类公式挖出来换成占位串，剩下的正文照旧走 ``prose``（标题、列表、粗体），
+    最后把占位串回填成 ``[data-tex]`` 元素。这样公式不会破坏段落结构，
+    正文里的 ``**`` 也不会因为公式被切而失效。
+
+    匹配不上闭合符的公式按原文保留：宁可露出源码，也不把一段话吞掉。
+    """
+    try:
+        from .browser_render import tokenize_math  # 延迟导入，保持纯函数可测
+    except ImportError:
+        from browser_render import tokenize_math
+    slots: list[tuple[str, bool]] = []
+    pieces: list[str] = []
+    for token in tokenize_math(str(text or "")):
+        if token.kind == "math":
+            slots.append((token.text, token.display))
+            pieces.append(_MATH_SLOT.format(len(slots) - 1))
+        else:
+            pieces.append(token.text)
+    if not slots:
+        return prose(text)
+    body = prose("".join(pieces))
+
+    def restore(match: "re.Match[str]") -> str:
+        index = int(match.group(1))
+        if index >= len(slots):
+            return match.group(0)
+        tex, display = slots[index]
+        return math_span(tex, display)
+
+    return _MATH_SLOT_RE.sub(restore, body)
+
+
 def inline(text: str) -> str:
     """行内标记：先转义，再把 ``**粗体**`` 和 ``\\`代码\\``` 换成标签。"""
     value = esc(text)
     value = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", value)
     value = re.sub(r"`([^`]+?)`", r'<code class="inl">\1</code>', value)
     return value
+
+
+def math_inline(text: str) -> str:
+    """单行文本里的公式（作答预览、错题本的建议）：不排版，只把公式挖出来。
+
+    行内片段不做段落/列表解析，避免把一句判词拆成好几块。
+    """
+    try:
+        from .browser_render import tokenize_math
+    except ImportError:
+        from browser_render import tokenize_math
+    pieces: list[str] = []
+    for token in tokenize_math(str(text or "")):
+        pieces.append(math_span(token.text, token.display) if token.kind == "math"
+                      else esc(token.text))
+    return "".join(pieces)
 
 
 def split_code(text: str, budget: int = CODE_BUDGET) -> list[str]:
@@ -344,6 +411,11 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; background: #f6
       border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px;
       font: 15.5px/1.65 "DejaVu Sans Mono", "Noto Sans CJK SC", monospace; }
 pre.empty { color: var(--faint); font-family: inherit; font-size: 15px; }
+.math { white-space: pre-wrap; }
+.math-fallback { white-space: pre-wrap; font: 14.5px/1.6 "DejaVu Sans Mono", monospace;
+                 color: var(--faint); }
+.katex { font-size: 1.05em; }
+.katex-display { margin: 10px 0; }
 .body p { margin: 0 0 12px; }
 .body p.empty { color: var(--faint); }
 .body h3 { color: var(--brand-ink); font-size: 18px; font-weight: 600; margin: 18px 0 8px; }
@@ -382,16 +454,38 @@ code.inl { font: 14.5px/1.5 "DejaVu Sans Mono", monospace; background: #eef1f3;
 _HEAD = (
     "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
     "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; "
-    "style-src 'unsafe-inline'; font-src file: data:; img-src data:\">"
-    "<title>{title}</title><style>{css} body {{ width: {width}px; }}</style>"
-    "</head><body><div class=\"sheet\">{body}</div></body></html>"
+    "{csp}style-src{style} 'unsafe-inline'; font-src file: data:; img-src data:\">"
+    "<title>{title}</title>{assets}<style>{css} body {{ width: {width}px; }}</style>"
+    "</head><body><div class=\"sheet\">{body}</div>{tail}</body></html>"
 )
 
 
 def document(*, title: str, body: str, width: int = CARD_WIDTH) -> str:
-    """包一层文档外壳。宽度在 CSS 里写死，截图时 viewport 用同一宽度。"""
+    """包一层文档外壳。宽度在 CSS 里写死，截图时 viewport 用同一宽度。
+
+    正文里出现 ``data-tex`` 就说明这张卡带公式（``解析`` 与判词），这时才加载
+    本地 KaTeX 并放开 ``script-src``/``style-src file:``；其余卡片仍是纯静态
+    文档（CSP 不含 script-src，截图也不用等脚本）。KaTeX 资源缺失时退回纯文本
+    卡片——公式会显示成源码，但卡片本身还能发出去。
+    """
     _validate_width(width)
-    return _HEAD.format(title=html.escape(title), css=CARD_CSS, body=body, width=int(width))
+    assets = tail = ""
+    if "data-tex=" in body:
+        try:
+            try:
+                from .browser_render import math_assets, math_available
+            except ImportError:
+                from browser_render import math_assets, math_available
+            if math_available():
+                assets, tail = math_assets()
+        except Exception:  # 未安装 Playwright 之类：别让整张卡挂掉
+            assets = tail = ""
+    math = bool(assets)
+    return _HEAD.format(
+        title=html.escape(title), css=CARD_CSS, body=body, width=int(width),
+        csp="script-src file: 'unsafe-inline'; " if math else "",
+        style=" file:" if math else "", assets=assets, tail=tail,
+    )
 
 
 def _validate_width(width: Any) -> int:
@@ -555,7 +649,7 @@ def entries_card(
             f'<span class="spacer"></span>'
             f'<span class="tag">{esc(row.get("at") or "")}</span></div>'
             f'<p class="meta">{esc(submission)}</p>'
-            f'<p class="comment">{esc(comment)}</p>'
+            f'<p class="comment">{math_inline(comment)}</p>'
             f'<p class="actions">完整作答与判词 '
             f'<span class="cmd">{esc(row.get("detail_cmd") or "")}</span></p></div>'
         )
@@ -594,7 +688,7 @@ def entry_detail_card(
     )
     body += section("我的作答", "引用层级已还原") + code_block(submission)
     if str(comment or "").strip():
-        body += section("判词") + f'<div class="body">{prose(comment)}</div>'
+        body += section("判词") + f'<div class="body">{math_prose(comment)}</div>'
     if str(counterexample or "").strip():
         body += (section("最小反例", "只给输入与两个结果，不给解法")
                  + f'<div class="callout"><div class="t">COUNTEREXAMPLE</div>'
@@ -654,7 +748,7 @@ def mistakes_card(
             f'<span class="key">{esc(item.get("key") or "未知题号")}</span>'
             f'<span class="spacer"></span>{"".join(tags)}</div>'
             f"{title_html}"
-            f'<p class="comment">{esc(comment)}</p>'
+            f'<p class="comment">{math_inline(comment)}</p>'
             f'<p class="actions">重做 <span class="cmd">{esc(item.get("redo_cmd") or "")}</span>'
             f'<span class="sep">·</span>回看 '
             f'<span class="cmd">{esc(item.get("look_cmd") or "")}</span></p></div>'
@@ -885,7 +979,7 @@ def solution_card(
         source_html += f'<br><span class="link">{esc(url)}</span>'
     body += f'<div class="callout note"><div class="t">来源</div>{source_html}</div>'
     body += section("解析", "基于官方参考整理，可能有误")
-    body += f'<div class="body">{prose(text)}</div>'
+    body += f'<div class="body">{math_prose(text)}</div>'
     return document(title=clean_text(title), body=body + footer(commands, notes), width=width)
 
 
@@ -902,7 +996,9 @@ def render(html_document: str, *, out_dir: str | None = None,
         from .browser_render import render_html  # 延迟导入：本模块可脱离 Playwright 使用
     except ImportError:  # 直接以顶层模块导入时（本地脚本、测试）
         from browser_render import render_html
-    return render_html(html_document, out_dir=out_dir, width=width)
+    # 正文里有 data-tex 就说明这张卡要等 KaTeX 渲染完再截图。
+    return render_html(html_document, out_dir=out_dir, width=width,
+                       math="data-tex=" in html_document)
 
 
 __all__ = [
@@ -910,6 +1006,7 @@ __all__ = [
     "CARD_MISTAKE_PAGE", "CODE_BUDGET", "COMMENT_LIMIT", "DEFAULT_MAX_HEIGHT",
     "VERDICT_TONES", "clean_text", "clip", "code_block", "document", "entries_card",
     "entry_detail_card", "esc", "footer", "history_card", "inline", "masthead",
-    "profile_card", "mistakes_card", "prose", "render", "section", "solution_card",
+    "profile_card", "mistakes_card", "math_inline", "math_prose", "math_span",
+    "prose", "render", "section", "solution_card",
     "split_code", "stats", "verdict_badge",
 ]

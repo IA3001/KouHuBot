@@ -224,6 +224,25 @@ window.__kouhuRendered = true;
 """
 
 
+def math_available() -> bool:
+    """本地 KaTeX 资源是否齐全（缺了就只能发不带公式的卡片）。"""
+    return all((ASSET_DIR / name).is_file() for name in ("katex.min.js", "katex.min.css"))
+
+
+def math_assets() -> tuple[str, str]:
+    """返回 (head, tail)：本地 KaTeX 的样式、脚本，以及渲染完成标记。
+
+    只拼 URL，不检查文件是否存在——``build_html`` 要能在没有任何资源的机器上
+    构造文档（单测就是这么用的）；真正渲染前由 ``math_available`` / ``_render`` 把关。
+    """
+    assets = ASSET_DIR.resolve()
+    css_url = html.escape((assets / "katex.min.css").as_uri(), quote=True)
+    js_url = html.escape((assets / "katex.min.js").as_uri(), quote=True)
+    head = f'<link rel="stylesheet" href="{css_url}">'
+    tail = f'<script src="{js_url}"></script><script>{_MATH_SCRIPT}</script>'
+    return head, tail
+
+
 def build_html(problem: dict, examples: bool = False, width: int = 900) -> str:
     """Build safe HTML without requiring a browser or installed KaTeX assets.
 
@@ -231,9 +250,7 @@ def build_html(problem: dict, examples: bool = False, width: int = 900) -> str:
     Local KaTeX CSS resolves its fonts relative to the asset directory.
     """
     _validate_width(width)
-    assets = ASSET_DIR.resolve()
-    css_url = html.escape((assets / "katex.min.css").as_uri(), quote=True)
-    js_url = html.escape((assets / "katex.min.js").as_uri(), quote=True)
+    math_head, math_tail = math_assets()
     pitfall = problem.get('kind') == 'pitfall'
     statement=str(problem.get('statement_cn') or problem.get('statement_en') or '')
     # Also handles previously cached combined statements without a cache migration.
@@ -281,10 +298,10 @@ def build_html(problem: dict, examples: bool = False, width: int = 900) -> str:
             '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; '
             "script-src file: 'unsafe-inline'; style-src file: 'unsafe-inline'; font-src file: data:; "
             "img-src data:; connect-src 'none'\">"
-            f'<title>{title}</title><link rel="stylesheet" href="{css_url}">'
+            f'<title>{title}</title>{math_head}'
             f'<style>{_STYLE} body {{ width: {width}px; }}</style></head><body>'
             f'<main class="card">{body}<footer>口胡判题 · 题面版权归原平台，仅供练习</footer></main>'
-            f'<script src="{js_url}"></script><script>{_MATH_SCRIPT}</script></body></html>')
+            f'{math_tail}</body></html>')
 
 
 def _validate_width(width: int) -> None:
@@ -394,13 +411,19 @@ def render_examples(problem: dict, out_dir: str | None = None, width: int = 900)
     return _RENDERER.submit(_render, problem, out_dir, width, True).result()
 
 
-def render_html(document: str, out_dir: str | None = None, width: int = 900) -> str:
+def render_html(document: str, out_dir: str | None = None, width: int = 900,
+                math: bool = False) -> str:
     """Screenshot an arbitrary, fully self-contained HTML document.
 
     Used by ``record_cards`` for history/mistakes/score/solution cards. The
     document must not reference remote resources: the request router only lets
-    the temporary page and the bundled KaTeX directory through. Scripts are not
-    waited for, so cards must be static HTML.
+    the temporary page and the bundled KaTeX directory through.
+
+    ``math=True`` means the document carries ``[data-tex]`` placeholders and the
+    bundled KaTeX script, so the screenshot waits for ``__kouhuRendered`` just
+    like statements do. Plain cards stay static HTML and wait for nothing.
     """
     _validate_width(width)
-    return _RENDERER.submit(_render_document, document, out_dir, width, "记录卡片", None).result()
+    ready = "window.__kouhuRendered === true" if math else None
+    label = "解析卡片" if math else "记录卡片"
+    return _RENDERER.submit(_render_document, document, out_dir, width, label, ready).result()

@@ -281,6 +281,78 @@ class HtmlTests(unittest.TestCase):
         self.assertTrue(out.endswith('…'))
 
 
+class MathTests(unittest.TestCase):
+    """解析/判词里的 LaTeX 必须渲染成公式，而不是把 ``\\[`` 原文发出去。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.mod = stub.load_plugin(Path(cls.tmp.name))
+        cls.rc = cls.mod.record_cards
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_solution_card_renders_latex_not_source(self):
+        text = ("1. 关键观察\n\n对 \\(T\\) 分段。\n\n\\[\n1\\le b<\\text{数组长度}.\n\\]\n\n"
+                "2. 复杂度 \\(O(n^2)\\)")
+        html = self.rc.solution_card(key_label='2205E', source='CF官方题解参考 · 模型中文整理',
+                                     url='https://codeforces.com/blog/entry/1', text=text)
+        self.assertIn('data-tex=', html)
+        self.assertIn('data-display="true"', html)      # 显示公式
+        self.assertIn('data-display="false"', html)     # 行内公式
+        visible = html.split('<body>', 1)[1]
+        self.assertNotIn('\\[', visible.replace('data-tex="', ''))   # 正文里不该再出现源码
+        self.assertNotIn('\\(', visible.replace('data-tex="', ''))
+
+    def test_math_card_loads_local_katex_plain_card_does_not(self):
+        math_html = self.rc.solution_card(key_label='1A', source='s', url='u',
+                                          text='公式 \\(x\\)')
+        self.assertIn('katex.min.css', math_html)
+        self.assertIn('katex.min.js', math_html)
+        self.assertIn("script-src file: 'unsafe-inline'", math_html)
+        plain = self.rc.history_card(rows=[], page=1, pages=1, total=0)
+        self.assertNotIn('katex.min.js', plain)
+        self.assertNotIn('script-src', plain)           # 普通卡片仍是纯静态文档
+
+    def test_math_prose_keeps_markdown_structure(self):
+        html = self.rc.math_prose("**结论**：只算 \\(T\\) 的分段数。")
+        self.assertIn('<strong>结论</strong>', html)
+        self.assertIn('data-tex=', html)
+
+    def test_list_numbering_survives_a_display_formula(self):
+        html = self.rc.math_prose("1. 甲\n2. 乙\n\n\\[ x=1 \\]\n\n3. 丙")
+        self.assertIn('<ol start="3">', html)
+
+    def test_unclosed_formula_stays_literal(self):
+        html = self.rc.math_prose("这里少一个右括号 \\(x+1")
+        self.assertIn('\\(x+1', html)
+        self.assertNotIn('data-tex=', html)
+
+    def test_comment_math_is_inline_not_block(self):
+        html = self.rc.math_inline("复杂度 \\(O(n\\log n)\\)，花费 5 元")
+        self.assertEqual(html.count('data-tex='), 1)
+        self.assertNotIn('<p>', html)
+        self.assertIn('花费 5 元', html)
+
+    def test_entries_card_uses_inline_math_for_comments(self):
+        html = self.rc.entries_card(
+            key_label='1A', rows=[{'id': 3, 'verdict': 'WA', 'at': '01-02 03:04',
+                                   'submission': '作答', 'comment': '复杂度 \\(O(n)\\)',
+                                   'detail_cmd': 'history show 3'}],
+            page=1, pages=1, total=1)
+        self.assertIn('data-tex=', html)
+
+    def test_render_waits_for_katex_only_when_needed(self):
+        import browser_render
+        with patch.object(browser_render, 'render_html', return_value='x.png') as fake:
+            self.rc.render('<p>纯文本</p>', out_dir='/tmp')
+            self.assertFalse(fake.call_args.kwargs['math'])
+            self.rc.render('<p data-tex="x">x</p>', out_dir='/tmp')
+            self.assertTrue(fake.call_args.kwargs['math'])
+
+
 class WiringTests(unittest.IsolatedAsyncioTestCase):
     """图片优先 + 文字回退的接线。渲染器被 mock，跑得很快。"""
 

@@ -84,7 +84,11 @@ CARDS = {
     'sol': lambda: record_cards.solution_card(
         key_label='628B', source='CF官方题解参考 · 模型中文整理',
         url='https://codeforces.com/blog/entry/12345',
-        text='## 关键观察\n- 用 26 个有序集合维护位置。\n\n## 复杂度\n- O(26 n log n)'),
+        # 解析文本里一定有 LaTeX（模型习惯写 \\(O(n\\log n)\\) 和 \\[…\\] 块），
+        # 预览必须能看出公式真的渲染了，而不是把源码当正文发出去。
+        text='## 关键观察\n- 用 26 个有序集合维护位置，单次转移 \\(O(\\log n)\\)。\n'
+             '\n\\[\n\\sum_{i=1}^{n} a_i \\le 2^{20}\\cdot n\n\\]\n\n'
+             '## 复杂度\n- 总时间 \\(O(26\\, n\\log n)\\)。\n- 空间 \\(O(n)\\)。'),
 }
 
 if __name__ == '__main__':

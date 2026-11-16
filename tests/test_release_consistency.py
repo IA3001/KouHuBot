@@ -6,6 +6,7 @@ AstrBot 日志也打印了 v0.22.0，但 main.py 里那份 `PLUGIN_VERSION` 常�
 测试里，两边一起过期就成了「假绿」。这里把四处口径串起来，任何一处漏改都会红。
 """
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -83,6 +84,27 @@ class VersionSourceTests(unittest.TestCase):
         self.assertIn("示例", self.mod._changelog_section(text, "0.99.0"))
         # 版本号前缀不能误吞：0.99.0 不该匹配 0.99.01
         self.assertEqual(self.mod._changelog_section("## 0.99.01\n\nx\n", "0.99.0"), "")
+
+
+class EmbeddedCopyTests(unittest.TestCase):
+    """内嵌副本的生成器：反斜杠不能丢（日志里会写 LaTeX）。"""
+
+    def test_repr_blocks_round_trips_backslashes(self):
+        sys.path.insert(0, str(REPO_ROOT / "tools"))
+        try:
+            import sync_changelog
+        finally:
+            sys.path.pop(0)
+        for text in ('`\\[ x \\]`', '`\\(O(n)\\log n\\)`', '`\\text{数组长度}`',
+                     "末尾有反斜杠 \\", "带制表\t符"):
+            with self.subTest(text=text):
+                scope: dict = {}
+                exec("CHANGELOG_MD = " + sync_changelog.repr_blocks(text), scope)
+                self.assertEqual(scope["CHANGELOG_MD"], text)
+
+    def test_changelog_mentions_the_current_version_once(self):
+        text = CHANGELOG.read_text(encoding="utf-8")
+        self.assertEqual(text.count(f"## {metadata_version()}\n"), 1)
 
 
 class VerCommandTests(unittest.IsolatedAsyncioTestCase):

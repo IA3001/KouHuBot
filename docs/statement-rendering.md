@@ -14,7 +14,9 @@ HTML 提取保留段落、输入输出分区及 pre 格式块；翻译公式使�
 
 `history`（按题汇总 / 每次作答 / 提交详情）、`mistakes`、`me`、`sol` 改成图片，与题面卡共用同一套 Chromium 截图链路，但**不带公式**：
 
-- 入口是 `browser_render.render_html(document, out_dir, width)`。它把「写盘 → 起浏览器 → 路由白名单 → 截图 → 关浏览器」抽成 `_render_document`，题面路径仍然走 `_render`（保持 `build_html` + KaTeX 就绪等待 `window.__kouhuRendered`）。卡片是纯静态文档，等待条件传 `None`，因此卡片本身不需要 `<script>`，CSP 也就不必放开 `script-src`。
+- 入口是 `browser_render.render_html(document, out_dir, width, math=False)`。它把「写盘 → 起浏览器 → 路由白名单 → 截图 → 关浏览器」抽成 `_render_document`，题面路径仍然走 `_render`（保持 `build_html` + KaTeX 就绪等待 `window.__kouhuRendered`）。
+- **公式是按需的**：`record_cards.document()` 扫描正文，发现 `data-tex` 占位就注入 `browser_render.math_assets()` 给的本地 KaTeX（样式 + 脚本）并放开 `script-src file: 'unsafe-inline'`；`render()` 据此把 `math=True` 传下去，截图像题面一样等 `window.__kouhuRendered`。没有公式的卡片（history / mistakes / me）仍是纯静态文档，等待条件为 `None`，CSP 不含 `script-src`。KaTeX 资源缺失时退回纯文本卡片。
+- 解析与判词的正文走 `math_prose()`：先用 `tokenize_math` 把 `$$…$$` / `\[…\]` / `\(…\)` 挖成占位串，再交给 `prose()` 排 Markdown（标题、列表、粗体），最后把占位串回填成 `[data-tex]`。行内片段（作答预览、错题本建议）走 `math_inline()`，不拆段落。作答正文与代码块不解析公式——那里的 `$` 是代码或金额。
 - 卡片 HTML 由 `record_cards.py` 构建：`history_card` / `entries_card` / `entry_detail_card` / `mistakes_card` / `profile_card` / `solution_card`，都是纯函数，可离线单测。可见性口径（进行中隐藏题号、题名）**在调用方**先落成文案再交进来，渲染器不认识 `status`，避免隐藏逻辑写两份。
 - 容器里没有任何 emoji 字体（`fc-list | grep -i emoji` 为空），emoji 会渲染成 .notdef 方框，所以卡片内状态一律用 CSS 色块与文字徽章；用户昵称、作答、判词里的 emoji 由 `clean_text` 换成占位点。用户内容一律 HTML 转义。
 - 单张耗时约 0.6–0.7 秒、进程树峰值内存约 +460MB。渲染串行（`_RENDERER` 单工作线程 + `_RENDER_LOCK`），一次命令只出一到两张卡，渲染放在 `asyncio.to_thread` 里，不阻塞事件循环。
