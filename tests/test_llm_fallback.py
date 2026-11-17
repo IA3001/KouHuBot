@@ -159,12 +159,46 @@ class FallbackTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ctx.calls)
 
     async def test_primary_gets_the_lions_share_of_the_deadline(self):
-        # 90s 预算 + 2 个备用时，主模型必须拿到 60s，而不是平均的 30s。
-        self.assertEqual(module._attempt_budget(90, 3), 60)
-        self.assertEqual(module._attempt_budget(30, 2), 15)
-        self.assertEqual(module._attempt_budget(15, 1), 15)
-        # 备用最多占一半预算，避免预算很小时主模型只剩零头。
-        self.assertEqual(module._attempt_budget(20, 3), 10)
+        # 90s 预算 + 3 个备用：主模型先拿 45s，而不是平均的 22.5s。
+        self.assertEqual(module.attempt_budgets(90, 4), [45])
+        self.assertEqual(module.attempt_budgets(90, 3), [60])
+        self.assertEqual(module.attempt_budgets(15, 1), [15])
+        # 预算很小时不切碎：主模型拿全部，免得每个模型只剩一两秒。
+        self.assertEqual(module.attempt_budgets(20, 3), [20])
+        self.assertEqual(module.attempt_budgets(45, 4), [45])
+
+    async def test_primary_gets_a_second_call_when_budget_allows(self):
+        """60s / 4 个候选：主模型 15s 超时后还够再问一次，先不换模型。"""
+        self.assertEqual(module.attempt_budgets(60, 4), [15, 15])
+
+    async def test_no_second_call_when_it_would_starve_the_fallbacks(self):
+        # 90s / 4 个候选：主模型拿 45s，再给一次备用就 0s 了，不能拆。
+        self.assertEqual(module.attempt_budgets(90, 4), [45])
+
+    async def test_last_fallback_never_gets_a_dead_zero_window(self):
+        """主模型和中间候选把 90s 吃干净后，最后的兜底模型仍要拿到能跑完的窗口。
+
+        现场（2026-11-17 09:54）：sol 45s 超时 → terra 22s 503 → supabays 只剩 11s
+        → deepseek-flash 只剩 11s，全灭。用户的原话是「最兜底的那个肯定可以调用啊」。
+        """
+        ctx = Context(['mid', 'last'])
+        async def stuck():
+            await asyncio.Event().wait()
+        ctx.actions['primary'] = stuck
+        ctx.actions['mid'] = stuck
+        async def slow_last():
+            await asyncio.sleep(.01)
+            return response('ok')
+        ctx.actions['last'] = slow_last
+        got = await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=.08)
+        self.assertEqual(got.completion_text, 'ok')
+        # 主模型超时后时间就耗光了，中间候选被跳过；但最后的兜底模型一定有一次真调用。
+        self.assertEqual([x[0] for x in ctx.calls], ['primary', 'last'])
+
+    async def test_budget_is_not_sliced_into_unusable_pieces(self):
+        # 90s / 4 个候选时后面每个只剩 15s，不该再切成 7.5s。
+        self.assertEqual(module.attempt_budgets(90, 4), [45])
+        self.assertEqual(module.attempt_budgets(60, 4), [15, 15])
 
     async def test_primary_can_finish_past_an_equal_split(self):
         ctx = Context(['backup', 'last'])

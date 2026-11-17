@@ -3481,15 +3481,6 @@ class KouHuOJ(Star):
                 return
         self._last_ask[scope] = time.monotonic()
 
-        # 仅显式引用 ACMT 时走可选的只读教学分支；普通 ask 路径保持原样。
-        if re.search(r'@ACMT(?=$|\s|[「"『])', question, re.I):
-            try:
-                from .acmt_reference import answer_reference
-            except ImportError:
-                from acmt_reference import answer_reference
-            yield event.plain_result(await answer_reference(self, event, question, scope))
-            return
-
         # 问「更新了什么」这类问题，直接读 CHANGELOG 回答。
         # 不走模型：模型不知道仓库里有什么，只会说「日志里没有这个信息」，
         # 而日志就在那儿。而且版本历史这种事实性内容，让模型转述容易编。
