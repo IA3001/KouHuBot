@@ -6,32 +6,23 @@ import time
 
 from astrbot.api import logger
 
-# 一次尝试至少要有这么多秒才值得发出去。实测（2026-11-18）：判题 prompt 只有
-# 1486 字符，可是最快的备用模型 deepseek-flash 也要 11.6 秒——它把 1770 个
-# 推理 token 都烧在思考上，最后只吐 121 字符的 JSON。15 秒窗口一抖动就废，
-# 所以「给它一次机会」的下限是 20 秒。
-ATTEMPT_FLOOR_SECONDS = 20.0
+# 真实三级提示实测：sol 47.55s，DeepSeek 48.63s。短判题 JSON 的耗时
+# 不能代表所有任务；禁止再按候选数量把正常请求切成 15～20 秒。
+ATTEMPT_MAX_SECONDS = 60.0
 
-# AstrBot 默认对 5xx 重试 5 次（0.2→3.2 秒退避）。上游一抽风，十几次重试
-# 全耗在同一个坏模型上，降级链后面的模型连请求都发不出去——现场就是这么
-# 连续失败的：sol 45 秒窗口里全在 503 重试。压到 2 次，坏就快点报错，把
-# 时间让给下一个模型；真正的重试由降级链自己完成。
+# 两次总尝试（不是两次重试）；由降级链接管持续的上游故障。
 REQUEST_MAX_RETRIES = 2
 
 
 def attempt_budgets(remaining: float, candidates_left: int) -> list[float]:
-    """这一次尝试该给它多少秒。
+    """Give each actual attempt a usable window, bounded by the shared deadline.
 
-    均分是底线，但排在前面（通常是主模型）的那个该多拿一点：先把后面每个
-    候选的 ``ATTEMPT_FLOOR_SECONDS`` 扣出来，剩下的整块给当前这个。所以
-    90 秒 4 个候选是 30 / 20 / 20 / 20，而不是 45 / 15 / 15 / 15——后者让
-    兜底模型只剩 15 秒，比实测最慢的健康模型还要紧。总预算本来就很小
-    （不够每个候选 20 秒）时退回均分，切得再细也没意义。
+    Adding more configured backups must not shorten otherwise healthy calls.
+    A 120s request permits two full 60s attempts; quick errors leave their unused
+    time available for subsequent candidates. Not every candidate is guaranteed
+    a call when earlier providers exhaust the caller's total budget.
     """
-    if candidates_left <= 1:
-        return [max(remaining, 0.0)]
-    floor = remaining - ATTEMPT_FLOOR_SECONDS * (candidates_left - 1)
-    return [max(remaining / candidates_left, floor, 0.0)]
+    return [min(max(remaining, 0.0), ATTEMPT_MAX_SECONDS)]
 
 
 async def generate_with_fallback(
@@ -59,7 +50,8 @@ async def generate_with_fallback(
     try:
         config = (context.get_config(umo=event.unified_msg_origin)
                   if event is not None else context.get_config())
-        configured = config.get('agent_runner', {}).get('config', {}).get(
+        runner = config.get('agent', config.get('agent_runner', {}))
+        configured = runner.get('config', {}).get(
             'model', {}).get('fallback_provider_ids', [])
         if isinstance(configured, list) and all(
             isinstance(item, str) and item.strip() for item in configured
@@ -96,13 +88,7 @@ async def generate_with_fallback(
         candidates_left = len(candidates) - index
         budget = attempt_budgets(deadline - time.monotonic(), candidates_left)[0]
         if budget <= 0:
-            if index + 1 < len(candidates):
-                continue
-            if last_error is initial_error:
-                raise asyncio.TimeoutError('Model fallback total timeout exceeded')
-            # 时间已经耗光，但这是最后一个候选且前面真的失败过：宁可多等这
-            # 20 秒，也要真发一次请求，而不是发个 0 秒的必超时请求（那等于白兜底）。
-            budget = ATTEMPT_FLOOR_SECONDS
+            raise asyncio.TimeoutError('Model fallback total timeout exceeded') from last_error
         started = time.monotonic()
         logger.info(f'[KouHuOJ] Model attempt: {provider_id} budget={budget:.2f}s')
         try:

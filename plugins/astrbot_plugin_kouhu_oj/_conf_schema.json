@@ -127,8 +127,8 @@
   "judge_timeout_seconds": {
     "description": "判题超时（秒）",
     "type": "int",
-    "hint": "模型超过这个时间没响应就放弃，回一句超时提示。不设超时的话模型卡住时群里会毫无反应。",
-    "default": 90
+    "hint": "判题和三级提示共用的总时限。每个模型最多60秒，默认120秒可容纳主模型及一个完整降级请求；快速报错时继续后续候选。",
+    "default": 120
   },
   "judge_ack_delay_seconds": {
     "description": "判题多久没结果就先回一句",

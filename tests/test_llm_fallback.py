@@ -4,7 +4,7 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import _astrbot_stub as stub
 
@@ -70,7 +70,8 @@ class FallbackTest(unittest.IsolatedAsyncioTestCase):
             finally:
                 cancelled.set()
         ctx.actions['primary'] = stuck
-        got = await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=.08)
+        with patch.object(module, 'ATTEMPT_MAX_SECONDS', .03):
+            got = await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=.08)
         self.assertEqual(got.completion_text, 'ok')
         self.assertTrue(cancelled.is_set())
         self.assertEqual([x[0] for x in ctx.calls], ['primary', 'backup'])
@@ -160,24 +161,31 @@ class FallbackTest(unittest.IsolatedAsyncioTestCase):
                                                image_urls=['image'])
         self.assertFalse(ctx.calls)
 
-    async def test_primary_gets_more_than_an_equal_share(self):
-        # 90s / 4 个候选：主模型 30s（高于均分的 22.5s），后三个各留 20s。
-        self.assertEqual(module.attempt_budgets(90, 4), [30])
-        self.assertEqual(module.attempt_budgets(90, 3), [50])
-        self.assertEqual(module.attempt_budgets(135, 2), [115])
-        self.assertEqual(module.attempt_budgets(15, 1), [15])
+    async def test_more_backups_never_shrink_healthy_request_window(self):
+        for count in (1, 2, 3, 4, 10):
+            self.assertEqual(module.attempt_budgets(120, count), [60])
+            self.assertEqual(module.attempt_budgets(90, count), [60])
+            self.assertEqual(module.attempt_budgets(15, count), [15])
 
-    async def test_every_candidate_keeps_a_real_window(self):
-        """主模型快速失败后，剩下的时间够每个候选各拿满 20 秒。"""
-        self.assertEqual(module.attempt_budgets(60, 3), [20])
-        self.assertEqual(module.attempt_budgets(40, 2), [20])
-        # 20 秒是一个模型真正答完判题 JSON 的下限（今天实测最慢的健康模型 11.6s）。
-        self.assertEqual(module.ATTEMPT_FLOOR_SECONDS, 20)
+    async def test_current_and_legacy_config_schemas(self):
+        for schema in ('agent', 'agent_runner'):
+            ctx = Context(['backup'])
+            ctx.config = {schema: ctx.config['agent_runner']}
+            ctx.actions['primary'] = RuntimeError('offline')
+            await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=1)
+            self.assertEqual([c[0] for c in ctx.calls], ['primary', 'backup'])
 
-    async def test_tiny_budget_falls_back_to_an_equal_split(self):
-        # 总预算连每个候选 20 秒都排不出来时，均分就是最好的方案。
-        self.assertEqual(module.attempt_budgets(60, 4), [15])
-        self.assertAlmostEqual(module.attempt_budgets(20, 3)[0], 20 / 3)
+    async def test_realistic_hint_latency_not_cancelled_by_candidate_count(self):
+        # Scale seconds down 1000x: real hint calls took 47.55 / 48.63 seconds.
+        ctx = Context(['terra', 'deepseek', 'supabays'])
+        async def hint():
+            await asyncio.sleep(.048)
+            return response('["方向", "观察", "步骤"]')
+        ctx.actions['primary'] = hint
+        with patch.object(module, 'ATTEMPT_MAX_SECONDS', .06):
+            got = await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=.12)
+        self.assertTrue(got.completion_text.startswith('['))
+        self.assertEqual([c[0] for c in ctx.calls], ['primary'])
 
     async def test_upstream_5xx_does_not_burn_the_whole_window(self):
         """上游 503 由降级链接管，而不是 AstrBot 内部重试 5 次。"""
@@ -189,25 +197,27 @@ class FallbackTest(unittest.IsolatedAsyncioTestCase):
         for _, kwargs in ctx.calls:
             self.assertEqual(kwargs['request_max_retries'], module.REQUEST_MAX_RETRIES)
 
-    async def test_last_fallback_never_gets_a_dead_zero_window(self):
-        """主模型和中间候选把 90s 吃干净后，最后的兜底模型仍要拿到能跑完的窗口。
+    async def test_primary_timeout_leaves_full_window_for_next_model(self):
+        ctx = Context(['backup', 'unused'])
+        async def stuck():
+            await asyncio.Event().wait()
+        async def hint():
+            await asyncio.sleep(.048)
+            return response('ok')
+        ctx.actions.update(primary=stuck, backup=hint)
+        with patch.object(module, 'ATTEMPT_MAX_SECONDS', .06):
+            got = await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=.14)
+        self.assertEqual(got.completion_text, 'ok')
+        self.assertEqual([x[0] for x in ctx.calls], ['primary', 'backup'])
 
-        现场（2026-11-17 09:54）：sol 45s 超时 → terra 22s 503 → supabays 只剩 11s
-        → deepseek-flash 只剩 11s，全灭。用户的原话是「最兜底的那个肯定可以调用啊」。
-        """
-        ctx = Context(['mid', 'last'])
+    async def test_exhausted_total_budget_does_not_start_extra_requests(self):
+        ctx = Context(['backup'])
         async def stuck():
             await asyncio.Event().wait()
         ctx.actions['primary'] = stuck
-        ctx.actions['mid'] = stuck
-        async def slow_last():
-            await asyncio.sleep(.01)
-            return response('ok')
-        ctx.actions['last'] = slow_last
-        got = await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=.08)
-        self.assertEqual(got.completion_text, 'ok')
-        # 主模型和中间候选都超时后，最后的兜底模型照样拿到一次真调用。
-        self.assertEqual([x[0] for x in ctx.calls], ['primary', 'mid', 'last'])
+        with self.assertRaises(asyncio.TimeoutError):
+            await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=.02)
+        self.assertEqual([x[0] for x in ctx.calls], ['primary'])
 
 
 if __name__ == '__main__':
