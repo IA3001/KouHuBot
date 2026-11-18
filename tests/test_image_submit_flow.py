@@ -83,6 +83,18 @@ class ImageSubmitFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.context.llm_generate.await_count, 1)
         self.assertEqual(self.bot._judge.call_args.args[2], text)
 
+    async def test_extended_wait_only_for_exact_session_including_retry(self):
+        umo = stub.AstrMessageEvent('sub').unified_msg_origin
+        self.bot.config['long_judge_sessions'] = [umo + '-other']
+        self.bot._judge.return_value = None
+        self.assertIn('sub retry', await self.submit('sub 扫描数组', images=False))
+        self.assertEqual(self.bot._judge.call_args.kwargs['timeout'], 120)
+        self.assertFalse(self.bot._judge.call_args.kwargs.get('long_judge'))
+        self.bot.config['long_judge_sessions'] = [umo]
+        self.assertIn('sub retry', await self.submit('sub retry', images=False))
+        self.assertEqual(self.bot._judge.call_args.kwargs['timeout'], self.mod.LONG_JUDGE_TOTAL_SECONDS)
+        self.assertTrue(self.bot._judge.call_args.kwargs['long_judge'])
+
     async def test_bare_sub_is_routed_and_text_path_still_works(self):
         self.assertIsNotNone(self.mod.RE_SUBMIT.fullmatch('sub'))
         self.assertIsNone(self.mod.RE_SUBMIT.fullmatch('submarine'))

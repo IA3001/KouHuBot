@@ -210,6 +210,41 @@ class FallbackTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(got.completion_text, 'ok')
         self.assertEqual([x[0] for x in ctx.calls], ['primary', 'backup'])
 
+    async def test_long_judge_does_not_score_a_chunk_or_cancel_at_legacy_cap(self):
+        ctx = Context(['backup'])
+        closed = []
+        async def stream(**kw):
+            try:
+                yield SimpleNamespace(is_chunk=True, completion_text='AC')
+                await asyncio.sleep(.05)
+                yield SimpleNamespace(is_chunk=False, completion_text='WA')
+            finally:
+                closed.append(True)
+        ctx.providers['primary'] = SimpleNamespace(text_chat_stream=stream)
+        with patch.object(module, 'ATTEMPT_MAX_SECONDS', .01):
+            got = await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=1, long_judge=True)
+        self.assertEqual(got.completion_text, 'WA')
+        self.assertEqual(closed, [True])
+        self.assertEqual(ctx.calls, [])
+
+    async def test_stalled_or_truncated_judge_stream_falls_back_without_scoring_partial(self):
+        for stall in (True, False):
+            ctx = Context(['backup'])
+            closed = []
+            async def stream(**kw):
+                try:
+                    yield SimpleNamespace(is_chunk=True, completion_text='AC')
+                    if stall:
+                        await asyncio.Event().wait()
+                finally:
+                    closed.append(True)
+            ctx.providers['primary'] = SimpleNamespace(text_chat_stream=stream)
+            with patch.object(module, 'LONG_JUDGE_ATTEMPT_SECONDS', .02):
+                got = await module.generate_with_fallback(ctx, chat_provider_id='primary', timeout=1, long_judge=True)
+            self.assertEqual(closed, [True])
+            self.assertEqual(got.completion_text, 'ok')
+            self.assertEqual([c[0] for c in ctx.calls], ['backup'])
+
     async def test_exhausted_total_budget_does_not_start_extra_requests(self):
         ctx = Context(['backup'])
         async def stuck():

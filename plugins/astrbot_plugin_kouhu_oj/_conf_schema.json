@@ -130,6 +130,13 @@
     "hint": "判题和三级提示共用的总时限。每个模型最多60秒，默认120秒可容纳主模型及一个完整降级请求；快速报错时继续后续候选。",
     "default": 120
   },
+  "long_judge_sessions": {
+    "description": "需要延长正题判题的会话（完整 UMO）",
+    "type": "list",
+    "items": {"type": "string"},
+    "hint": "仅精确匹配的会话在 sub/sub retry 时启用。模型在后台流式生成，只发送完整判词；单模型最多 180 秒，整次 240 秒。其它会话和命令不变。",
+    "default": []
+  },
   "judge_ack_delay_seconds": {
     "description": "判题多久没结果就先回一句",
     "type": "int",

@@ -47,7 +47,7 @@ try:  # 正常加载：插件是 data.plugins.<name> 包的一部分
     from . import scoring
     from .cf_tags import chinese_aliases, parse_tag_query
     from .image_submission import collect_submission_images, prepare_image_urls, parse_transcription, TRANSCRIPTION_SYSTEM_PROMPT
-    from .llm_fallback import generate_with_fallback
+    from .llm_fallback import generate_with_fallback, LONG_JUDGE_TOTAL_SECONDS
     from .review_store import ReviewStoreMixin
     from .feedback_store import FeedbackStoreMixin
     from .mistake_book import MistakeBookMixin, humanize_days, mistakes_text
@@ -77,7 +77,7 @@ except ImportError:  # 本地测试桩：main.py 被当作顶层模块加载
     import scoring  # type: ignore
     from cf_tags import chinese_aliases, parse_tag_query
     from image_submission import collect_submission_images, prepare_image_urls, parse_transcription, TRANSCRIPTION_SYSTEM_PROMPT
-    from llm_fallback import generate_with_fallback
+    from llm_fallback import generate_with_fallback, LONG_JUDGE_TOTAL_SECONDS
     from review_store import ReviewStoreMixin
     from feedback_store import FeedbackStoreMixin
     from mistake_book import MistakeBookMixin, humanize_days, mistakes_text
@@ -1311,6 +1311,7 @@ class KouHuOJ(Star):
         self._growth_lock = asyncio.Lock()
         self._translation_event = ContextVar('translation_event',default=None)
         self._pending_preparations = {}
+        self._new_acks = {}  # scope -> 待撤回的 new 进度提示 message_id
         self._preparation_deliveries = set()
         self._ping_lock = asyncio.Lock()
         self._ping_last = {}
@@ -1634,6 +1635,51 @@ class KouHuOJ(Star):
             pass
         return True
 
+    @staticmethod
+    async def _send_recallable(event: AstrMessageEvent, text: str):
+        """直接经 OneBot 发一条可撤回的消息，返回 message_id；不支持时返回 None。
+
+        yield event.plain_result() 拿不到 message_id，所以进度提示要自己发。
+        只有 aiocqhttp（event.bot 带 send_group_msg）才能撤回，其他平台返回 None，
+        由调用方退回成普通 yield。
+        """
+        bot = getattr(event, "bot", None)
+        if bot is None or not hasattr(bot, "send_group_msg"):
+            logger.info("[KouHuOJ] 平台不支持撤回（event.bot 不可用），进度提示将保留")
+            return None
+        try:
+            group_id = event.get_group_id()
+            if group_id:
+                resp = await bot.send_group_msg(group_id=int(group_id), message=text)
+            else:
+                resp = await bot.send_private_msg(user_id=int(event.get_sender_id()), message=text)
+            message_id = resp.get("message_id") if isinstance(resp, dict) else None
+            return message_id
+        except Exception as exc:  # noqa: BLE001 - 进度提示失败不能影响判题
+            logger.warning(f"[KouHuOJ] 发送可撤回提示失败：{type(exc).__name__}")
+            return None
+
+    @staticmethod
+    async def _recall(event: AstrMessageEvent, message_id) -> None:
+        if message_id is None:
+            return
+        try:
+            await event.bot.delete_msg(message_id=message_id)
+        except Exception as exc:  # noqa: BLE001 - 撤回失败（超时、权限）就留着
+            logger.warning(f"[KouHuOJ] 撤回判题提示失败：{type(exc).__name__}")
+
+    async def _ack(self, event: AstrMessageEvent, scope: str, text: str):
+        """发 new 的进度提示并登记待撤回；不能撤回时返回 plain_result 让调用方 yield。"""
+        mid = await self._send_recallable(event, text)
+        if mid is None:
+            return event.plain_result(text)
+        self._new_acks.setdefault(scope, []).append(mid)
+        return None
+
+    async def _recall_acks(self, event: AstrMessageEvent, scope: str) -> None:
+        for mid in self._new_acks.pop(scope, []):
+            await self._recall(event, mid)
+
     async def _judge(
         self,
         event: AstrMessageEvent,
@@ -1642,6 +1688,7 @@ class KouHuOJ(Star):
         pitfall: dict | None = None,
         timeout: float = 90.0,
         previous: list[str] | None = None,
+        long_judge: bool = False,
     ) -> dict | None:
         provider_id = await self._provider_id(event)
         if not provider_id:
@@ -1674,7 +1721,7 @@ class KouHuOJ(Star):
             try:
                 response = await generate_with_fallback(
                     self.context, event=event, chat_provider_id=provider_id,
-                    prompt=attempt_prompt, timeout=remaining,
+                    prompt=attempt_prompt, timeout=remaining, long_judge=long_judge,
                     validate=lambda response: parse_verdict(getattr(response, 'completion_text', '') or '', allowed) is not None,
                     **({'image_urls': attempt_images} if attempt_images else {}),
                 )
@@ -1779,6 +1826,8 @@ class KouHuOJ(Star):
                     return  # A manual cur/new already claimed this exact task.
                 async for result in self._cmd_new(event):
                     await event.send(result)
+                if scope not in self._pending_preparations:
+                    await self._recall_acks(event, scope)
         except Exception as exc:
             logger.error(f'[KouHuOJ] 后台题面自动发送失败 scope={scope} type={type(exc).__name__}: {exc}；题目可用cur重发')
 
@@ -1791,10 +1840,16 @@ class KouHuOJ(Star):
         if lock.locked():
             yield event.plain_result('本群正在准备或发送题目，请稍等；无需重复 new。')
             return
-        async with lock:
-            async with aclosing(self._cmd_new(event)) as results:
-                async for result in results:
-                    yield result
+        scope = self._scope_of(event)
+        try:
+            async with lock:
+                async with aclosing(self._cmd_new(event)) as results:
+                    async for result in results:
+                        yield result
+        finally:
+            # 后台还在准备时提示要留到题目发出；其余出口（失败、提前返回）一律撤回。
+            if scope not in self._pending_preparations:
+                await self._recall_acks(event, scope)
 
     async def _cmd_new(self, event: AstrMessageEvent):
         """new [l-r] —— 按群档位或指定 CF rating 区间派题"""
@@ -1872,6 +1927,7 @@ class KouHuOJ(Star):
             self._last_fetch_ok=time.time()
             self._last_fetch_error=''
             self._last_new[pending_scope]=time.monotonic()
+            await self._recall_acks(event, pending_scope)
             async for result in self.cmd_problem(event):
                 yield result
             return
@@ -1923,7 +1979,9 @@ class KouHuOJ(Star):
         state = self._store.state(scope)
         tier = scoring.tier_of(state["current_tier"])
 
-        yield event.plain_result('正在选题并检查题库，稍等……')
+        ack = await self._ack(event, scope, '正在选题并检查题库，稍等……')
+        if ack is not None:
+            yield ack
         try:
             await self._cf.refresh_catalog()
         except Exception as exc:  # noqa: BLE001
@@ -1982,7 +2040,9 @@ class KouHuOJ(Star):
                 notice+=f'（{tag_note}）'
             notice+='，正在准备题面（优先复用缓存），稍等……'
         if tag_query:
-            yield event.plain_result(notice)
+            ack = await self._ack(event, scope, notice)
+            if ack is not None:
+                yield ack
 
         try:
             token=self._translation_event.set(event)
@@ -2010,10 +2070,13 @@ class KouHuOJ(Star):
                 delivery=asyncio.create_task(self._deliver_prepared(event,scope,pending))
                 self._preparation_deliveries.add(delivery)
                 delivery.add_done_callback(self._preparation_deliveries.discard)
-            yield event.plain_result('题面仍在后台准备（最多4分钟），完成后会自动发到这里；当前题目未被替换，无需额外操作。')
+            ack = await self._ack(event, scope, '题面仍在后台准备（最多4分钟），完成后会自动发到这里；当前题目未被替换，无需额外操作。')
+            if ack is not None:
+                yield ack
             return
         except Exception as exc:  # noqa: BLE001
             self._pending_preparations.pop(scope,None)
+            await self._recall_acks(event, scope)
             self._last_fetch_error = f'{type(exc).__name__}: {exc}'
             logger.error(f"[KouHuOJ] 抓取题面失败 {entry['cf_key']}：{type(exc).__name__}: {exc}")
             yield event.plain_result(
@@ -2032,6 +2095,7 @@ class KouHuOJ(Star):
             return
         self._last_new[scope] = time.monotonic()
 
+        await self._recall_acks(event, scope)
         images = self._render_cf(problem)
         if images:
             for path in images:
@@ -2346,17 +2410,26 @@ class KouHuOJ(Star):
             if len(self._failed_submissions)>=256:
                 self._failed_submissions.pop(next(iter(self._failed_submissions)))
             self._failed_submissions[(scope,sender_id)]={'cf_key':cf_key,'opened_at':current['opened_at'],'text':submission,'from_image':from_image}
-            judge_timeout = float(self.config.get("judge_timeout_seconds", 120))
+            long_sessions = self.config.get('long_judge_sessions', [])
+            long_judge = (isinstance(long_sessions, list) and
+                          event.unified_msg_origin in long_sessions)
+            judge_timeout = (LONG_JUDGE_TOTAL_SECONDS if long_judge else
+                             float(self.config.get("judge_timeout_seconds", 120)))
             ack_delay = float(self.config.get("judge_ack_delay_seconds", 5))
             judge_task = asyncio.create_task(
                 self._judge(
                     event, problem, submission, timeout=judge_timeout,
                     previous=self._round_notes(scope, sender_id, cf_key, exclude=submission),
+                    **({'long_judge': True} if long_judge else {}),
                 )
             )
             waited = await asyncio.wait({judge_task}, timeout=max(0.0, ack_delay))
+            ack_id = None
             if judge_task not in waited[0]:
-                yield event.plain_result("正在判题，模型有点慢，稍等……")
+                ack_text = "正在判题，模型有点慢，稍等……"
+                ack_id = await self._send_recallable(event, ack_text)
+                if ack_id is None:
+                    yield event.plain_result(ack_text)
             try:
                 result = await asyncio.wait_for(judge_task, timeout=judge_timeout)
             except asyncio.TimeoutError:
@@ -2364,6 +2437,9 @@ class KouHuOJ(Star):
                     "判题服务超时，本次不计作答。已暂存思路，发 sub retry 重试当前题（重启后失效）。"
                 )
                 return
+            finally:
+                # 无论出结果、超时还是被取消，进度提示都撤回，正式消息随后发出。
+                await self._recall(event, ack_id)
             if not result:
                 yield event.plain_result("判题服务失败（模型没响应或返回无效），本次不计作答。已暂存思路，发 sub retry 重试当前题（重启后失效）。")
                 return
@@ -3480,6 +3556,15 @@ class KouHuOJ(Star):
                 yield event.plain_result(f"问得太快了，{int(left) + 1} 秒后再来")
                 return
         self._last_ask[scope] = time.monotonic()
+
+        # 仅显式引用 ACMT 时走可选的只读教学分支；普通 ask 路径保持原样。
+        if re.search(r'@ACMT(?=$|\s|[「"『])', question, re.I):
+            try:
+                from .acmt_reference import answer_reference
+            except ImportError:
+                from acmt_reference import answer_reference
+            yield event.plain_result(await answer_reference(self, event, question, scope))
+            return
 
         # 问「更新了什么」这类问题，直接读 CHANGELOG 回答。
         # 不走模型：模型不知道仓库里有什么，只会说「日志里没有这个信息」，

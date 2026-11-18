@@ -25,8 +25,31 @@ def attempt_budgets(remaining: float, candidates_left: int) -> list[float]:
     return [min(max(remaining, 0.0), ATTEMPT_MAX_SECONDS)]
 
 
+# Opt-in long judges: still reserve a full normal slot for fallback in 240s.
+LONG_JUDGE_TOTAL_SECONDS = 240.0
+LONG_JUDGE_ATTEMPT_SECONDS = 180.0
+
+
+async def _long_judge_response(context, provider_id, kwargs):
+    """Consume the provider stream privately; only its completed response may score."""
+    provider = context.get_provider_by_id(provider_id)
+    stream_chat = getattr(provider, 'text_chat_stream', None)
+    if stream_chat is not None:
+        stream = stream_chat(**kwargs)
+        try:
+            async for response in stream:
+                if not response.is_chunk:
+                    return response
+            raise ValueError('Judge stream ended without a final response')
+        except NotImplementedError:
+            pass  # Providers with no streaming implementation can still judge.
+        finally:
+            await stream.aclose()
+    return await context.llm_generate(chat_provider_id=provider_id, **kwargs)
+
+
 async def generate_with_fallback(
-    context, *, event=None, chat_provider_id, timeout, validate=None, **kwargs
+    context, *, event=None, chat_provider_id, timeout, validate=None, long_judge=False, **kwargs
 ):
     """Generate with AstrBot's session fallback list and a shared deadline.
 
@@ -86,13 +109,17 @@ async def generate_with_fallback(
         if index:
             logger.info(f'[KouHuOJ] Selecting fallback model: {provider_id}')
         candidates_left = len(candidates) - index
-        budget = attempt_budgets(deadline - time.monotonic(), candidates_left)[0]
+        remaining = deadline - time.monotonic()
+        budget = (min(remaining, LONG_JUDGE_ATTEMPT_SECONDS) if long_judge else
+                  attempt_budgets(remaining, candidates_left)[0])
         if budget <= 0:
             raise asyncio.TimeoutError('Model fallback total timeout exceeded') from last_error
         started = time.monotonic()
-        logger.info(f'[KouHuOJ] Model attempt: {provider_id} budget={budget:.2f}s')
+        mode = ' long_judge' if long_judge else ''
+        logger.info(f'[KouHuOJ] Model attempt: {provider_id} budget={budget:.2f}s{mode}')
         try:
             response = await asyncio.wait_for(
+                _long_judge_response(context, provider_id, kwargs) if long_judge else
                 context.llm_generate(chat_provider_id=provider_id, **kwargs),
                 timeout=budget,
             )
